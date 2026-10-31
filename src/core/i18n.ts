@@ -35,6 +35,9 @@ export interface UiTranslations {
   settingLanguageLabel: string;
   settingLanguageDesc: string;
   settingsSavedMsg: (lang: SupportedLanguage) => string;
+  helpTitle: string;
+  helpSubtitle: string;
+  helpOpenedMsg: string;
   activeInterlocutorMsg: (roleName: string) => string;
   statusClearedMsg: string;
   unknownCommandMsg: (cmd: string) => string;
@@ -88,6 +91,9 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     settingLanguageDesc: 'Switch TUI display language between English and Spanish',
     settingsSavedMsg: (lang) =>
       `✔ Settings updated: Interface language set to ${lang === 'en' ? 'English (en)' : 'Spanish (es)'}.`,
+    helpTitle: 'Available Commands & Shortcuts (/help)',
+    helpSubtitle: 'Press Esc, Enter, or q to close help',
+    helpOpenedMsg: 'Showing all available slash commands (/help).',
     activeInterlocutorMsg: (roleName) => `Active interlocutor: ${roleName}`,
     statusClearedMsg: 'Screen status log cleared.',
     unknownCommandMsg: (cmd) =>
@@ -198,6 +204,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         description: 'Clear the on-screen status notification banner',
       },
       {
+        command: '/help',
+        description: 'Display all available commands and keyboard shortcuts',
+      },
+      {
         command: '/exit',
         description: 'Exit Product Owner CLI',
       },
@@ -228,6 +238,9 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     settingLanguageDesc: 'Alternar el idioma de la interfaz TUI entre Inglés y Español',
     settingsSavedMsg: (lang) =>
       `✔ Configuración actualizada: Idioma establecido a ${lang === 'en' ? 'Inglés (en)' : 'Español (es)'}.`,
+    helpTitle: 'Comandos Disponibles y Atajos (/help)',
+    helpSubtitle: 'Pulsa Esc, Enter o q para cerrar la ayuda',
+    helpOpenedMsg: 'Mostrando todos los comandos disponibles (/help).',
     activeInterlocutorMsg: (roleName) => `Interlocutor activo: ${roleName}`,
     statusClearedMsg: 'Registro de notificaciones limpiado.',
     unknownCommandMsg: (cmd) =>
@@ -336,6 +349,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/clear',
         description: 'Limpiar el registro de notificaciones en pantalla',
+      },
+      {
+        command: '/help',
+        description: 'Mostrar todos los comandos disponibles y atajos de teclado',
       },
       {
         command: '/exit',

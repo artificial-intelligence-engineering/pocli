@@ -296,7 +296,13 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       I18N_DICTIONARY.en.slashCommands.some((c) => c.command === '/settings'),
     ).toBe(true);
     expect(
+      I18N_DICTIONARY.en.slashCommands.some((c) => c.command === '/help'),
+    ).toBe(true);
+    expect(
       I18N_DICTIONARY.es.slashCommands.some((c) => c.command === '/settings'),
+    ).toBe(true);
+    expect(
+      I18N_DICTIONARY.es.slashCommands.some((c) => c.command === '/help'),
     ).toBe(true);
 
     const updatedEs = storage.updateSettings({ language: 'es' });

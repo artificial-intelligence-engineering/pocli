@@ -45,6 +45,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // View mode: 'simple' (OpenCode-like centered clean view) vs 'multipanel' (Full Command Center)
   const [viewMode, setViewMode] = useState<'simple' | 'multipanel'>('simple');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [project, setProject] = useState<Project>(initialProject);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -135,7 +136,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         exit();
         return;
       }
+      if (cmdToken === '/help' || cmdToken === '/h' || cmdToken === '/?') {
+        setIsSettingsOpen(false);
+        setIsHelpOpen((prev) => !prev);
+        setStatusBanner(t.helpOpenedMsg);
+        return;
+      }
       if (cmdToken === '/settings') {
+        setIsHelpOpen(false);
         const arg1 = parts[1]?.toLowerCase();
         const arg2 = parts[2]?.toLowerCase();
         const requestedLang = arg1 === 'lang' ? arg2 : arg1;
@@ -353,6 +361,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
 
   useInput((input, key) => {
+    // Handle interactive Help modal when open
+    if (isHelpOpen) {
+      if (key.escape || key.return || input === 'q') {
+        setIsHelpOpen(false);
+        return;
+      }
+      return;
+    }
+
     // Handle interactive Settings modal when open
     if (isSettingsOpen) {
       if (key.escape || input === 'q') {
@@ -447,6 +464,41 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const messages = orchestrator.storage.listMessages(project.id, activeRole);
   const lastMessages = messages.slice(-3);
   const roleConfigs = orchestrator.storage.listRoleConfigs(project.id);
+
+  // Help Modal Component displaying all available slash commands
+  const renderHelpModal = () => (
+    <Box
+      flexDirection="column"
+      width={Math.min(92, dimensions.columns - 8)}
+      borderStyle="double"
+      borderColor="cyan"
+      paddingX={2}
+      paddingY={1}
+      marginBottom={1}
+    >
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Text bold color="cyan">
+          ? {t.helpTitle}
+        </Text>
+        <Text dimColor>{t.helpSubtitle}</Text>
+      </Box>
+      {t.slashCommands.map((item) => (
+        <Box key={item.command} justifyContent="space-between">
+          <Text>
+            <Text bold color="yellow">
+              {item.command.padEnd(14, ' ')}
+            </Text>
+            <Text color="white">{item.description}</Text>
+          </Text>
+          {item.phaseHint && (
+            <Text color="cyan" dimColor>
+              [{item.phaseHint}]
+            </Text>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
 
   // Settings Modal Component
   const renderSettingsModal = () => (
@@ -543,11 +595,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Box>
           </Box>
 
+          {/* Interactive Help Panel when /help is active */}
+          {isHelpOpen && renderHelpModal()}
+
           {/* Interactive Settings Panel when /settings is active */}
           {isSettingsOpen && renderSettingsModal()}
 
           {/* Recent conversation snippet if any */}
-          {!isSettingsOpen && (lastMessages.length > 0 || streamingText) && (
+          {!isSettingsOpen && !isHelpOpen && (lastMessages.length > 0 || streamingText) && (
             <Box
               flexDirection="column"
               width={Math.min(92, dimensions.columns - 8)}
@@ -587,7 +642,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           )}
 
           {/* Slash Command Popover Menu when user types "/" */}
-          {!isSettingsOpen && isSlashMenuOpen && (
+          {!isSettingsOpen && !isHelpOpen && isSlashMenuOpen && (
             <Box
               flexDirection="column"
               width={Math.min(92, dimensions.columns - 8)}
@@ -604,31 +659,46 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   {t.noCommandMatches} "{inputValue}"
                 </Text>
               ) : (
-                filteredSlashCommands.slice(0, 8).map((item, idx) => {
-                  const isSelected = idx === selectedSlashIdx;
-                  return (
-                    <Box key={item.command} justifyContent="space-between">
-                      <Text
-                        color={isSelected ? 'cyan' : 'white'}
-                        bold={isSelected}
-                      >
-                        {isSelected ? '❯ ' : '  '}
-                        {item.command.padEnd(14, ' ')}
-                        <Text
-                          dimColor={!isSelected}
-                          color={isSelected ? 'white' : undefined}
-                        >
-                          {item.description}
-                        </Text>
-                      </Text>
-                      {item.phaseHint && (
-                        <Text color="yellow" dimColor={!isSelected}>
-                          [{item.phaseHint}]
-                        </Text>
-                      )}
-                    </Box>
+                (() => {
+                  const windowSize = 8;
+                  const start = Math.max(
+                    0,
+                    Math.min(
+                      selectedSlashIdx - Math.floor(windowSize / 2),
+                      Math.max(0, filteredSlashCommands.length - windowSize),
+                    ),
                   );
-                })
+                  const visible = filteredSlashCommands.slice(
+                    start,
+                    start + windowSize,
+                  );
+                  return visible.map((item, localIdx) => {
+                    const realIdx = start + localIdx;
+                    const isSelected = realIdx === selectedSlashIdx;
+                    return (
+                      <Box key={item.command} justifyContent="space-between">
+                        <Text
+                          color={isSelected ? 'cyan' : 'white'}
+                          bold={isSelected}
+                        >
+                          {isSelected ? '❯ ' : '  '}
+                          {item.command.padEnd(14, ' ')}
+                          <Text
+                            dimColor={!isSelected}
+                            color={isSelected ? 'white' : undefined}
+                          >
+                            {item.description}
+                          </Text>
+                        </Text>
+                        {item.phaseHint && (
+                          <Text color="yellow" dimColor={!isSelected}>
+                            [{item.phaseHint}]
+                          </Text>
+                        )}
+                      </Box>
+                    );
+                  });
+                })()
               )}
             </Box>
           )}
@@ -695,6 +765,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           Lang: <Text bold color="yellow">{language.toUpperCase()}</Text>
         </Text>
       </Box>
+
+      {isHelpOpen && (
+        <Box marginTop={1} justifyContent="center">
+          {renderHelpModal()}
+        </Box>
+      )}
 
       {isSettingsOpen && (
         <Box marginTop={1} justifyContent="center">
@@ -789,7 +865,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       </Box>
 
       {/* Slash Menu Popover inside Multipanel mode */}
-      {!isSettingsOpen && isSlashMenuOpen && (
+      {!isSettingsOpen && !isHelpOpen && isSlashMenuOpen && (
         <Box
           flexDirection="column"
           borderStyle="round"

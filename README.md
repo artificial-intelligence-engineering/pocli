@@ -70,4 +70,5 @@ npm run build
   * `/accept` — Final project acceptance by the Product Owner.
   * `/notebooks` — Re-index and inspect linked RAG Notebooks.
   * `/settings` — Open the interactive Settings modal or switch UI language (`/settings lang en` or `/settings lang es`).
+  * `/help` — Display all available commands and keyboard shortcuts.
   * `/view`, `/clear`, `/exit`.
