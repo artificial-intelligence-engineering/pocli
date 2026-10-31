@@ -7,9 +7,26 @@ import { PoCliDatabase } from './storage/database.js';
 import { PoCliOrchestrator } from './runtime/orchestrator.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
 
+function enterFullscreenTerminal(): void {
+  if (process.stdout.isTTY) {
+    // Enter alternate screen buffer, clear screen, move cursor to home (1,1),
+    // and enable xterm modifyOtherKeys so Ctrl+Tab sends distinct escape sequence
+    process.stdout.write('\x1b[?1049h\x1b[2J\x1b[H\x1b[>4;1m');
+  } else {
+    process.stdout.write('\x1b[2J\x1b[H');
+  }
+}
+
+function exitFullscreenTerminal(): void {
+  if (process.stdout.isTTY) {
+    // Disable modifyOtherKeys and restore primary screen buffer
+    process.stdout.write('\x1b[>4;0m\x1b[?1049l');
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const subcommand = args[0] ?? 'help';
+  const subcommand = args[0] ?? 'tui';
 
   const dataDir = process.env.POCLI_DATA_DIR ?? path.resolve(process.cwd(), '.pocli-data');
   fs.mkdirSync(dataDir, { recursive: true });
@@ -19,7 +36,7 @@ async function main(): Promise<void> {
   const orchestrator = new PoCliOrchestrator(storage);
 
   if (subcommand === 'tui') {
-    let projects = storage.listProjects();
+    const projects = storage.listProjects();
     let project = projects[0];
     if (!project) {
       project = orchestrator.createProject({
@@ -28,15 +45,22 @@ async function main(): Promise<void> {
         workspaceDir: path.join(dataDir, 'workspaces', 'demo-service'),
       });
     }
-    const { waitUntilExit } = render(
-      React.createElement(CommandCenterApp, {
-        orchestrator,
-        initialProject: project,
-      }),
-    );
-    await waitUntilExit();
-    orchestrator.rag.stopWatchers();
-    storage.close();
+
+    enterFullscreenTerminal();
+    try {
+      const { waitUntilExit } = render(
+        React.createElement(CommandCenterApp, {
+          orchestrator,
+          initialProject: project,
+        }),
+        { exitOnCtrlC: true },
+      );
+      await waitUntilExit();
+    } finally {
+      exitFullscreenTerminal();
+      orchestrator.rag.stopWatchers();
+      storage.close();
+    }
     return;
   }
 
@@ -143,16 +167,16 @@ async function main(): Promise<void> {
   console.log(
     [
       'Product Owner CLI (PO CLI) — Comandos disponibles:',
-      '  npm run tui            Inicia el Centro de Mando interactivo en terminal (Ink TUI)',
+      '  npm start / npm run tui Inicia el Centro de Mando en pantalla completa (Ink TUI)',
       '  npx tsx src/cli.ts demo Ejecuta una demostración completa de las 8 fases en Linux',
-      '  npm test               Ejecuta la suite de pruebas de integración de las 7 fases',
+      '  npm test                Ejecuta la suite de pruebas de integración de las 7 fases',
     ].join('\n'),
   );
   storage.close();
 }
 
 main().catch((err) => {
+  exitFullscreenTerminal();
   console.error(err);
   process.exit(1);
 });
-
