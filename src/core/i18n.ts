@@ -6,6 +6,7 @@ export type SupportedLanguage = z.infer<typeof SupportedLanguageSchema>;
 
 export const AppSettingsSchema = z.object({
   language: SupportedLanguageSchema.default('en'),
+  activeProjectId: z.string().optional(),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 
@@ -38,6 +39,17 @@ export interface UiTranslations {
   helpTitle: string;
   helpSubtitle: string;
   helpOpenedMsg: string;
+  newProjectTitle: string;
+  newProjectStepNameLabel: string;
+  newProjectStepDirLabel: (projectName: string) => string;
+  newProjectWizardSubtitle: string;
+  projectCreatedMsg: (name: string, dir: string, repoCount: number) => string;
+  projectsListTitle: string;
+  projectsListSubtitle: string;
+  projectSwitchedMsg: (name: string, dir: string) => string;
+  projectNotFoundMsg: (query: string) => string;
+  reposLabel: string;
+  activeBadge: string;
   activeInterlocutorMsg: (roleName: string) => string;
   statusClearedMsg: string;
   unknownCommandMsg: (cmd: string) => string;
@@ -102,6 +114,23 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     helpTitle: 'Available Commands & Shortcuts (/help)',
     helpSubtitle: 'Press Esc, Enter, or q to close help',
     helpOpenedMsg: 'Showing all available slash commands (/help).',
+    newProjectTitle: 'Create New Project (/project)',
+    newProjectStepNameLabel: 'Step 1/2 — Enter Project Name:',
+    newProjectStepDirLabel: (projectName) =>
+      `Step 2/2 — Enter Filesystem Directory for "${projectName}":`,
+    newProjectWizardSubtitle:
+      'Press Enter to confirm step · Esc to cancel',
+    projectCreatedMsg: (name, dir, repoCount) =>
+      `✔ Project "${name}" created & activated at ${dir} (${repoCount} existing repo(s) detected).`,
+    projectsListTitle: 'Existing Projects — Select Active Project (/projects)',
+    projectsListSubtitle:
+      'Use ↑/↓ and Enter to switch active project · Esc to close',
+    projectSwitchedMsg: (name, dir) =>
+      `✔ Switched active project to "${name}" (${dir}).`,
+    projectNotFoundMsg: (query) =>
+      `✖ Project "${query}" not found. Use /projects to list all projects.`,
+    reposLabel: 'repos',
+    activeBadge: 'ACTIVE',
     activeInterlocutorMsg: (roleName) => `Active interlocutor: ${roleName}`,
     statusClearedMsg: 'Screen status log cleared.',
     unknownCommandMsg: (cmd) =>
@@ -152,6 +181,19 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       security_auditor: 'DevSecOps Security Auditor',
     },
     slashCommands: [
+      {
+        command: '/project',
+        description: 'Create a new project (prompts for name & filesystem directory)',
+        phaseHint: 'Phase 1',
+      },
+      {
+        command: '/projects',
+        description: 'List all existing projects and switch the active project',
+      },
+      {
+        command: '/switch',
+        description: 'Switch active project by name or ID (/switch <name>)',
+      },
       {
         command: '/architect',
         description: 'Switch active interlocutor to the Software Architect',
@@ -262,6 +304,23 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     helpTitle: 'Comandos Disponibles y Atajos (/help)',
     helpSubtitle: 'Pulsa Esc, Enter o q para cerrar la ayuda',
     helpOpenedMsg: 'Mostrando todos los comandos disponibles (/help).',
+    newProjectTitle: 'Crear Nuevo Proyecto (/project)',
+    newProjectStepNameLabel: 'Paso 1/2 — Introduce el Nombre del Proyecto:',
+    newProjectStepDirLabel: (projectName) =>
+      `Paso 2/2 — Introduce el Directorio del Filesystem para "${projectName}":`,
+    newProjectWizardSubtitle:
+      'Pulsa Enter para confirmar paso · Esc para cancelar',
+    projectCreatedMsg: (name, dir, repoCount) =>
+      `✔ Proyecto "${name}" creado y activado en ${dir} (${repoCount} repositorio(s) detectados).`,
+    projectsListTitle: 'Proyectos Existentes — Cambiar Proyecto Activo (/projects)',
+    projectsListSubtitle:
+      'Usa ↑/↓ y Enter para cambiar al proyecto seleccionado · Esc para cerrar',
+    projectSwitchedMsg: (name, dir) =>
+      `✔ Proyecto activo cambiado a "${name}" (${dir}).`,
+    projectNotFoundMsg: (query) =>
+      `✖ Proyecto "${query}" no encontrado. Usa /projects para listar proyectos.`,
+    reposLabel: 'repos',
+    activeBadge: 'ACTIVO',
     activeInterlocutorMsg: (roleName) => `Interlocutor activo: ${roleName}`,
     statusClearedMsg: 'Registro de notificaciones limpiado.',
     unknownCommandMsg: (cmd) =>
@@ -312,6 +371,19 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       security_auditor: 'Auditor de Seguridad DevSecOps',
     },
     slashCommands: [
+      {
+        command: '/project',
+        description: 'Crear nuevo proyecto (pregunta nombre y directorio en filesystem)',
+        phaseHint: 'Fase 1',
+      },
+      {
+        command: '/projects',
+        description: 'Listar todos los proyectos existentes y cambiar de proyecto activo',
+      },
+      {
+        command: '/switch',
+        description: 'Cambiar al proyecto indicado por nombre o ID (/switch <nombre>)',
+      },
       {
         command: '/architect',
         description: 'Cambiar interlocutor activo al Arquitecto de Software',

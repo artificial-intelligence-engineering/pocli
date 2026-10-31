@@ -514,4 +514,67 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     const storedPmInquiries = storage.listPmInquiries(project.id);
     expect(storedPmInquiries).toHaveLength(2);
   });
+
+  it('creates multi-repository projects, discovers existing repositories, lists projects, and switches the active project in SQLite', () => {
+    const multiRepoDir = path.join(tmpDir, 'multi-repo-workspace');
+    const backendRepo = path.join(multiRepoDir, 'backend-api');
+    const frontendRepo = path.join(multiRepoDir, 'frontend-web');
+    const workerServiceRepo = path.join(multiRepoDir, 'packages', 'worker-rust');
+
+    // Pre-populate existing repositories before creating the project
+    fs.mkdirSync(path.join(backendRepo, '.git'), { recursive: true });
+    fs.mkdirSync(frontendRepo, { recursive: true });
+    fs.writeFileSync(
+      path.join(frontendRepo, 'package.json'),
+      JSON.stringify({ name: 'frontend-web' }),
+      'utf8',
+    );
+    fs.mkdirSync(workerServiceRepo, { recursive: true });
+    fs.writeFileSync(
+      path.join(workerServiceRepo, 'Cargo.toml'),
+      '[package]\nname = "worker-rust"\n',
+      'utf8',
+    );
+
+    const p1 = orchestrator.createProject({
+      name: 'EnterprisePlatform',
+      description: 'Multi-repository enterprise platform',
+      workspaceDir: multiRepoDir,
+    });
+
+    // Verify filesystem artifacts directory was created and existing repositories were discovered
+    expect(fs.existsSync(path.join(multiRepoDir, '.pocli', 'artifacts'))).toBe(
+      true,
+    );
+    expect(p1.repositories).toEqual([
+      'backend-api',
+      'frontend-web',
+      'packages/worker-rust',
+    ]);
+    expect(storage.getActiveProject()?.id).toBe(p1.id);
+
+    // Create a second project and verify active project automatically switches to it
+    const secondDir = path.join(tmpDir, 'analytics-workspace');
+    const p2 = orchestrator.createProject({
+      name: 'AnalyticsEngine',
+      description: 'Standalone analytics engine',
+      workspaceDir: secondDir,
+    });
+    expect(storage.getActiveProject()?.id).toBe(p2.id);
+
+    // List all existing projects (/projects)
+    const allProjects = storage.listProjects();
+    expect(allProjects.map((p) => p.name)).toContain('EnterprisePlatform');
+    expect(allProjects.map((p) => p.name)).toContain('AnalyticsEngine');
+
+    // Switch back to EnterprisePlatform by name (/switch EnterprisePlatform)
+    const switched = storage.switchActiveProject('EnterprisePlatform');
+    expect(switched.id).toBe(p1.id);
+    expect(switched.repositories).toEqual([
+      'backend-api',
+      'frontend-web',
+      'packages/worker-rust',
+    ]);
+    expect(storage.getActiveProject()?.name).toBe('EnterprisePlatform');
+  });
 });

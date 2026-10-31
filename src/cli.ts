@@ -36,8 +36,7 @@ async function main(): Promise<void> {
   const orchestrator = new PoCliOrchestrator(storage);
 
   if (subcommand === 'tui') {
-    const projects = storage.listProjects();
-    let project = projects[0];
+    let project = storage.getActiveProject();
     if (!project) {
       project = orchestrator.createProject({
         name: 'Demo-Service-Linux',

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import path from 'node:path';
 import { Box, Text, useInput, useApp, useStdout, useStdin } from 'ink';
 import { ActorRole, Artifact, Notebook, Project } from '../core/contracts.js';
 import {
@@ -47,13 +48,28 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [viewMode, setViewMode] = useState<'simple' | 'multipanel'>('simple');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+
+  // Active project & repository / artifact / SQLite summary state
   const [project, setProject] = useState<Project>(initialProject);
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [expertSummaries, setExpertSummaries] = useState<ExpertChatSummary[]>(
     [],
   );
+
+  // Interactive New Project Creation Wizard (/project)
+  const [projectWizardStep, setProjectWizardStep] = useState<
+    'CLOSED' | 'ASK_NAME' | 'ASK_DIR'
+  >('CLOSED');
+  const [pendingProjectName, setPendingProjectName] = useState<string>('');
+  const [wizardInput, setWizardInput] = useState<string>('');
+
+  // Interactive Projects List & Switcher Modal (/projects or /switch)
+  const [isProjectsModalOpen, setIsProjectsModalOpen] =
+    useState<boolean>(false);
+  const [selectedProjectIdx, setSelectedProjectIdx] = useState<number>(0);
 
   // Prompt input & slash command menu state
   const [inputValue, setInputValue] = useState<string>('');
@@ -62,19 +78,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [streamingText, setStreamingText] = useState<string>('');
   const [statusBanner, setStatusBanner] = useState<string>(t.initialStatusBanner);
 
-  const refreshState = () => {
-    const updated = orchestrator.storage.getProject(project.id);
+  const refreshState = (targetProjectId?: string) => {
+    const pid = targetProjectId ?? project.id;
+    const updated = orchestrator.storage.getProject(pid);
     if (updated) setProject(updated);
-    setArtifacts(orchestrator.storage.listArtifacts(project.id, true));
-    setNotebooks(orchestrator.storage.getProjectNotebooks(project.id));
-    setExpertSummaries(
-      orchestrator.storage.listExpertChatSummaries(project.id),
-    );
+    const listed = orchestrator.storage.listProjects();
+    setAllProjects(listed);
+    setArtifacts(orchestrator.storage.listArtifacts(pid, true));
+    setNotebooks(orchestrator.storage.getProjectNotebooks(pid));
+    setExpertSummaries(orchestrator.storage.listExpertChatSummaries(pid));
   };
 
   useEffect(() => {
-    refreshState();
-  }, []);
+    refreshState(project.id);
+  }, [project.id]);
 
   // Track terminal resize so fullscreen layout always fills 100% of terminal viewport
   useEffect(() => {
@@ -117,7 +134,54 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setStatusBanner(I18N_DICTIONARY[nextLang].settingsSavedMsg(nextLang));
   };
 
-  const isSlashMenuOpen = inputValue.startsWith('/');
+  const closeAllModals = () => {
+    setIsHelpOpen(false);
+    setIsSettingsOpen(false);
+    setIsProjectsModalOpen(false);
+    setProjectWizardStep('CLOSED');
+  };
+
+  const createAndActivateProject = (rawName: string, rawDir: string) => {
+    const cleanName = rawName.trim() || `Project-${Date.now()}`;
+    const resolvedDir = path.resolve(
+      process.cwd(),
+      rawDir.trim() || path.join(process.cwd(), 'projects', cleanName),
+    );
+    const created = orchestrator.createProject({
+      name: cleanName,
+      description: `Project '${cleanName}' managed by PO CLI in ${resolvedDir}`,
+      workspaceDir: resolvedDir,
+    });
+    setProject(created);
+    refreshState(created.id);
+    setStatusBanner(
+      t.projectCreatedMsg(
+        created.name,
+        created.workspaceDir,
+        created.repositories.length,
+      ),
+    );
+  };
+
+  const switchProjectTo = (nameOrId: string) => {
+    try {
+      const switched = orchestrator.storage.switchActiveProject(nameOrId);
+      setProject(switched);
+      refreshState(switched.id);
+      setStatusBanner(
+        t.projectSwitchedMsg(switched.name, switched.workspaceDir),
+      );
+    } catch {
+      setStatusBanner(t.projectNotFoundMsg(nameOrId));
+    }
+  };
+
+  const isSlashMenuOpen =
+    inputValue.startsWith('/') &&
+    projectWizardStep === 'CLOSED' &&
+    !isProjectsModalOpen &&
+    !isHelpOpen &&
+    !isSettingsOpen;
   const slashToken = inputValue.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
   const filteredSlashCommands = isSlashMenuOpen
     ? t.slashCommands.filter((cmd) =>
@@ -144,13 +208,64 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/help' || cmdToken === '/h' || cmdToken === '/?') {
-        setIsSettingsOpen(false);
-        setIsHelpOpen((prev) => !prev);
+        const nextState = !isHelpOpen;
+        closeAllModals();
+        setIsHelpOpen(nextState);
         setStatusBanner(t.helpOpenedMsg);
         return;
       }
+      if (cmdToken === '/project') {
+        closeAllModals();
+        // Support inline `/project <name> <directory>` or interactive wizard `/project`
+        if (parts.length >= 3) {
+          const inlineName = parts[1];
+          const inlineDir = parts.slice(2).join(' ');
+          createAndActivateProject(inlineName, inlineDir);
+          return;
+        }
+        setPendingProjectName(parts[1] ?? '');
+        if (parts[1]) {
+          setProjectWizardStep('ASK_DIR');
+          setWizardInput(path.resolve(process.cwd(), 'projects', parts[1]));
+        } else {
+          setProjectWizardStep('ASK_NAME');
+          setWizardInput('');
+        }
+        return;
+      }
+      if (cmdToken === '/projects') {
+        const nextState = !isProjectsModalOpen;
+        closeAllModals();
+        const listed = orchestrator.storage.listProjects();
+        setAllProjects(listed);
+        const currentIdx = Math.max(
+          0,
+          listed.findIndex((p) => p.id === project.id),
+        );
+        setSelectedProjectIdx(currentIdx);
+        setIsProjectsModalOpen(nextState);
+        return;
+      }
+      if (cmdToken === '/switch') {
+        closeAllModals();
+        const query = parts.slice(1).join(' ').trim();
+        if (query) {
+          switchProjectTo(query);
+          return;
+        }
+        const listed = orchestrator.storage.listProjects();
+        setAllProjects(listed);
+        const currentIdx = Math.max(
+          0,
+          listed.findIndex((p) => p.id === project.id),
+        );
+        setSelectedProjectIdx(currentIdx);
+        setIsProjectsModalOpen(true);
+        return;
+      }
       if (cmdToken === '/settings') {
-        setIsHelpOpen(false);
+        const nextState = !isSettingsOpen;
+        closeAllModals();
         const arg1 = parts[1]?.toLowerCase();
         const arg2 = parts[2]?.toLowerCase();
         const requestedLang = arg1 === 'lang' ? arg2 : arg1;
@@ -166,7 +281,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           applyLanguageChange('es');
           return;
         }
-        setIsSettingsOpen((prev) => !prev);
+        setIsSettingsOpen(nextState);
         return;
       }
       if (cmdToken === '/view') {
@@ -399,7 +514,72 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
 
   useInput((input, key) => {
-    // Handle interactive Help modal when open
+    // 1. Handle New Project Creation Wizard (/project)
+    if (projectWizardStep !== 'CLOSED') {
+      if (key.escape) {
+        setProjectWizardStep('CLOSED');
+        setWizardInput('');
+        return;
+      }
+      if (key.return) {
+        if (projectWizardStep === 'ASK_NAME') {
+          const chosenName = wizardInput.trim();
+          if (!chosenName) return;
+          setPendingProjectName(chosenName);
+          setProjectWizardStep('ASK_DIR');
+          setWizardInput(path.resolve(process.cwd(), 'projects', chosenName));
+          return;
+        }
+        if (projectWizardStep === 'ASK_DIR') {
+          const chosenDir =
+            wizardInput.trim() ||
+            path.resolve(process.cwd(), 'projects', pendingProjectName);
+          setProjectWizardStep('CLOSED');
+          setWizardInput('');
+          createAndActivateProject(pendingProjectName, chosenDir);
+          return;
+        }
+      }
+      if (key.backspace || key.delete) {
+        setWizardInput((prev) => prev.slice(0, -1));
+        return;
+      }
+      if (!key.ctrl && !key.meta && input) {
+        setWizardInput((prev) => prev + input);
+      }
+      return;
+    }
+
+    // 2. Handle Projects List & Switcher Modal (/projects or /switch)
+    if (isProjectsModalOpen) {
+      if (key.escape || input === 'q') {
+        setIsProjectsModalOpen(false);
+        return;
+      }
+      if (key.upArrow && allProjects.length > 0) {
+        setSelectedProjectIdx((prev) =>
+          prev > 0 ? prev - 1 : allProjects.length - 1,
+        );
+        return;
+      }
+      if (key.downArrow && allProjects.length > 0) {
+        setSelectedProjectIdx((prev) =>
+          prev < allProjects.length - 1 ? prev + 1 : 0,
+        );
+        return;
+      }
+      if (key.return && allProjects.length > 0) {
+        const chosen = allProjects[selectedProjectIdx] ?? allProjects[0];
+        if (chosen) {
+          setIsProjectsModalOpen(false);
+          switchProjectTo(chosen.id);
+        }
+        return;
+      }
+      return;
+    }
+
+    // 3. Handle interactive Help modal when open
     if (isHelpOpen) {
       if (key.escape || key.return || input === 'q') {
         setIsHelpOpen(false);
@@ -408,7 +588,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // Handle interactive Settings modal when open
+    // 4. Handle interactive Settings modal when open
     if (isSettingsOpen) {
       if (key.escape || input === 'q') {
         setIsSettingsOpen(false);
@@ -502,6 +682,115 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const messages = orchestrator.storage.listMessages(project.id, activeRole);
   const lastMessages = messages.slice(-3);
   const roleConfigs = orchestrator.storage.listRoleConfigs(project.id);
+  const repoSummary =
+    project.repositories.length > 0
+      ? `${project.repositories.length} (${project.repositories.join(', ')})`
+      : '0';
+
+  // Interactive New Project Creation Wizard Modal (/project)
+  const renderProjectWizardModal = () => (
+    <Box
+      flexDirection="column"
+      width={Math.min(92, dimensions.columns - 8)}
+      borderStyle="double"
+      borderColor="green"
+      paddingX={2}
+      paddingY={1}
+      marginBottom={1}
+    >
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Text bold color="green">
+          ✚ {t.newProjectTitle}
+        </Text>
+        <Text dimColor>{t.newProjectWizardSubtitle}</Text>
+      </Box>
+      {projectWizardStep === 'ASK_NAME' ? (
+        <Box flexDirection="column">
+          <Text color="white" bold>
+            {t.newProjectStepNameLabel}
+          </Text>
+          <Box marginTop={1}>
+            <Text bold color="green">
+              ❯{' '}
+            </Text>
+            <Text color="yellow">{wizardInput}</Text>
+            <Text color="green">█</Text>
+          </Box>
+        </Box>
+      ) : (
+        <Box flexDirection="column">
+          <Text dimColor>
+            {t.projectLabel}: <Text color="white">{pendingProjectName}</Text>
+          </Text>
+          <Text color="white" bold>
+            {t.newProjectStepDirLabel(pendingProjectName)}
+          </Text>
+          <Box marginTop={1}>
+            <Text bold color="green">
+              ❯{' '}
+            </Text>
+            <Text color="yellow">{wizardInput}</Text>
+            <Text color="green">█</Text>
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+
+  // Interactive Projects List & Switcher Modal (/projects & /switch)
+  const renderProjectsListModal = () => (
+    <Box
+      flexDirection="column"
+      width={Math.min(96, dimensions.columns - 6)}
+      borderStyle="double"
+      borderColor="magenta"
+      paddingX={2}
+      paddingY={1}
+      marginBottom={1}
+    >
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Text bold color="magenta">
+          📁 {t.projectsListTitle} ({allProjects.length})
+        </Text>
+        <Text dimColor>{t.projectsListSubtitle}</Text>
+      </Box>
+      {allProjects.map((proj, idx) => {
+        const isCurrentActive = proj.id === project.id;
+        const isRowSelected = idx === selectedProjectIdx;
+        return (
+          <Box
+            key={proj.id}
+            flexDirection="column"
+            marginBottom={0}
+            paddingX={1}
+          >
+            <Box justifyContent="space-between">
+              <Text
+                bold={isRowSelected || isCurrentActive}
+                color={isRowSelected ? 'cyan' : isCurrentActive ? 'green' : 'white'}
+              >
+                {isRowSelected ? '❯ ' : '  '}
+                {proj.name}{' '}
+                {isCurrentActive && (
+                  <Text color="green" bold>
+                    [{t.activeBadge}]
+                  </Text>
+                )}{' '}
+                <Text dimColor>({proj.phase})</Text>
+              </Text>
+              <Text color="yellow">
+                {t.reposLabel}:{' '}
+                {proj.repositories.length > 0
+                  ? `${proj.repositories.length} [${proj.repositories.join(', ')}]`
+                  : '0'}
+              </Text>
+            </Box>
+            <Text dimColor>    dir: {proj.workspaceDir}</Text>
+          </Box>
+        );
+      })}
+    </Box>
+  );
 
   // Help Modal Component displaying all available slash commands
   const renderHelpModal = () => (
@@ -579,6 +868,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     </Box>
   );
 
+  const anyModalOpen =
+    isHelpOpen ||
+    isSettingsOpen ||
+    isProjectsModalOpen ||
+    projectWizardStep !== 'CLOSED';
+
   // ==========================================================================
   // RENDER MODE 1: OPENCODE-STYLE CLEAN FULLSCREEN VIEW (DEFAULT ON STARTUP)
   // ==========================================================================
@@ -592,13 +887,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         paddingX={2}
         paddingY={1}
       >
-        {/* Top subtle bar */}
+        {/* Top bar always showing the Active Project, Directory, Repositories & Phase */}
         <Box justifyContent="space-between" width="100%">
-          <Text dimColor>
-            pocli v1.0.0 · {t.projectLabel}:{' '}
-            <Text color="white">{project.name}</Text> · {t.phaseLabel}:{' '}
-            <Text color="cyan">{project.phase}</Text> · lang:{' '}
-            <Text color="yellow">{language.toUpperCase()}</Text>
+          <Text>
+            <Text bold color="green">
+              [{t.activeBadge}: {project.name}]
+            </Text>{' '}
+            <Text dimColor>
+              · dir: <Text color="white">{project.workspaceDir}</Text> ·{' '}
+              {t.reposLabel}: <Text color="yellow">{repoSummary}</Text> ·{' '}
+              {t.phaseLabel}: <Text color="cyan">{project.phase}</Text> · lang:{' '}
+              <Text color="yellow">{language.toUpperCase()}</Text>
+            </Text>
           </Text>
           <Text dimColor>
             {t.viewLabel}: <Text color="green">{t.cleanViewName}</Text> (
@@ -623,7 +923,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             ))}
             <Box marginTop={1}>
               <Text dimColor>
-                {t.virtualEngineeringTeam} ·{' '}
+                {t.virtualEngineeringTeam} · {t.projectLabel}:{' '}
+                <Text color="green" bold>
+                  {project.name}
+                </Text>{' '}
+                ·{' '}
                 <Text color="white" bold>
                   {activeRoleDisplayName}
                 </Text>{' '}
@@ -633,14 +937,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Box>
           </Box>
 
-          {/* Interactive Help Panel when /help is active */}
+          {/* Interactive Modals */}
+          {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
+          {isProjectsModalOpen && renderProjectsListModal()}
           {isHelpOpen && renderHelpModal()}
-
-          {/* Interactive Settings Panel when /settings is active */}
           {isSettingsOpen && renderSettingsModal()}
 
           {/* Recent conversation snippet if any */}
-          {!isSettingsOpen && !isHelpOpen && (lastMessages.length > 0 || streamingText) && (
+          {!anyModalOpen && (lastMessages.length > 0 || streamingText) && (
             <Box
               flexDirection="column"
               width={Math.min(92, dimensions.columns - 8)}
@@ -680,7 +984,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           )}
 
           {/* Slash Command Popover Menu when user types "/" */}
-          {!isSettingsOpen && !isHelpOpen && isSlashMenuOpen && (
+          {!anyModalOpen && isSlashMenuOpen && (
             <Box
               flexDirection="column"
               width={Math.min(92, dimensions.columns - 8)}
@@ -741,7 +1045,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Box>
           )}
 
-          {/* Centered OpenCode-style Prompt Box */}
+          {/* Centered OpenCode-style Prompt Box showing active project & active role */}
           <Box
             flexDirection="column"
             width={Math.min(92, dimensions.columns - 8)}
@@ -752,13 +1056,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           >
             <Box justifyContent="space-between">
               <Text>
+                <Text bold color="green">
+                  [{project.name}]
+                </Text>{' '}
                 <Text bold color="cyan">
                   ❯{' '}
                 </Text>
                 <Text>{inputValue}</Text>
                 <Text color="cyan">█</Text>
               </Text>
-              <Text dimColor>[{activeRole}]</Text>
+              <Text dimColor>
+                [{project.name} · {activeRole}]
+              </Text>
             </Box>
             <Box justifyContent="space-between" marginTop={0}>
               <Text dimColor>{t.inputPlaceholderHint}</Text>
@@ -789,20 +1098,34 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       borderStyle="round"
       borderColor="cyan"
     >
-      {/* Header Bar */}
+      {/* Header Bar with Active Project, Directory, Repositories & Phase */}
       <Box justifyContent="space-between">
         <Text bold color="cyan">
           {t.multipanelHeaderTitle}
         </Text>
         <Text>
-          {t.projectLabel}: <Text bold color="yellow">{project.name}</Text> |{' '}
+          <Text bold color="green">
+            [{t.activeBadge}: {project.name}]
+          </Text>{' '}
+          | {t.reposLabel}: <Text bold color="yellow">{repoSummary}</Text> |{' '}
           {t.phaseLabel}: <Text bold color="green">{project.phase}</Text> |{' '}
           {t.archVersionShort}:{' '}
-          <Text bold>v{project.approvedArchitectureVersion}</Text> |{' '}
-          {t.qaCyclesShort}: <Text bold>{project.correctionCycleCount}</Text> |
-          Lang: <Text bold color="yellow">{language.toUpperCase()}</Text>
+          <Text bold>v{project.approvedArchitectureVersion}</Text> | Lang:{' '}
+          <Text bold color="yellow">{language.toUpperCase()}</Text>
         </Text>
       </Box>
+
+      {projectWizardStep !== 'CLOSED' && (
+        <Box marginTop={1} justifyContent="center">
+          {renderProjectWizardModal()}
+        </Box>
+      )}
+
+      {isProjectsModalOpen && (
+        <Box marginTop={1} justifyContent="center">
+          {renderProjectsListModal()}
+        </Box>
+      )}
 
       {isHelpOpen && (
         <Box marginTop={1} justifyContent="center">
@@ -959,7 +1282,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       </Box>
 
       {/* Slash Menu Popover inside Multipanel mode */}
-      {!isSettingsOpen && !isHelpOpen && isSlashMenuOpen && (
+      {!anyModalOpen && isSlashMenuOpen && (
         <Box
           flexDirection="column"
           borderStyle="round"
@@ -982,7 +1305,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         </Box>
       )}
 
-      {/* Bottom Input Box + Status Footer */}
+      {/* Bottom Input Box + Status Footer always displaying the active project */}
       <Box
         flexDirection="column"
         borderStyle="single"
@@ -991,13 +1314,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       >
         <Box justifyContent="space-between">
           <Text>
+            <Text bold color="green">
+              [{project.name}]
+            </Text>{' '}
             <Text bold color="cyan">
               [{activeRole}] ❯{' '}
             </Text>
             <Text>{inputValue}</Text>
             <Text color="cyan">█</Text>
           </Text>
-          <Text dimColor>{t.returnToCleanViewHint}</Text>
+          <Text dimColor>
+            dir: {project.workspaceDir} · {t.returnToCleanViewHint}
+          </Text>
         </Box>
         <Text color={busy ? 'yellow' : 'gray'}>{statusBanner}</Text>
       </Box>

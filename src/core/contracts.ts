@@ -263,6 +263,7 @@ export const ProjectSchema = z.object({
   name: z.string(),
   description: z.string(),
   workspaceDir: z.string(),
+  repositories: z.array(z.string()).default([]),
   phase: WorkflowPhaseSchema,
   approvedArchitectureVersion: z.number().int().nonnegative().default(0),
   correctionCycleCount: z.number().int().nonnegative().default(0),

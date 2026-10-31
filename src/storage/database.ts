@@ -268,21 +268,34 @@ export class PoCliDatabase {
         created_at TEXT NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
+
+      CREATE TABLE IF NOT EXISTS project_repositories (
+        project_id TEXT NOT NULL,
+        repo_name TEXT NOT NULL,
+        repo_path TEXT NOT NULL,
+        discovered_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, repo_path),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
     `);
   }
 
   // ==========================================================================
-  // APPLICATION SETTINGS (MULTI-LANGUAGE & FUTURE PREFERENCES)
+  // APPLICATION SETTINGS (MULTI-LANGUAGE, ACTIVE PROJECT & PREFERENCES)
   // ==========================================================================
 
   getSettings(): AppSettings {
     const langRow = this.db
       .prepare(`SELECT value FROM settings WHERE key = 'language'`)
       .get() as { value: string } | undefined;
+    const activeProjRow = this.db
+      .prepare(`SELECT value FROM settings WHERE key = 'active_project_id'`)
+      .get() as { value: string } | undefined;
     const lang: SupportedLanguage =
       langRow?.value === 'es' ? 'es' : 'en';
     return {
       language: lang,
+      activeProjectId: activeProjRow?.value,
     };
   }
 
@@ -298,6 +311,17 @@ export class PoCliDatabase {
              updated_at = excluded.updated_at`,
         )
         .run(partial.language, now);
+    }
+    if (partial.activeProjectId !== undefined) {
+      this.db
+        .prepare(
+          `INSERT INTO settings (key, value, updated_at)
+           VALUES ('active_project_id', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = excluded.updated_at`,
+        )
+        .run(partial.activeProjectId, now);
     }
     return this.getSettings();
   }
@@ -366,7 +390,136 @@ export class PoCliDatabase {
         .run(id, expertRole, now);
     }
 
+    // Discover and register any existing repositories inside workspaceDir
+    this.discoverAndRegisterRepositories(id, workspaceDir);
+
+    // Set this newly created project as the currently active project in SQLite settings
+    this.updateSettings({ activeProjectId: id });
+
     return this.getProject(id)!;
+  }
+
+  /**
+   * Scans the project filesystem directory for existing repositories (either root .git
+   * or multiple sub-repositories inside subdirectories) and registers them in SQLite.
+   */
+  discoverAndRegisterRepositories(
+    projectId: string,
+    workspaceDir: string,
+  ): string[] {
+    const absWorkspace = path.resolve(workspaceDir);
+    if (!fs.existsSync(absWorkspace)) return [];
+
+    const now = new Date().toISOString();
+    const discovered: Array<{ name: string; repoPath: string }> = [];
+
+    const isRepoRoot = (dirPath: string): boolean => {
+      return (
+        fs.existsSync(path.join(dirPath, '.git')) ||
+        fs.existsSync(path.join(dirPath, 'package.json')) ||
+        fs.existsSync(path.join(dirPath, 'Cargo.toml')) ||
+        fs.existsSync(path.join(dirPath, 'go.mod')) ||
+        fs.existsSync(path.join(dirPath, 'pyproject.toml'))
+      );
+    };
+
+    if (fs.existsSync(path.join(absWorkspace, '.git'))) {
+      discovered.push({
+        name: path.basename(absWorkspace),
+        repoPath: absWorkspace,
+      });
+    }
+
+    const entries = fs.readdirSync(absWorkspace, { withFileTypes: true });
+    for (const entry of entries) {
+      if (
+        !entry.isDirectory() ||
+        entry.name.startsWith('.') ||
+        entry.name === 'node_modules'
+      ) {
+        continue;
+      }
+      const subDir = path.join(absWorkspace, entry.name);
+      if (isRepoRoot(subDir)) {
+        discovered.push({
+          name: entry.name,
+          repoPath: subDir,
+        });
+      } else {
+        // Also check one level deeper for grouped multi-repo layouts (e.g., repos/* or packages/*)
+        const subEntries = fs.readdirSync(subDir, { withFileTypes: true });
+        for (const subEntry of subEntries) {
+          if (
+            !subEntry.isDirectory() ||
+            subEntry.name.startsWith('.') ||
+            subEntry.name === 'node_modules'
+          ) {
+            continue;
+          }
+          const nestedDir = path.join(subDir, subEntry.name);
+          if (isRepoRoot(nestedDir)) {
+            discovered.push({
+              name: `${entry.name}/${subEntry.name}`,
+              repoPath: nestedDir,
+            });
+          }
+        }
+      }
+    }
+
+    this.db
+      .prepare(`DELETE FROM project_repositories WHERE project_id = ?`)
+      .run(projectId);
+
+    for (const repo of discovered) {
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO project_repositories (
+            project_id, repo_name, repo_path, discovered_at
+          ) VALUES (?, ?, ?, ?)`,
+        )
+        .run(projectId, repo.name, repo.repoPath, now);
+    }
+
+    return discovered.map((d) => d.name);
+  }
+
+  findProjectByNameOrId(query: string): Project | null {
+    const trimmed = query.trim();
+    if (!trimmed) return null;
+    const byId = this.getProject(trimmed);
+    if (byId) return byId;
+
+    const row = this.db
+      .prepare(
+        `SELECT * FROM projects WHERE LOWER(name) = LOWER(?) ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(trimmed) as Record<string, unknown> | undefined;
+    return row ? this.mapProjectRow(row) : null;
+  }
+
+  switchActiveProject(nameOrId: string): Project {
+    const target = this.findProjectByNameOrId(nameOrId);
+    if (!target) {
+      throw new Error(`Project "${nameOrId}" not found.`);
+    }
+    this.discoverAndRegisterRepositories(target.id, target.workspaceDir);
+    this.updateSettings({ activeProjectId: target.id });
+    return this.getProject(target.id)!;
+  }
+
+  getActiveProject(): Project | null {
+    const settings = this.getSettings();
+    if (settings.activeProjectId) {
+      const proj = this.getProject(settings.activeProjectId);
+      if (proj) return proj;
+    }
+    const all = this.listProjects();
+    if (all.length > 0) {
+      this.updateSettings({ activeProjectId: all[0].id });
+      return all[0];
+    }
+    return null;
   }
 
   getProject(projectId: string): Project | null {
@@ -403,11 +556,19 @@ export class PoCliDatabase {
   }
 
   private mapProjectRow(row: Record<string, unknown>): Project {
+    const projectId = String(row.id);
+    const repoRows = this.db
+      .prepare(
+        `SELECT repo_name FROM project_repositories WHERE project_id = ? ORDER BY repo_name ASC`,
+      )
+      .all(projectId) as Array<{ repo_name: string }>;
+
     return {
-      id: String(row.id),
+      id: projectId,
       name: String(row.name),
       description: String(row.description),
       workspaceDir: String(row.workspace_dir),
+      repositories: repoRows.map((r) => String(r.repo_name)),
       phase: row.phase as WorkflowPhase,
       approvedArchitectureVersion: Number(row.approved_architecture_version),
       correctionCycleCount: Number(row.correction_cycle_count),
