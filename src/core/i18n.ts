@@ -132,6 +132,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       architect: 'Software Architect',
       developer: 'Senior Developer',
       qa: 'Independent QA Engineer',
+      pm: 'Project Manager (PM)',
       security_auditor: 'DevSecOps Security Auditor',
     },
     slashCommands: [
@@ -146,6 +147,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/qa',
         description: 'Switch active interlocutor to the Independent QA Engineer',
+      },
+      {
+        command: '/pm',
+        description: 'Switch to Project Manager or run parallel/sequential team inquiry',
       },
       {
         command: '/propose',
@@ -279,6 +284,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       architect: 'Arquitecto de Software',
       developer: 'Desarrollador Experto',
       qa: 'Ingeniero de QA Independiente',
+      pm: 'Project Manager (PM)',
       security_auditor: 'Auditor de Seguridad DevSecOps',
     },
     slashCommands: [
@@ -293,6 +299,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/qa',
         description: 'Cambiar interlocutor activo al Ingeniero de QA Independiente',
+      },
+      {
+        command: '/pm',
+        description: 'Cambiar al Project Manager o lanzar consulta paralela/secuencial',
       },
       {
         command: '/propose',

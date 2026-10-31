@@ -35,7 +35,7 @@ Strategy:
 
 ## 4. Initial Virtual Engineering Team
 
-PO CLI ships with three preconfigured virtual professionals:
+PO CLI ships with four preconfigured virtual professionals working alongside the human Product Owner:
 
 ### 4.1. Software Architect
 
@@ -82,6 +82,52 @@ Independently responsible for verifying software quality:
 
 QA is independent from the Developer in evaluation criteria and must execute real verification checks rather than relying on Developer claims.
 
+### 4.4. Project Manager (PM) — Specification for Parallel and Sequential Agent Inquiries
+
+The Project Manager (PM) is the fourth core specialist of the virtual engineering team, assisting the human Product Owner in gathering, cross-checking, and consolidating project status across the active engineering agents.
+
+#### 1. Permanent Availability of Agents
+- The Software Architect, Senior Developer, and Independent QA Engineer remain permanently active within the PO CLI runtime environment and maintain their own execution cycles and feedback loops.
+- The Project Manager can communicate with them whenever information is needed, without having to initialize, activate, or spawn new ephemeral instances of those agents for each inquiry.
+
+#### 2. Inquiry Modalities
+The PM can query the agents in two distinct ways:
+
+- **Parallel Inquiries:**
+  - The PM can dispatch inquiries simultaneously to multiple agents and collect their responses independently.
+  - For example, the PM can simultaneously ask:
+    - The **Architect** about architectural status and design decisions.
+    - The **Developer** about completed activities, implemented features, and commits.
+    - **QA** about executed tests, discovered defects, and validation status.
+  - Once all responses are received, the PM analyzes them and produces a consolidated joint report.
+
+- **Sequential Inquiries:**
+  - The PM can also query agents one by one, waiting for one agent's response before addressing the next agent.
+  - This modality enables chained inquiries in which the response from one agent helps formulate or contextualize the question directed to the subsequent agent.
+
+#### 3. Modality Selection
+- The Project Manager selects between parallel or sequential inquiries according to the needs of the Product Owner's request.
+- The modality may be explicitly specified by the Product Owner or automatically chosen by the PM when not specified.
+- The PM must always respect:
+  - Which agents the Product Owner wishes to consult.
+  - The scope of the requested information.
+  - The specified inquiry modality, when provided.
+  - The need to gather and cross-check responses.
+
+#### 4. Collection and Consolidation
+Regardless of the modality used, the PM must:
+- Identify which agents were consulted.
+- Record the exact questions asked and the responses received.
+- Identify any pending or incomplete responses.
+- Clearly distinguish the information provided by each agent.
+- Detect discrepancies or contradictions across agent reports.
+- Produce a joint conclusion without attributing agreements to agents that they have not explicitly expressed.
+- Deliver both the individual agent responses and a consolidated summary to the Product Owner.
+
+#### 5. Operating Principle and Authority Boundary
+- Agents remain active and the PM can communicate with them at any time through PO CLI's communication infrastructure. The PM decides whether to execute inquiries in parallel or sequentially, respecting the Product Owner's instructions and the goal of each inquiry.
+- **Crucial Authority Rule:** This capability does **not** grant the PM authority to direct, modify, or interrupt the work of the engineering agents.
+
 ## 5. Authority and Communication Model
 
 The human user is the **Product Owner** and retains final authority over the project.
@@ -91,6 +137,10 @@ Communication channels:
 - Product Owner ↔ Architect
 - Product Owner ↔ Developer
 - Product Owner ↔ QA
+- Product Owner ↔ Project Manager (PM)
+- Project Manager (PM) ↔ Architect (read-only status/context inquiries; parallel or sequential)
+- Project Manager (PM) ↔ Developer (read-only status/context inquiries; parallel or sequential)
+- Project Manager (PM) ↔ QA (read-only status/context inquiries; parallel or sequential)
 - Architect ↔ Developer
 - Architect ↔ QA
 - Developer ↔ QA (when permitted by the workflow phase)
@@ -107,7 +157,8 @@ All inter-agent communication is controlled, logged, and bound to the project co
 6. If a decision requires Product Owner intervention, the Architect escalates it to the Product Owner.
 7. QA has authority to reject deliverables that fail acceptance criteria.
 8. The Developer must fix defects identified by QA.
-9. The Product Owner retains final authority to accept the project.
+9. The Project Manager (PM) can query active agents in parallel or sequentially and consolidate status/discrepancies for the Product Owner, but has **no authority** to direct, alter, or interrupt the agents' engineering work.
+10. The Product Owner retains final authority to accept the project.
 
 ## 6. Primary Project Workflow (8 Phases)
 

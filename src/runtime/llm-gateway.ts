@@ -255,11 +255,7 @@ export class LlmGateway {
         promptLower.includes('architecture') ||
         promptLower.includes('design') ||
         promptLower.includes('propose') ||
-        promptLower.includes('requirement') ||
-        promptLower.includes('arquitectura') ||
-        promptLower.includes('diseñ') ||
-        promptLower.includes('propon') ||
-        promptLower.includes('requisito')
+        promptLower.includes('requirement')
       ) {
         toolCalls.push(
           {
@@ -325,10 +321,7 @@ export class LlmGateway {
       if (
         promptLower.includes('ambiguity') ||
         promptLower.includes('deviat') ||
-        promptLower.includes('blocker') ||
-        promptLower.includes('ambigüedad') ||
-        promptLower.includes('desvi') ||
-        promptLower.includes('bloqueo')
+        promptLower.includes('blocker')
       ) {
         toolCalls.push({
           name: 'consult_architect',
@@ -373,6 +366,10 @@ export class LlmGateway {
     } else if (input.role === 'qa') {
       replyText =
         `[Independent QA Engineer] Ready to execute independent validation tests against \`REQ-001\`, \`ARCH-001\`, and \`CODE-001\`, collecting real execution evidence before issuing a verdict (\`ACCEPT\` or \`REJECT\`).${citationFooter}`;
+    } else if (input.role === 'pm') {
+      replyText =
+        `[Project Manager (PM)] Consolidated status check for **${input.projectName}** (Phase: \`${input.phase}\`). ` +
+        `I can execute parallel or sequential inquiries across the active Architect, Developer, and QA agents and report both individual responses and detected discrepancies.${citationFooter}`;
     } else {
       replyText = `[Specialist ${input.role}] Analysis completed for ${input.projectName}.${citationFooter}`;
     }

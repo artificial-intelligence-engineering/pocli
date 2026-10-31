@@ -65,6 +65,10 @@ const ROLE_ARTIFACT_WRITE_PERMISSIONS: Record<string, ArtifactType[]> = {
     'DEFECT',
     'DOCUMENTATION',
   ],
+  pm: [
+    'PM_REPORT',
+    'DOCUMENTATION',
+  ],
 };
 
 /**
@@ -142,6 +146,10 @@ export class AuthorityGuard {
   static canCommunicate(from: ActorRole, to: ActorRole, phase: WorkflowPhase): boolean {
     // Product Owner can always communicate directly with any professional
     if (from === 'product_owner' || to === 'product_owner') {
+      return true;
+    }
+    // Project Manager (PM) can query any active agent at any time (parallel or sequential)
+    if (from === 'pm' || to === 'pm') {
       return true;
     }
     // Architect <-> Developer is always allowed

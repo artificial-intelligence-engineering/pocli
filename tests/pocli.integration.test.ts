@@ -422,4 +422,79 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     });
     expect(secTurn.reply).toContain('security_auditor');
   });
+
+  it('Project Manager (PM): executes both PARALLEL and SEQUENTIAL inquiries across active agents, detects discrepancies, and cannot alter engineering artifacts', async () => {
+    const project = orchestrator.createProject({
+      name: 'PmOrchestrationApp',
+      description: 'Testing PM parallel and sequential agent inquiries',
+      workspaceDir: path.join(tmpDir, 'ws-pm'),
+    });
+
+    // 1. Verify PM has NO authority to modify ARCHITECTURE, SOURCE_CODE, or QA_REPORT
+    expect(() =>
+      storage.saveArtifact({
+        projectId: project.id,
+        code: 'ARCH-001',
+        type: 'ARCHITECTURE',
+        title: 'Unauthorized PM Architecture Edit',
+        content: 'PM cannot direct or modify architecture',
+        authorRole: 'pm',
+      }),
+    ).toThrow(/Authority Violation/);
+
+    expect(() =>
+      storage.saveArtifact({
+        projectId: project.id,
+        code: 'CODE-001',
+        type: 'SOURCE_CODE',
+        title: 'Unauthorized PM Code Edit',
+        content: 'PM cannot modify code',
+        authorRole: 'pm',
+      }),
+    ).toThrow(/Authority Violation/);
+
+    // 2. Execute PARALLEL PM inquiry across Architect, Developer, and QA
+    const parallelRes = await orchestrator.executePmInquiry({
+      projectId: project.id,
+      topic: 'Initial sprint readiness and architecture alignment',
+      consultedAgents: ['architect', 'developer', 'qa'],
+      modality: 'PARALLEL',
+    });
+
+    expect(parallelRes.report.modality).toBe('PARALLEL');
+    expect(parallelRes.report.consultedAgents).toEqual([
+      'architect',
+      'developer',
+      'qa',
+    ]);
+    expect(parallelRes.report.individualResponses).toHaveLength(3);
+    expect(
+      parallelRes.report.individualResponses.every(
+        (r) => r.status === 'COMPLETE' && r.workerPid > 0,
+      ),
+    ).toBe(true);
+    expect(parallelRes.artifact.code).toBe('PM-001');
+
+    // 3. Execute SEQUENTIAL (chained) PM inquiry across Architect -> Developer -> QA
+    const sequentialRes = await orchestrator.executePmInquiry({
+      projectId: project.id,
+      topic: 'Sequential dependency check from design to QA verification',
+      consultedAgents: ['architect', 'developer', 'qa'],
+      modality: 'SEQUENTIAL',
+    });
+
+    expect(sequentialRes.report.modality).toBe('SEQUENTIAL');
+    expect(sequentialRes.report.individualResponses).toHaveLength(3);
+    // In SEQUENTIAL mode, Developer and QA questions receive prior agent context
+    expect(sequentialRes.report.individualResponses[1].questionAsked).toContain(
+      '[Prior Agent Context in Sequential Inquiry]',
+    );
+    expect(sequentialRes.report.individualResponses[2].questionAsked).toContain(
+      '[architect]:',
+    );
+    expect(sequentialRes.report.individualResponses[2].questionAsked).toContain(
+      '[developer]:',
+    );
+    expect(sequentialRes.artifact.code).toBe('PM-002');
+  });
 });

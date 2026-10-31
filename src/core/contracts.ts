@@ -4,7 +4,7 @@ import { z } from 'zod';
 // 1. ROLES & ACTORS
 // ============================================================================
 
-export const CoreRoleSchema = z.enum(['architect', 'developer', 'qa']);
+export const CoreRoleSchema = z.enum(['architect', 'developer', 'qa', 'pm']);
 export type CoreRole = z.infer<typeof CoreRoleSchema>;
 
 export const ActorRoleSchema = z.union([
@@ -47,6 +47,7 @@ export const ArtifactTypeSchema = z.enum([
   'TEST_CASE',
   'QA_REPORT',
   'DEFECT',
+  'PM_REPORT',
   'DOCUMENTATION',
 ]);
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>;
@@ -148,6 +149,30 @@ export const QaReportPayloadSchema = z.object({
   summary: z.string(),
 });
 export type QaReportPayload = z.infer<typeof QaReportPayloadSchema>;
+
+export const PmInquiryModalitySchema = z.enum(['PARALLEL', 'SEQUENTIAL']);
+export type PmInquiryModality = z.infer<typeof PmInquiryModalitySchema>;
+
+export const PmAgentInquiryEntrySchema = z.object({
+  agentRole: ActorRoleSchema,
+  questionAsked: z.string(),
+  responseReceived: z.string(),
+  workerPid: z.number().int(),
+  status: z.enum(['COMPLETE', 'INCOMPLETE']),
+});
+export type PmAgentInquiryEntry = z.infer<typeof PmAgentInquiryEntrySchema>;
+
+export const PmConsolidationReportSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  modality: PmInquiryModalitySchema,
+  consultedAgents: z.array(ActorRoleSchema),
+  individualResponses: z.array(PmAgentInquiryEntrySchema),
+  discrepancies: z.array(z.string()),
+  consolidatedSummary: z.string(),
+  createdAt: z.string(),
+});
+export type PmConsolidationReport = z.infer<typeof PmConsolidationReportSchema>;
 
 // ============================================================================
 // 5. NOTEBOOKS & RAG CITATIONS (AGENTS.MD SECTION 8)

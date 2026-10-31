@@ -8,6 +8,9 @@ import {
   ArchitecturalConsultation,
   Artifact,
   Notebook,
+  PmAgentInquiryEntry,
+  PmConsolidationReport,
+  PmInquiryModality,
   Project,
   QaDefect,
   QaReportPayload,
@@ -572,6 +575,212 @@ export class PoCliOrchestrator extends EventEmitter {
     });
     this.emit('project:accepted', updated);
     return updated;
+  }
+
+  // ==========================================================================
+  // PROJECT MANAGER (PM): PARALLEL & SEQUENTIAL MULTI-AGENT INQUIRIES
+  // ==========================================================================
+
+  async executePmInquiry(params: {
+    projectId: string;
+    topic: string;
+    consultedAgents?: ActorRole[];
+    modality?: PmInquiryModality;
+    customQuestionsByRole?: Record<string, string>;
+  }): Promise<{
+    report: PmConsolidationReport;
+    artifact: Artifact;
+  }> {
+    const project = this.storage.getProject(params.projectId);
+    if (!project) throw new Error(`Project ${params.projectId} not found.`);
+
+    const consultedAgents: ActorRole[] = params.consultedAgents ?? [
+      'architect',
+      'developer',
+      'qa',
+    ];
+
+    // Determine modality: explicit from PO or selected by PM based on inquiry topic
+    const modality: PmInquiryModality =
+      params.modality ??
+      (params.topic.toLowerCase().includes('sequential') ||
+      params.topic.toLowerCase().includes('chain')
+        ? 'SEQUENTIAL'
+        : 'PARALLEL');
+
+    const normativeSummary = this.buildNormativeContextString(project.id);
+
+    const querySingleActiveAgent = async (
+      role: ActorRole,
+      questionText: string,
+    ): Promise<PmAgentInquiryEntry> => {
+      const harness = HarnessRegistry.getHarness(role);
+      const modelConfig = this.storage.getRoleConfig(project.id, role);
+      const citations = this.rag.queryForProjectRole({
+        projectId: project.id,
+        role,
+        query: questionText,
+        topK: 2,
+      });
+
+      this.storage.recordMessage({
+        projectId: project.id,
+        fromRole: 'pm',
+        toRole: role,
+        content: `[PM ${modality} INQUIRY] ${questionText}`,
+      });
+
+      // Read-only inquiry: we do NOT execute state-mutating toolCalls so PM never
+      // directs, modifies, or interrupts the agents' ongoing engineering work.
+      const res = await this.processRunner.executeTurnInProcess(
+        {
+          projectId: project.id,
+          projectName: project.name,
+          phase: project.phase,
+          role,
+          systemPrompt: harness.systemPrompt,
+          userPrompt: questionText,
+          normativeArtifactsSummary: normativeSummary,
+          ragCitations: citations,
+          modelConfig,
+        },
+        project.workspaceDir,
+      );
+
+      this.storage.recordMessage({
+        projectId: project.id,
+        fromRole: role,
+        toRole: 'pm',
+        content: res.replyText,
+        metadata: { workerPid: res.workerPid, modality },
+      });
+
+      return {
+        agentRole: role,
+        questionAsked: questionText,
+        responseReceived: res.replyText,
+        workerPid: res.workerPid,
+        status: res.replyText.trim().length > 0 ? 'COMPLETE' : 'INCOMPLETE',
+      };
+    };
+
+    const defaultRoleQuestions: Record<string, string> = {
+      architect: `Report current architectural status and decisions regarding: ${params.topic}`,
+      developer: `Report completed implementation activities, features, and commits regarding: ${params.topic}`,
+      qa: `Report executed tests, discovered defects, and validation status regarding: ${params.topic}`,
+    };
+
+    let individualResponses: PmAgentInquiryEntry[] = [];
+
+    if (modality === 'PARALLEL') {
+      individualResponses = await Promise.all(
+        consultedAgents.map((role) => {
+          const q =
+            params.customQuestionsByRole?.[role] ??
+            defaultRoleQuestions[role] ??
+            `Provide status update on: ${params.topic}`;
+          return querySingleActiveAgent(role, q);
+        }),
+      );
+    } else {
+      // SEQUENTIAL mode: each agent's response contextualizes the question to the next agent
+      let accumulatedChainContext = '';
+      for (const role of consultedAgents) {
+        const baseQ =
+          params.customQuestionsByRole?.[role] ??
+          defaultRoleQuestions[role] ??
+          `Provide status update on: ${params.topic}`;
+        const chainedQuestion = accumulatedChainContext
+          ? `${baseQ}\n\n[Prior Agent Context in Sequential Inquiry]:\n${accumulatedChainContext}`
+          : baseQ;
+        const entry = await querySingleActiveAgent(role, chainedQuestion);
+        individualResponses.push(entry);
+        accumulatedChainContext += `- [${role}]: ${entry.responseReceived.slice(0, 180)}\n`;
+      }
+    }
+
+    // Detect discrepancies or contradictions across project artifacts & agent reports
+    const artifacts = this.storage.listArtifacts(project.id, true);
+    const qaReports = this.storage.listQaReports(project.id);
+    const discrepancies: string[] = [];
+
+    const hasCode = artifacts.some((a) => a.type === 'SOURCE_CODE');
+    if (hasCode && project.approvedArchitectureVersion === 0) {
+      discrepancies.push(
+        'Discrepancy detected: Source code artifacts exist while approvedArchitectureVersion is 0.',
+      );
+    }
+    if (
+      qaReports.length > 0 &&
+      qaReports[0].payload.recommendation === 'REJECT' &&
+      consultedAgents.includes('developer') &&
+      consultedAgents.includes('qa')
+    ) {
+      discrepancies.push(
+        `Discrepancy / Open Blocker: Latest QA report (${qaReports[0].payload.defects.length} defects) rejected the delivery; Developer fixes require QA re-verification.`,
+      );
+    }
+    for (const entry of individualResponses) {
+      if (entry.status === 'INCOMPLETE') {
+        discrepancies.push(`Incomplete response from agent '${entry.agentRole}'.`);
+      }
+    }
+
+    const consolidatedSummary = [
+      `# Project Manager Consolidated Report (${modality} Inquiry)`,
+      `**Topic:** ${params.topic}`,
+      `**Consulted Active Agents:** ${consultedAgents.join(', ')}`,
+      `**Project Phase:** ${project.phase}`,
+      ``,
+      `## 1. Individual Agent Responses`,
+      ...individualResponses.map(
+        (r) =>
+          `### Agent: \`${r.agentRole}\` (PID ${r.workerPid} | Status: ${r.status})\n- **Question:** ${r.questionAsked}\n- **Response:** ${r.responseReceived}`,
+      ),
+      ``,
+      `## 2. Discrepancies & Cross-Check Analysis`,
+      ...(discrepancies.length > 0
+        ? discrepancies.map((d) => `- ⚠️ ${d}`)
+        : ['- No contradictions detected across consulted agents.']),
+      ``,
+      `## 3. Joint Conclusion`,
+      `Consolidated ${individualResponses.length} response(s) via ${modality} inquiry without altering or interrupting ongoing agent workflows.`,
+    ].join('\n\n');
+
+    const pmArtifacts = artifacts.filter((a) => a.type === 'PM_REPORT');
+    const reportCode = `PM-${String(pmArtifacts.length + 1).padStart(3, '0')}`;
+    const artifact = this.storage.saveArtifact({
+      projectId: project.id,
+      code: reportCode,
+      type: 'PM_REPORT',
+      title: `PM ${modality} Inquiry Report — ${params.topic}`,
+      content: consolidatedSummary,
+      authorRole: 'pm',
+      status: 'APPROVED',
+      tracesTo: artifacts.map((a) => a.code),
+    });
+
+    const report: PmConsolidationReport = {
+      id: artifact.id,
+      projectId: project.id,
+      modality,
+      consultedAgents,
+      individualResponses,
+      discrepancies,
+      consolidatedSummary,
+      createdAt: artifact.createdAt,
+    };
+
+    this.storage.recordMessage({
+      projectId: project.id,
+      fromRole: 'pm',
+      toRole: 'product_owner',
+      content: consolidatedSummary,
+      metadata: { reportCode, modality, consultedAgents },
+    });
+
+    this.emit('pm:inquiryCompleted', { report, artifact });
+    return { report, artifact };
   }
 
   // ==========================================================================

@@ -192,6 +192,37 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         );
         return;
       }
+      if (cmdToken === '/pm') {
+        setActiveRole('pm');
+        const modeArg = parts[1]?.toLowerCase();
+        if (modeArg === 'parallel' || modeArg === 'sequential') {
+          setBusy(true);
+          const modality = modeArg === 'sequential' ? 'SEQUENTIAL' : 'PARALLEL';
+          setStatusBanner(
+            `⏳ PM running ${modality} inquiry across active agents...`,
+          );
+          try {
+            const res = await orchestrator.executePmInquiry({
+              projectId: project.id,
+              topic: parts.slice(2).join(' ') || 'Project status across all roles',
+              modality,
+            });
+            setStatusBanner(
+              `✔ PM emitted ${res.artifact.code} (${modality}): ${res.report.individualResponses.length} agents consulted.`,
+            );
+            refreshState();
+          } catch (err) {
+            setStatusBanner(`✖ Error: ${(err as Error).message}`);
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+        setStatusBanner(
+          t.activeInterlocutorMsg(getRoleDisplayName('pm', language)),
+        );
+        return;
+      }
       if (cmdToken === '/propose') {
         setActiveRole('architect');
         await sendChatMessage(

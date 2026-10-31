@@ -5,16 +5,17 @@
 To avoid the classic pitfall of multi-agent systems (attempting to build the IPC bus, all 3 roles, the Notebook RAG engine, Linux sandboxing, and the full Ink TUI simultaneously), this plan follows an incremental **Walking Skeleton** approach:
 
 1. **Foundations and contracts first:** Lock down Core schemas and the Linux inter-process protocol before scaling functional complexity.
-2. **Early validation of the authority model:** Progressively introduce the three core roles (`Architect`, `Developer`, `QA`) operating on persistent, versioned artifacts.
-3. **Strict decoupling:** Keep the Core/Orchestrator, Agent Runtime, Persistence layer (SQLite + Filesystem), and TUI presentation layer (Ink) strictly separated.
-4. **Scale to knowledge and isolation:** Layer in the Notebook/RAG engine, MCP integration, multi-language settings, and native Linux sandboxing on top of a proven multi-agent core.
+2. **Early validation of the authority model:** Progressively introduce the four core roles (`Architect`, `Developer`, `QA`, and `Project Manager (PM)`) operating on persistent, versioned artifacts under the human Product Owner.
+3. **Permanent agent availability & multi-modal inquiries:** Maintain active agent contexts so the Project Manager (PM) can perform both **parallel** and **sequential (chained)** inquiries across `Architect`, `Developer`, and `QA`, consolidating responses and detecting discrepancies without interfering with or directing their work.
+4. **Strict decoupling:** Keep the Core/Orchestrator, Agent Runtime, Persistence layer (SQLite + Filesystem), and TUI presentation layer (Ink) strictly separated.
+5. **Scale to knowledge and isolation:** Layer in the Notebook/RAG engine, MCP integration, multi-language settings, and native Linux sandboxing on top of a proven multi-agent core.
 
 ```mermaid
 flowchart TD
-    F0["Phase 0: OSS Research + Core Contracts (Zod/IPC)"] --> F1["Phase 1: Walking Skeleton (1 Agent + child_process + SQLite + Minimal Ink)"]
+    F0["Phase 0: OSS Research + Core Contracts (Zod/IPC)"] --> F1["Phase 1: Walking Skeleton (Persistent Agent Runtime + child_process + SQLite)"]
     F1 --> F2["Phase 2: Versioned Artifacts + Architect + PO Approval Gate"]
     F2 --> F3["Phase 3: Developer + Normative Handoff + Mandatory Architect Consultation"]
-    F3 --> F4["Phase 4: Independent QA Engineer + Evidence Reports + Correction Loop"]
+    F3 --> F4["Phase 4: Independent QA + Project Manager (PM Parallel/Sequential Inquiries)"]
     F4 --> F5["Phase 5: Fullscreen OpenCode/Multipanel TUI + Multi-Model Routing + i18n"]
     F5 --> F6["Phase 6: Filesystem Notebooks + Hybrid RAG with Traceable Citations"]
     F6 --> F7["Phase 7: Role-Based MCP + Native Linux Sandboxing / OCI + Extensible Roles"]
@@ -93,11 +94,11 @@ Introduce the second virtual team member and enforce technical authority boundar
 
 ---
 
-## Phase 4: The Independent QA Engineer and Validation/Correction Loop (Workflow Phases 6, 7, and 8)
+## Phase 4: The Independent QA Engineer, Validation Loop, and Project Manager (PM) Inquiries
 
-Complete the initial three-member virtual engineering team with independent quality assurance and close the full 8-phase engineering workflow.
+Complete the four-member core virtual engineering team (`Architect`, `Developer`, `QA`, and `Project Manager`) with independent quality assurance and multi-agent status orchestration.
 
-* **Objective:** Incorporate the **Independent QA Engineer** with authority to independently verify deliverables, execute real tests, collect evidence, reject defective builds, and coordinate the correction loop with the Developer.
+* **Objective:** Incorporate the **Independent QA Engineer** (with authority to execute real tests, collect evidence, and reject defective builds) alongside the **Project Manager (PM)** role capable of querying permanently active agents in **parallel** or **sequentially** to consolidate status and detect discrepancies for the Product Owner.
 * **Technical Scope:**
   1. **Complete 8-Phase Workflow State Machine:**
      * Formal transitions across Project Creation → Architect Analysis → Architecture Approval → Developer Handoff → Implementation → QA Validation → Correction Cycle → Final PO Acceptance.
@@ -107,7 +108,12 @@ Complete the initial three-member virtual engineering team with independent qual
   3. **Correction Loop (`QA ↔ Developer ↔ Architect`):**
      * If QA rejects the delivery, defects are returned to the Developer and the project enters `PHASE_7_CORRECTION_CYCLE`.
      * The Developer fixes the defects (consulting the Architect if fixes impact architecture) and resubmits to QA until `ACCEPT` is achieved.
-* **Definition of Done:** End-to-end execution of all 8 workflow phases on a real project, including QA detecting a defect with evidence, rejecting the delivery, Developer fixing the defect, QA re-validating, and final acceptance by the Product Owner.
+  4. **Project Manager (PM) Role & Parallel/Sequential Inquiry Engine:**
+     * **Permanent Agent Availability:** `Architect`, `Developer`, and `QA` remain active in the PO CLI runtime with their own feedback loops, allowing the PM to query them at any time without re-initializing ephemeral agent instances.
+     * **Parallel Inquiry Mode (`PARALLEL`):** The PM dispatches questions simultaneously to selected agents (e.g., Architect on design decisions, Developer on implemented features/commits, QA on test results/defects) via `Promise.all` and consolidates their independent replies.
+     * **Sequential Inquiry Mode (`SEQUENTIAL`):** The PM queries agents one by one in a chain, feeding the response of each preceding agent as contextual input to formulate the question for the next agent.
+     * **Consolidation, Discrepancy Detection & Non-Interference Boundary:** The PM records all questions and answers, flags incomplete responses or cross-agent contradictions, delivers both individual responses and a joint consolidated report (`PM_REPORT`) to the Product Owner, and enforces the strict authority boundary that **the PM cannot direct, modify, or interrupt the agents' work**.
+* **Definition of Done:** End-to-end execution of all 8 workflow phases on a real project, including QA defect rejection and re-validation, plus verified **Project Manager (`pm`)** parallel and sequential inquiries across active agents with discrepancy reporting.
 
 ---
 

@@ -301,6 +301,13 @@ export class PoCliDatabase {
       temperature: 0.0,
       executionModality: 'LOCAL_PROCESS',
     });
+    this.setRoleConfig(id, {
+      role: 'pm',
+      provider: 'deterministic',
+      modelId: 'gemini-2.5-pro-pm',
+      temperature: 0.1,
+      executionModality: 'LOCAL_PROCESS',
+    });
 
     return this.getProject(id)!;
   }

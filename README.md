@@ -16,7 +16,18 @@
 
 </div>
 
-A native Linux TUI/CLI software engineering environment powered by a **virtual team of specialized AI agents** (`Software Architect`, `Senior Developer`, `Independent QA Engineer`, and extensible specialists) directed by the **human Product Owner**, featuring filesystem **RAG Knowledge Notebooks**, multi-language support (`en` / `es`), and OS-level process sandboxing.
+A native Linux TUI/CLI software engineering environment powered by a **virtual team of specialized AI agents** (`Software Architect`, `Senior Developer`, `Independent QA Engineer`, `Project Manager (PM)`, and extensible specialists) directed by the **human Product Owner**, featuring filesystem **RAG Knowledge Notebooks**, multi-language support (`en` / `es`), and OS-level process sandboxing.
+
+---
+
+## Virtual Engineering Team & Authority Model
+
+In **POCLI**, the **human user is the Product Owner** and retains final authority over the project, working alongside four permanently active virtual specialists:
+
+* **Software Architect (`architect`):** Primary technical interlocutor. Analyzes requirements, proposes architectural options and trade-offs, records ADRs (`ADR-*`), authors the reference architecture (`ARCH-*`) and specifications (`SPEC-*`), and evaluates developer consultations. Never marks an architecture as approved without explicit Product Owner approval.
+* **Senior Developer (`developer`):** Implements code (`CODE-*`) and plans (`PLAN-*`) strictly from the approved architecture handoff bundle. Cannot unilaterally modify architectural decisions; must use `consult_architect` when encountering ambiguities or blockers.
+* **Independent QA Engineer (`qa`):** Independently verifies deliverables against requirements and acceptance criteria by executing real verification checks, capturing evidence, classifying defects (`DEF-*`), and issuing `ACCEPT` or `REJECT` verdicts (`QA-*`).
+* **Project Manager (`pm`):** Queries permanently active agents (`Architect`, `Developer`, `QA`) at any time using **Parallel Inquiries** (simultaneous status collection across multiple agents) or **Sequential Inquiries** (chained inquiries where each agent's answer contextualizes the next question). Consolidates individual responses, detects cross-agent discrepancies, and reports back to the Product Owner—without authority to direct, modify, or interrupt the agents' engineering work.
 
 ---
 
@@ -60,7 +71,7 @@ npm run build
 
 * Press **`Ctrl+Tab`** at any time to toggle between the **Clean OpenCode View** and the **Multipanel Command Center**.
 * Type **`/`** in the prompt input box to open the interactive command menu:
-  * `/architect`, `/developer`, `/qa` — Switch active professional interlocutor.
+  * `/architect`, `/developer`, `/qa`, `/pm` — Switch active professional interlocutor (or run parallel/sequential PM inquiries).
   * `/propose` — Request a formal architecture and requirements proposal from the Architect.
   * `/approve` / `/reject` — Formally approve or reject `ARCH-001` as Product Owner.
   * `/handoff` — Transfer the approved normative bundle to the Developer.
