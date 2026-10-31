@@ -15,6 +15,7 @@ import {
   MemoryEntry,
   MemoryLayer,
   Notebook,
+  PmConsolidationReport,
   Project,
   QaReportPayload,
   RagCitation,
@@ -33,6 +34,24 @@ export interface StoredMessage {
   content: string;
   metadataJson: string;
   createdAt: string;
+}
+
+export interface ExpertChatExchangeSnippet {
+  fromRole: ActorRole;
+  toRole: ActorRole;
+  snippet: string;
+  createdAt: string;
+}
+
+export interface ExpertChatSummary {
+  projectId: string;
+  expertRole: ActorRole;
+  totalMessages: number;
+  lastUserPrompt: string;
+  lastExpertReply: string;
+  summaryText: string;
+  recentExchanges: ExpertChatExchangeSnippet[];
+  updatedAt: string;
 }
 
 export class PoCliDatabase {
@@ -223,6 +242,32 @@ export class PoCliDatabase {
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS expert_chat_summaries (
+        project_id TEXT NOT NULL,
+        expert_role TEXT NOT NULL,
+        total_messages INTEGER NOT NULL DEFAULT 0,
+        last_user_prompt TEXT NOT NULL DEFAULT '',
+        last_expert_reply TEXT NOT NULL DEFAULT '',
+        summary_text TEXT NOT NULL DEFAULT '',
+        recent_exchanges_json TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, expert_role),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS pm_inquiries (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        modality TEXT NOT NULL,
+        consulted_agents_json TEXT NOT NULL,
+        individual_responses_json TEXT NOT NULL,
+        discrepancies_json TEXT NOT NULL,
+        consolidated_summary TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
     `);
   }
 
@@ -308,6 +353,18 @@ export class PoCliDatabase {
       temperature: 0.1,
       executionModality: 'LOCAL_PROCESS',
     });
+
+    // Initialize centralized SQLite chat summary rows for the 4 core experts
+    for (const expertRole of ['pm', 'architect', 'developer', 'qa'] as const) {
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO expert_chat_summaries (
+            project_id, expert_role, total_messages, last_user_prompt,
+            last_expert_reply, summary_text, recent_exchanges_json, updated_at
+          ) VALUES (?, ?, 0, '', '', '', '[]', ?)`,
+        )
+        .run(id, expertRole, now);
+    }
 
     return this.getProject(id)!;
   }
@@ -415,6 +472,14 @@ export class PoCliDatabase {
         now,
       );
 
+    // Centralize & update per-expert chat summaries in SQLite for any involved expert
+    const involvedExperts = new Set<ActorRole>();
+    if (params.fromRole !== 'product_owner') involvedExperts.add(params.fromRole);
+    if (params.toRole !== 'product_owner') involvedExperts.add(params.toRole);
+    for (const expertRole of involvedExperts) {
+      this.refreshExpertChatSummaryInSqlite(params.projectId, expertRole);
+    }
+
     return {
       id: msgId,
       projectId: params.projectId,
@@ -425,6 +490,161 @@ export class PoCliDatabase {
       metadataJson,
       createdAt: now,
     };
+  }
+
+  private refreshExpertChatSummaryInSqlite(
+    projectId: string,
+    expertRole: ActorRole,
+  ): void {
+    const allRoleMessages = this.listMessages(projectId, expertRole);
+    const totalMessages = allRoleMessages.length;
+    const now = new Date().toISOString();
+
+    let lastUserPrompt = '';
+    let lastExpertReply = '';
+    for (const msg of allRoleMessages) {
+      if (msg.toRole === expertRole) {
+        lastUserPrompt = this.cleanOneLineSnippet(msg.content, 90);
+      }
+      if (msg.fromRole === expertRole) {
+        lastExpertReply = this.cleanOneLineSnippet(msg.content, 110);
+      }
+    }
+
+    const recentExchanges: ExpertChatExchangeSnippet[] = allRoleMessages
+      .slice(-4)
+      .map((m) => ({
+        fromRole: m.fromRole,
+        toRole: m.toRole,
+        snippet: this.cleanOneLineSnippet(m.content, 85),
+        createdAt: m.createdAt,
+      }));
+
+    const summaryText =
+      totalMessages === 0
+        ? ''
+        : lastExpertReply
+          ? `${lastExpertReply}`
+          : `${lastUserPrompt}`;
+
+    this.db
+      .prepare(
+        `INSERT INTO expert_chat_summaries (
+          project_id, expert_role, total_messages, last_user_prompt,
+          last_expert_reply, summary_text, recent_exchanges_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, expert_role) DO UPDATE SET
+          total_messages = excluded.total_messages,
+          last_user_prompt = excluded.last_user_prompt,
+          last_expert_reply = excluded.last_expert_reply,
+          summary_text = excluded.summary_text,
+          recent_exchanges_json = excluded.recent_exchanges_json,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        projectId,
+        expertRole,
+        totalMessages,
+        lastUserPrompt,
+        lastExpertReply,
+        summaryText,
+        JSON.stringify(recentExchanges),
+        now,
+      );
+  }
+
+  private cleanOneLineSnippet(text: string, maxLen: number): string {
+    const oneLine = text.replace(/\s+/g, ' ').trim();
+    if (oneLine.length <= maxLen) return oneLine;
+    return `${oneLine.slice(0, maxLen - 3)}...`;
+  }
+
+  getExpertChatSummary(
+    projectId: string,
+    expertRole: ActorRole,
+  ): ExpertChatSummary {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM expert_chat_summaries WHERE project_id = ? AND expert_role = ?`,
+      )
+      .get(projectId, expertRole) as Record<string, unknown> | undefined;
+
+    if (!row) {
+      return {
+        projectId,
+        expertRole,
+        totalMessages: 0,
+        lastUserPrompt: '',
+        lastExpertReply: '',
+        summaryText: '',
+        recentExchanges: [],
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    return {
+      projectId: String(row.project_id),
+      expertRole: String(row.expert_role),
+      totalMessages: Number(row.total_messages),
+      lastUserPrompt: String(row.last_user_prompt),
+      lastExpertReply: String(row.last_expert_reply),
+      summaryText: String(row.summary_text),
+      recentExchanges: JSON.parse(
+        String(row.recent_exchanges_json || '[]'),
+      ) as ExpertChatExchangeSnippet[],
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  listExpertChatSummaries(projectId: string): ExpertChatSummary[] {
+    const orderedRoles: ActorRole[] = ['pm', 'architect', 'developer', 'qa'];
+    return orderedRoles.map((role) =>
+      this.getExpertChatSummary(projectId, role),
+    );
+  }
+
+  recordPmInquiryInSqlite(
+    artifactId: string,
+    report: PmConsolidationReport,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO pm_inquiries (
+          id, project_id, artifact_id, modality, consulted_agents_json,
+          individual_responses_json, discrepancies_json, consolidated_summary, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        report.id,
+        report.projectId,
+        artifactId,
+        report.modality,
+        JSON.stringify(report.consultedAgents),
+        JSON.stringify(report.individualResponses),
+        JSON.stringify(report.discrepancies),
+        report.consolidatedSummary,
+        report.createdAt,
+      );
+  }
+
+  listPmInquiries(projectId: string): PmConsolidationReport[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM pm_inquiries WHERE project_id = ? ORDER BY created_at DESC`,
+      )
+      .all(projectId) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      projectId: String(r.project_id),
+      modality: r.modality as 'PARALLEL' | 'SEQUENTIAL',
+      consultedAgents: JSON.parse(String(r.consulted_agents_json || '[]')),
+      individualResponses: JSON.parse(
+        String(r.individual_responses_json || '[]'),
+      ),
+      discrepancies: JSON.parse(String(r.discrepancies_json || '[]')),
+      consolidatedSummary: String(r.consolidated_summary),
+      createdAt: String(r.created_at),
+    }));
   }
 
   listMessages(projectId: string, roleFilter?: ActorRole): StoredMessage[] {

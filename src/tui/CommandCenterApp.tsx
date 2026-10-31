@@ -6,6 +6,7 @@ import {
   I18N_DICTIONARY,
   SupportedLanguage,
 } from '../core/i18n.js';
+import { ExpertChatSummary } from '../storage/database.js';
 import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
 
@@ -50,6 +51,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
+  const [expertSummaries, setExpertSummaries] = useState<ExpertChatSummary[]>(
+    [],
+  );
 
   // Prompt input & slash command menu state
   const [inputValue, setInputValue] = useState<string>('');
@@ -63,6 +67,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     if (updated) setProject(updated);
     setArtifacts(orchestrator.storage.listArtifacts(project.id, true));
     setNotebooks(orchestrator.storage.getProjectNotebooks(project.id));
+    setExpertSummaries(
+      orchestrator.storage.listExpertChatSummaries(project.id),
+    );
   };
 
   useEffect(() => {
@@ -809,7 +816,63 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         </Box>
       )}
 
-      {/* Main Split Body */}
+      {/* Top Row: 4 Expert Chat Summary Boxes loaded from SQLite */}
+      <Box flexDirection="row" width="100%" marginTop={1}>
+        {(['pm', 'architect', 'developer', 'qa'] as const).map((roleKey) => {
+          const summary = expertSummaries.find(
+            (s) => s.expertRole === roleKey,
+          ) ?? {
+            projectId: project.id,
+            expertRole: roleKey,
+            totalMessages: 0,
+            lastUserPrompt: '',
+            lastExpertReply: '',
+            summaryText: '',
+            recentExchanges: [],
+            updatedAt: '',
+          };
+          const boxTitle = t.expertBoxTitles[roleKey];
+          const isSelected = activeRole === roleKey;
+          return (
+            <Box
+              key={roleKey}
+              flexDirection="column"
+              width="25%"
+              borderStyle={isSelected ? 'double' : 'round'}
+              borderColor={isSelected ? 'green' : 'cyan'}
+              paddingX={1}
+            >
+              <Box justifyContent="space-between">
+                <Text bold color={isSelected ? 'green' : 'yellow'}>
+                  {isSelected ? '▶ ' : ''}
+                  {boxTitle}
+                </Text>
+                <Text dimColor>({summary.totalMessages})</Text>
+              </Box>
+              {summary.totalMessages === 0 ? (
+                <Text dimColor>{t.expertBoxNoChatsYet}</Text>
+              ) : (
+                <Box flexDirection="column" marginTop={0}>
+                  <Text color="cyan" bold>
+                    {t.expertBoxSummaryLabel}{' '}
+                    <Text color="white" bold={false}>
+                      {summary.summaryText.slice(0, 68)}
+                    </Text>
+                  </Text>
+                  {summary.recentExchanges.slice(-2).map((ex, i) => (
+                    <Text key={i} dimColor>
+                      • [{ex.fromRole === 'product_owner' ? 'PO' : ex.fromRole}]
+                      : {ex.snippet.slice(0, 52)}
+                    </Text>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+
+      {/* Lower Split Body: Artifacts/Notebooks & Active Direct Channel */}
       <Box flexDirection="row" flexGrow={1} marginTop={1}>
         {/* Left Sidebar: Team, Artifacts & Notebooks */}
         <Box flexDirection="column" width="42%" paddingRight={2}>
@@ -836,7 +899,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {artifacts.length === 0 ? (
               <Text dimColor>{t.noArtifactsYet}</Text>
             ) : (
-              artifacts.slice(0, 8).map((art) => (
+              artifacts.slice(0, 6).map((art) => (
                 <Text key={art.id}>
                   {'  '}• <Text bold>{art.code}</Text> v{art.version} [
                   {art.status}] →{' '}
@@ -877,7 +940,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {messages.length === 0 ? (
             <Text dimColor>{t.noMessagesInChannel}</Text>
           ) : (
-            messages.slice(-5).map((m) => (
+            messages.slice(-4).map((m) => (
               <Box key={m.id} flexDirection="column" marginTop={1}>
                 <Text
                   bold
@@ -886,8 +949,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   [{m.fromRole} → {m.toRole}]:
                 </Text>
                 <Text>
-                  {m.content.slice(0, 220)}
-                  {m.content.length > 220 ? '...' : ''}
+                  {m.content.slice(0, 200)}
+                  {m.content.length > 200 ? '...' : ''}
                 </Text>
               </Box>
             ))

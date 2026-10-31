@@ -61,6 +61,14 @@ export interface UiTranslations {
   directChannelHeader: (roleName: string) => string;
   noMessagesInChannel: string;
   returnToCleanViewHint: string;
+  expertBoxTitles: {
+    pm: string;
+    architect: string;
+    developer: string;
+    qa: string;
+  };
+  expertBoxSummaryLabel: string;
+  expertBoxNoChatsYet: string;
   roleNames: Record<string, string>;
   slashCommands: SlashCommandTranslation[];
 }
@@ -127,6 +135,14 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       `Direct Channel PO ↔ ${roleName.toUpperCase()}`,
     noMessagesInChannel: 'No messages in this channel yet.',
     returnToCleanViewHint: 'Press Ctrl+Tab to return to clean view',
+    expertBoxTitles: {
+      pm: 'Project Manager',
+      architect: 'Architect',
+      developer: 'Developer',
+      qa: 'QA Engineer',
+    },
+    expertBoxSummaryLabel: 'Summary:',
+    expertBoxNoChatsYet: 'No chats recorded in SQLite yet.',
     roleNames: {
       product_owner: 'Product Owner',
       architect: 'Software Architect',
@@ -279,6 +295,14 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       `Canal Directo PO ↔ ${roleName.toUpperCase()}`,
     noMessagesInChannel: 'No hay mensajes en este canal todavía.',
     returnToCleanViewHint: 'Pulsa Ctrl+Tab para volver a vista limpia',
+    expertBoxTitles: {
+      pm: 'Project Manager',
+      architect: 'Arquitecto',
+      developer: 'Desarrollador',
+      qa: 'Ingeniero QA',
+    },
+    expertBoxSummaryLabel: 'Resumen:',
+    expertBoxNoChatsYet: 'Sin charlas registradas en SQLite aún.',
     roleNames: {
       product_owner: 'Product Owner',
       architect: 'Arquitecto de Software',

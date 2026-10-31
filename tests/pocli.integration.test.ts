@@ -496,5 +496,22 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       '[developer]:',
     );
     expect(sequentialRes.artifact.code).toBe('PM-002');
+
+    // 4. Verify all 4 expert chat summaries and PM inquiries are centralized in SQLite
+    const summaries = storage.listExpertChatSummaries(project.id);
+    expect(summaries.map((s) => s.expertRole)).toEqual([
+      'pm',
+      'architect',
+      'developer',
+      'qa',
+    ]);
+    for (const summary of summaries) {
+      expect(summary.totalMessages).toBeGreaterThan(0);
+      expect(summary.summaryText.length).toBeGreaterThan(0);
+      expect(summary.recentExchanges.length).toBeGreaterThan(0);
+    }
+
+    const storedPmInquiries = storage.listPmInquiries(project.id);
+    expect(storedPmInquiries).toHaveLength(2);
   });
 });

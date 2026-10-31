@@ -771,6 +771,8 @@ export class PoCliOrchestrator extends EventEmitter {
       createdAt: artifact.createdAt,
     };
 
+    this.storage.recordPmInquiryInSqlite(artifact.id, report);
+
     this.storage.recordMessage({
       projectId: project.id,
       fromRole: 'pm',
