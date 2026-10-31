@@ -1,67 +1,65 @@
-# ADR-001: Arquitectura General, Runtime de Procesos en Linux, Persistencia y RAG
+# ADR-001: General Architecture, Linux Process Runtime, Persistence, and Hybrid RAG
 
-**Estado:** Aprobado (Fase 0)  
-**Fecha:** 2026-10-31  
-**Contexto:** Definición de los límites modulares, modelo de datos, protocolo de comunicación entre procesos en Linux, persistencia y motor de recuperación de conocimiento (Notebooks + RAG) para **Product Owner CLI (PO CLI)**.
-
----
-
-## 1. Arquitectura Modular en Capas
-
-PO CLI se estructura en cuatro capas estrictamente desacopladas dentro de TypeScript:
-
-1. **`src/core/` (Dominio, Contratos y Máquina de Estados):**
-   * Esquemas `Zod` para todas las entidades del sistema: Proyectos, Agentes, Mensajes, Artefactos, Consultas de Autoridad, Informes de QA, Notebooks y Protocolo `JSON-RPC 2.0`.
-   * Máquina de estados de las **8 fases del Workflow** (`WorkflowStateMachine`) y validador de reglas de autoridad (`AuthorityPolicy`).
-2. **`src/storage/` (Persistencia Relacional, Índices y Artefactos):**
-   * Basado en `node:sqlite` (`DatabaseSync` nativo de Node.js 24 con soporte `FTS5`).
-   * Repositorios desacoplados para proyectos, sesiones, mensajes, artefactos versionados (con copias físicas en `.pocli/artifacts/` y hashes `SHA-256`), consultas inter-agente, informes de QA, memoria multicapa y chunks de Notebooks.
-3. **`src/runtime/` (Orquestador, Procesos Agente, Harnesses, RAG y MCP):**
-   * **Agent Loop & LLM Gateway:** Ejecución iterativa con soporte multimodelo por rol (`OpenAI`, `Anthropic`, `Gemini`, `Ollama` y `DeterministicTeamSimulator` para pruebas reproducibles sin red).
-   * **Estrategias de Ejecución en Linux (`ExecutionStrategy`):**
-     * `LocalProcessStrategy`: Ejecución en proceso independiente mediante `child_process` comunicándose por `JSON-RPC 2.0` sobre `stdio`.
-     * `LinuxBwrapStrategy`: Sandboxing nativo en Linux mediante `bwrap` (Bubblewrap / Linux namespaces), montando el sistema en solo lectura y restringiendo la escritura exclusivamente al workspace autorizado según el rol.
-     * `ContainerExecutionStrategy`: Ejecución aislada en contenedores OCI mediante `podman`.
-   * **Harnesses de Agentes:** Configuración declarativa de instrucciones, permisos sobre artefactos y herramientas para `architect`, `developer`, `qa` y roles extensibles.
-   * **Motor RAG de Notebooks:** Indexación incremental por `SHA-256`, vigilancia de archivos con `fs.watch` (inotify en Linux) y búsqueda híbrida (`FTS5 BM25` + similitud coseno de vectores de embeddings) con citas obligatorias.
-   * **Cliente MCP:** Conexión a servidores Model Context Protocol mediante `JSON-RPC 2.0` sobre `stdio` con control de acceso por rol.
-4. **`src/tui/` (Centro de Mando en Terminal con Ink):**
-   * Capa de presentación pura construida con **Ink (React para CLI)** + modo CLI por comandos (`pocli`) para automatización e inspección.
+**Status:** Approved (Phase 0)  
+**Date:** 2026-10-31  
+**Context:** Definition of module boundaries, data model, inter-process communication protocol on Linux, local persistence, multi-language support, and knowledge retrieval engine (Notebooks + RAG) for **Product Owner CLI (PO CLI)**.
 
 ---
 
-## 2. Protocolo IPC entre Orquestador y Procesos Agente
+## 1. Layered Modular Architecture
 
-Cada agente puede ejecutarse en su propio proceso del sistema operativo Linux. La comunicación entre el **Orquestador** (proceso padre) y el **Worker del Agente** (proceso hijo) utiliza **JSON-RPC 2.0 delimitado por saltos de línea (`NDJSON`) sobre `stdin`/`stdout`**, reservando `stderr` para diagnóstico del sistema:
+PO CLI is organized into four strictly decoupled TypeScript layers:
 
-* **Peticiones del Orquestador al Proceso Agente:**
-  * `agent.initialize`: Configura el *Harness* del rol, modelo asignado, workspace y permisos.
-  * `agent.executeTurn`: Envía el prompt, contexto de artefactos aprobados, fragmentos RAG de Notebooks autorizados y herramientas permitidas.
-  * `agent.shutdown`: Cierre ordenado del proceso.
-* **Notificaciones y Peticiones del Proceso Agente al Orquestador:**
-  * `agent.streamChunk`: Emisión en tiempo real de tokens de respuesta.
-  * `agent.toolCall`: Solicitud o notificación de ejecución de herramienta auditada (`propose_requirement`, `write_architecture_doc`, `consult_architect`, `submit_for_qa`, `submit_qa_report`, `query_notebooks`, etc.).
-
----
-
-## 3. Modelo de Datos y Trazabilidad de Artefactos
-
-Ninguna decisión crítica queda enterrada en el historial de chat. Todo el flujo se apoya en artefactos persistentes con trazabilidad:
-
-* **`REQ-*`**: Requisitos funcionales y no funcionales.
-* **`ADR-*`**: Decisiones arquitectónicas registradas por el Arquitecto.
-* **`ARCH-*`**: Documento de arquitectura y contratos de componentes (sujeto a **Aprobación Formal del Product Owner**).
-* **`SPEC-*` / `PLAN-*`**: Especificaciones técnicas y plan de implementación.
-* **`CODE-*`**: Archivos de código fuente e implementación asociados a requisitos y arquitectura.
-* **`TEST-*` / `QA-*` / `DEF-*`**: Casos de prueba, informes de validación de QA con evidencias de ejecución y defectos clasificados por severidad (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
-* **`CONSULT-*` / `AMEND-*`**: Consultas técnicas del Desarrollador al Arquitecto y solicitudes de modificación arquitectónica al Product Owner.
+1. **`src/core/` (Domain, Contracts, State Machine, and i18n):**
+   * `Zod` schemas for all system entities: Projects, Agents, Messages, Artifacts, Authority Consultations, QA Reports, Notebooks, and `JSON-RPC 2.0` IPC messages.
+   * Deterministic state machine for the **8 Workflow Phases** and authority policy enforcement (`AuthorityGuard`).
+   * Multi-language translation dictionary (`src/core/i18n.ts`) supporting English (`en`, default) and Spanish (`es`).
+2. **`src/storage/` (Relational Persistence, Indexes, Settings, and Artifacts):**
+   * Built on `node:sqlite` (`DatabaseSync` native to Node.js 24 with `FTS5` enabled).
+   * Decoupled repositories for projects, sessions, messages, versioned artifacts (materialized on disk under `.pocli/artifacts/` with `SHA-256` hashes), inter-agent consultations, QA reports, 4-layer memory, Notebook chunks, and user settings (`settings` table).
+3. **`src/runtime/` (Orchestrator, Agent Worker Processes, Harnesses, RAG, and MCP):**
+   * **Agent Loop & LLM Gateway:** Iterative execution supporting per-role multi-model routing (`OpenAI`, `Anthropic`, `Gemini`, `Ollama`, and `DeterministicSpecialist` for offline/reproducible execution).
+   * **Linux Execution Strategies (`LinuxAgentProcessRunner`):**
+     * `LOCAL_PROCESS`: Runs in a separate OS process via `child_process` communicating over `JSON-RPC 2.0` on `stdio`.
+     * `LINUX_BWRAP`: Native Linux sandboxing via `bwrap` (Bubblewrap / Linux user, mount, pid, and ipc namespaces), mounting the root filesystem read-only and restricting write access exclusively to the authorized project workspace.
+     * `OCI_CONTAINER`: Isolated container execution via `podman`.
+   * **Agent Harnesses:** Declarative configuration of instructions, artifact permissions, and tools for `architect`, `developer`, `qa`, and dynamically registered specialist roles.
+   * **Notebook Hybrid RAG Engine:** Incremental `SHA-256` indexing, live file watching via `fs.watch` (Linux inotify), and hybrid retrieval (`FTS5 BM25` + semantic vector cosine similarity) with mandatory source citations.
+   * **MCP Client:** Connects to Model Context Protocol servers over `JSON-RPC 2.0` `stdio` with per-role access control.
+4. **`src/tui/` (Fullscreen Terminal Command Center with Ink):**
+   * Pure presentation layer built with **Ink (React for CLI)** featuring an OpenCode-style clean startup screen, interactive `/` slash commands (including `/settings`), and `Ctrl+Tab` switching to the Multipanel Command Center.
 
 ---
 
-## 4. Diseño del Sistema de Notebooks y RAG Híbrido
+## 2. IPC Protocol Between Orchestrator and Agent Processes
 
-1. **Separación conceptual:** El usuario gestiona **Notebooks** (directorios reales en el filesystem, locales o globales, asociados N:M a proyectos). El motor RAG es completamente transparente.
-2. **Indexación incremental:** Al asociar o actualizar un Notebook, el indexador recorre recursivamente el directorio, calcula el hash `SHA-256` de cada archivo y solo re-procesa los archivos nuevos o modificados.
-3. **Chunking estructural:** Los documentos se dividen respetando encabezados Markdown y bloques lógicos, conservando `notebookId`, `notebookName`, `filePath`, `sectionTitle` y rango de líneas.
-4. **Recuperación híbrida:** Combina puntuación léxica exacta (`SQLite FTS5 BM25`) con similitud vectorial semántica, filtrando estrictamente por los notebooks activos asignados al proyecto y autorizados para el rol que realiza la consulta.
+Each agent executes inside its own Linux OS process. Communication between the **Orchestrator** (parent process) and the **Agent Worker** (child process) uses **newline-delimited JSON-RPC 2.0 (`NDJSON`) over `stdin`/`stdout`**, reserving `stderr` for diagnostics:
 
+* **Orchestrator → Agent Worker Requests:**
+  * `agent.ping`: Health check returning worker PID and platform.
+  * `agent.executeTurn`: Sends prompt, normative artifact summary, RAG citations from authorized Notebooks, and model configuration.
+  * `agent.shutdown`: Graceful process termination.
+* **Agent Worker → Orchestrator Notifications:**
+  * `agent.streamChunk`: Real-time token streaming during turn generation.
+
+---
+
+## 3. Data Model and Artifact Traceability
+
+No critical engineering decision remains buried exclusively in chat history. All work produces persistent, traceable artifacts:
+
+* **`REQ-*`**: Functional and non-functional requirements.
+* **`ADR-*`**: Architectural Decision Records authored by the Software Architect.
+* **`ARCH-*`**: Technical architecture document and component contracts (subject to **Formal Product Owner Approval**).
+* **`SPEC-*` / `PLAN-*`**: Technical specifications and implementation plans.
+* **`CODE-*`**: Source code files linked to requirements and architecture.
+* **`TEST-*` / `QA-*` / `DEF-*`**: Test cases, independent QA validation reports with execution evidence, and defects classified by severity (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
+
+---
+
+## 4. Knowledge Notebooks and Hybrid RAG Design
+
+1. **Conceptual Separation:** Users manage **Notebooks** (physical directories on the Linux filesystem, global or project-scoped, linked N:M to projects). The underlying RAG indexing and vector math remain completely transparent.
+2. **Incremental Indexing:** When a Notebook is indexed, the engine walks the directory recursively, computes the `SHA-256` hash of each file, and only re-chunks new or modified files.
+3. **Structural Chunking:** Documents are split along Markdown headings and logical blocks while preserving `notebookId`, `notebookName`, `documentPath`, `section`, and line range (`L1-L42`).
+4. **Hybrid Retrieval:** Combines lexical relevance (`SQLite FTS5 BM25`) with semantic n-gram vector cosine similarity, strictly filtered by active Notebooks linked to the project and authorized for the querying agent's role.

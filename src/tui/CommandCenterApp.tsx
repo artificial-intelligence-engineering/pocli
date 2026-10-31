@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput, useApp, useStdout, useStdin } from 'ink';
 import { ActorRole, Artifact, Notebook, Project } from '../core/contracts.js';
+import {
+  getRoleDisplayName,
+  I18N_DICTIONARY,
+  SupportedLanguage,
+} from '../core/i18n.js';
 import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
 
@@ -8,83 +13,6 @@ export interface CommandCenterProps {
   orchestrator: PoCliOrchestrator;
   initialProject: Project;
 }
-
-interface SlashCommandDef {
-  command: string;
-  description: string;
-  phaseHint?: string;
-}
-
-const SLASH_COMMANDS: SlashCommandDef[] = [
-  {
-    command: '/architect',
-    description: 'Cambiar interlocutor activo al Arquitecto de Software',
-  },
-  {
-    command: '/developer',
-    description: 'Cambiar interlocutor activo al Desarrollador Experto',
-  },
-  {
-    command: '/qa',
-    description: 'Cambiar interlocutor activo al Ingeniero de QA Independiente',
-  },
-  {
-    command: '/propose',
-    description: 'Pedir al Arquitecto propuesta formal de requisitos y arquitectura',
-    phaseHint: 'Fase 2 → 3',
-  },
-  {
-    command: '/approve',
-    description: 'Aprobar formalmente la arquitectura (ARCH-001) como Product Owner',
-    phaseHint: 'Fase 3 → 4',
-  },
-  {
-    command: '/reject',
-    description: 'Rechazar la arquitectura propuesta y devolver a análisis',
-    phaseHint: 'Fase 3 → 2',
-  },
-  {
-    command: '/handoff',
-    description: 'Transferir paquete normativo aprobado al Desarrollador',
-    phaseHint: 'Fase 4 → 5',
-  },
-  {
-    command: '/implement',
-    description: 'Ordenar al Desarrollador implementar según el Handoff aprobado',
-    phaseHint: 'Fase 5',
-  },
-  {
-    command: '/consult',
-    description: 'Lanzar consulta técnica formal Desarrollador → Arquitecto',
-    phaseHint: 'Fase 5',
-  },
-  {
-    command: '/validate',
-    description: 'Ejecutar validación independiente de QA con pruebas y evidencias',
-    phaseHint: 'Fase 6 / 7',
-  },
-  {
-    command: '/accept',
-    description: 'Aceptación definitiva del proyecto por el Product Owner',
-    phaseHint: 'Fase 8',
-  },
-  {
-    command: '/notebooks',
-    description: 'Re-indexar y mostrar estado de los Notebooks RAG asociados',
-  },
-  {
-    command: '/view',
-    description: 'Alternar entre vista limpia (OpenCode) y Multipanel (Ctrl+Tab)',
-  },
-  {
-    command: '/clear',
-    description: 'Limpiar el registro de notificaciones en pantalla',
-  },
-  {
-    command: '/exit',
-    description: 'Salir de Product Owner CLI',
-  },
-];
 
 const ASCII_LOGO = [
   '██████╗  ██████╗      ██████╗██╗     ██╗',
@@ -103,6 +31,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const { stdout } = useStdout();
   const { stdin } = useStdin();
 
+  const initialSettings = orchestrator.storage.getSettings();
+  const [language, setLanguage] = useState<SupportedLanguage>(
+    initialSettings.language,
+  );
+  const t = I18N_DICTIONARY[language];
+
   const [dimensions, setDimensions] = useState<{ columns: number; rows: number }>({
     columns: stdout?.columns ?? 120,
     rows: stdout?.rows ?? 36,
@@ -110,6 +44,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   // View mode: 'simple' (OpenCode-like centered clean view) vs 'multipanel' (Full Command Center)
   const [viewMode, setViewMode] = useState<'simple' | 'multipanel'>('simple');
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [project, setProject] = useState<Project>(initialProject);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -120,9 +55,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [selectedSlashIdx, setSelectedSlashIdx] = useState<number>(0);
   const [busy, setBusy] = useState<boolean>(false);
   const [streamingText, setStreamingText] = useState<string>('');
-  const [statusBanner, setStatusBanner] = useState<string>(
-    'Escribe un mensaje para el profesional activo o usa "/" para ver comandos. Pulsa Ctrl+Tab para alternar vista.',
-  );
+  const [statusBanner, setStatusBanner] = useState<string>(t.initialStatusBanner);
 
   const refreshState = () => {
     const updated = orchestrator.storage.getProject(project.id);
@@ -135,7 +68,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     refreshState();
   }, []);
 
-  // Track terminal resize so fullscreen layout always fills 100% of terminal
+  // Track terminal resize so fullscreen layout always fills 100% of terminal viewport
   useEffect(() => {
     if (!stdout) return;
     const onResize = () => {
@@ -170,10 +103,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     };
   }, [stdin]);
 
+  const applyLanguageChange = (nextLang: SupportedLanguage) => {
+    orchestrator.storage.updateSettings({ language: nextLang });
+    setLanguage(nextLang);
+    setStatusBanner(I18N_DICTIONARY[nextLang].settingsSavedMsg(nextLang));
+  };
+
   const isSlashMenuOpen = inputValue.startsWith('/');
+  const slashToken = inputValue.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
   const filteredSlashCommands = isSlashMenuOpen
-    ? SLASH_COMMANDS.filter((cmd) =>
-        cmd.command.toLowerCase().startsWith(inputValue.trim().toLowerCase()),
+    ? t.slashCommands.filter((cmd) =>
+        cmd.command.toLowerCase().startsWith(slashToken),
       )
     : [];
 
@@ -185,13 +125,33 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const trimmed = rawText.trim();
     if (!trimmed || busy) return;
 
-    // If user typed a slash command
+    // Handle slash commands starting with "/"
     if (trimmed.startsWith('/')) {
-      const cmdToken = trimmed.split(/\s+/)[0].toLowerCase();
+      const parts = trimmed.split(/\s+/);
+      const cmdToken = parts[0].toLowerCase();
       setInputValue('');
 
       if (cmdToken === '/exit' || cmdToken === '/quit') {
         exit();
+        return;
+      }
+      if (cmdToken === '/settings') {
+        const arg1 = parts[1]?.toLowerCase();
+        const arg2 = parts[2]?.toLowerCase();
+        const requestedLang = arg1 === 'lang' ? arg2 : arg1;
+        if (requestedLang === 'en' || requestedLang === 'english') {
+          applyLanguageChange('en');
+          return;
+        }
+        if (
+          requestedLang === 'es' ||
+          requestedLang === 'spanish' ||
+          requestedLang === 'espanol'
+        ) {
+          applyLanguageChange('es');
+          return;
+        }
+        setIsSettingsOpen((prev) => !prev);
         return;
       }
       if (cmdToken === '/view') {
@@ -200,29 +160,35 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       if (cmdToken === '/clear') {
         setStreamingText('');
-        setStatusBanner('Pantalla de estado limpiada.');
+        setStatusBanner(t.statusClearedMsg);
         return;
       }
       if (cmdToken === '/architect') {
         setActiveRole('architect');
-        setStatusBanner('Interlocutor activo: Arquitecto de Software');
+        setStatusBanner(
+          t.activeInterlocutorMsg(getRoleDisplayName('architect', language)),
+        );
         return;
       }
       if (cmdToken === '/developer') {
         setActiveRole('developer');
-        setStatusBanner('Interlocutor activo: Desarrollador Experto');
+        setStatusBanner(
+          t.activeInterlocutorMsg(getRoleDisplayName('developer', language)),
+        );
         return;
       }
       if (cmdToken === '/qa') {
         setActiveRole('qa');
-        setStatusBanner('Interlocutor activo: Ingeniero de QA Independiente');
+        setStatusBanner(
+          t.activeInterlocutorMsg(getRoleDisplayName('qa', language)),
+        );
         return;
       }
       if (cmdToken === '/propose') {
         setActiveRole('architect');
         await sendChatMessage(
           'architect',
-          'Diseña y propón la arquitectura formal y requisitos del proyecto.',
+          'Design and propose the formal architecture and requirements for this project.',
         );
         return;
       }
@@ -232,14 +198,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             projectId: project.id,
             artifactCode: 'ARCH-001',
             decision: 'APPROVED',
-            comments: 'Arquitectura aprobada formalmente por el Product Owner.',
+            comments: 'Architecture formally approved by the Product Owner.',
           });
-          setStatusBanner(
-            `✔ Arquitectura ARCH-001 v${approval.artifactVersion} APROBADA por el Product Owner.`,
-          );
+          setStatusBanner(t.archApprovedMsg(approval.artifactVersion));
           refreshState();
         } catch (err) {
-          setStatusBanner(`✖ Error al aprobar: ${(err as Error).message}`);
+          setStatusBanner(`✖ Error: ${(err as Error).message}`);
         }
         return;
       }
@@ -249,12 +213,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             projectId: project.id,
             artifactCode: 'ARCH-001',
             decision: 'REJECTED',
-            comments: 'El Product Owner solicita revisar la propuesta arquitectónica.',
+            comments: 'Product Owner requested architectural revisions.',
           });
-          setStatusBanner('↺ Arquitectura ARCH-001 rechazada. Devuelta a Fase 2 (Análisis).');
+          setStatusBanner(t.archRejectedMsg);
           refreshState();
         } catch (err) {
-          setStatusBanner(`✖ Error al rechazar: ${(err as Error).message}`);
+          setStatusBanner(`✖ Error: ${(err as Error).message}`);
         }
         return;
       }
@@ -263,11 +227,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           const bundle = orchestrator.performDeveloperHandoff(project.id);
           setActiveRole('developer');
           setStatusBanner(
-            `✔ Handoff transferido al Desarrollador (ARCH v${bundle.approvedArchitectureVersion}).`,
+            t.handoffCompletedMsg(bundle.approvedArchitectureVersion),
           );
           refreshState();
         } catch (err) {
-          setStatusBanner(`✖ Error en Handoff: ${(err as Error).message}`);
+          setStatusBanner(`✖ Error: ${(err as Error).message}`);
         }
         return;
       }
@@ -275,7 +239,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setActiveRole('developer');
         await sendChatMessage(
           'developer',
-          'Implementa el software siguiendo estrictamente el paquete de Handoff aprobado.',
+          'Implement the software strictly following the approved Handoff bundle.',
         );
         return;
       }
@@ -284,17 +248,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         try {
           const cons = await orchestrator.consultArchitectFromDeveloper({
             projectId: project.id,
-            subject: 'Consulta sobre validación de contrato en implementación',
-            ambiguityOrBlocker: 'Ambigüedad detectada en el tratamiento de errores de entrada',
-            proposedAlternative: 'Emitir excepción tipada conforme a SPEC-001',
+            subject: 'Consultation regarding contract validation during implementation',
+            ambiguityOrBlocker: 'Detected ambiguity in invalid input error handling',
+            proposedAlternative: 'Throw typed Error compliant with SPEC-001',
             impactedArtifacts: ['ARCH-001', 'SPEC-001'],
           });
-          setStatusBanner(
-            `✔ Consulta Desarrollador → Arquitecto registrada y evaluada: ${cons.status}`,
-          );
+          setStatusBanner(t.consultationEvaluatedMsg(cons.status));
           refreshState();
         } catch (err) {
-          setStatusBanner(`✖ Error en consulta: ${(err as Error).message}`);
+          setStatusBanner(`✖ Error: ${(err as Error).message}`);
         } finally {
           setBusy(false);
         }
@@ -303,17 +265,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (cmdToken === '/validate') {
         setBusy(true);
         setActiveRole('qa');
-        setStatusBanner('⏳ Ingeniero de QA ejecutando pruebas independientes...');
+        setStatusBanner(t.qaRunningMsg);
         try {
           const res = await orchestrator.submitToQaAndValidate({
             projectId: project.id,
           });
           setStatusBanner(
-            `✔ QA emitió ${res.qaArtifact.code}: ${res.payload.recommendation} (${res.payload.passedTests.length}/${res.payload.executedTests.length} pruebas superadas).`,
+            t.qaCompletedMsg(
+              res.qaArtifact.code,
+              res.payload.recommendation,
+              res.payload.passedTests.length,
+              res.payload.executedTests.length,
+            ),
           );
           refreshState();
         } catch (err) {
-          setStatusBanner(`✖ Error en validación QA: ${(err as Error).message}`);
+          setStatusBanner(`✖ Error: ${(err as Error).message}`);
         } finally {
           setBusy(false);
         }
@@ -323,12 +290,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         try {
           orchestrator.acceptProjectByPo({
             projectId: project.id,
-            comments: 'Proyecto aceptado finalmente por el Product Owner.',
+            comments: 'Project finally accepted by the Product Owner.',
           });
-          setStatusBanner('★ ¡Proyecto ACEPTADO y COMPLETADO por el Product Owner!');
+          setStatusBanner(t.projectAcceptedMsg);
           refreshState();
         } catch (err) {
-          setStatusBanner(`✖ No se puede aceptar aún: ${(err as Error).message}`);
+          setStatusBanner(`✖ Error: ${(err as Error).message}`);
         }
         return;
       }
@@ -339,12 +306,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         }
         refreshState();
         setStatusBanner(
-          `✔ Notebooks activos asociados al proyecto: ${nbs.length} (${nbs.map((n) => n.name).join(', ') || 'ninguno'}).`,
+          t.notebooksIndexedMsg(
+            nbs.length,
+            nbs.map((n) => n.name).join(', '),
+          ),
         );
         return;
       }
 
-      setStatusBanner(`Comando desconocido: ${cmdToken}. Escribe "/" para ver la lista.`);
+      setStatusBanner(t.unknownCommandMsg(cmdToken));
       return;
     }
 
@@ -356,7 +326,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const sendChatMessage = async (targetRole: ActorRole, messageText: string) => {
     setBusy(true);
     setStreamingText('');
-    setStatusBanner(`⏳ Consultando a ${targetRole.toUpperCase()} en proceso Linux aislado...`);
+    setStatusBanner(t.consultingAgentMsg(targetRole));
     try {
       const res = await orchestrator.chatWithProfessional({
         projectId: project.id,
@@ -368,7 +338,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       });
       setStreamingText('');
       setStatusBanner(
-        `✔ ${targetRole.toUpperCase()} respondió (Worker PID ${res.workerPid} | ${res.createdArtifacts.length} artefactos nuevos).`,
+        t.agentRepliedMsg(
+          targetRole,
+          res.workerPid,
+          res.createdArtifacts.length,
+        ),
       );
       refreshState();
     } catch (err) {
@@ -379,6 +353,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
 
   useInput((input, key) => {
+    // Handle interactive Settings modal when open
+    if (isSettingsOpen) {
+      if (key.escape || input === 'q') {
+        setIsSettingsOpen(false);
+        return;
+      }
+      if (key.leftArrow || key.rightArrow || key.return || input === ' ') {
+        const nextLang: SupportedLanguage = language === 'en' ? 'es' : 'en';
+        applyLanguageChange(nextLang);
+        return;
+      }
+      return;
+    }
+
     if (key.escape) {
       if (inputValue.length > 0) {
         setInputValue('');
@@ -390,9 +378,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // Toggle between OpenCode simple view and Multipanel Command Center on Tab/Ctrl+Tab
     if (key.tab) {
-      if (isSlashMenuOpen && filteredSlashCommands.length > 0 && !key.shift && !key.ctrl) {
-        // Autocomplete selected slash command
-        const chosen = filteredSlashCommands[selectedSlashIdx] ?? filteredSlashCommands[0];
+      if (
+        isSlashMenuOpen &&
+        filteredSlashCommands.length > 0 &&
+        !key.shift &&
+        !key.ctrl
+      ) {
+        const chosen =
+          filteredSlashCommands[selectedSlashIdx] ?? filteredSlashCommands[0];
         if (chosen) {
           setInputValue(`${chosen.command} `);
         }
@@ -419,12 +412,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     }
 
     if (key.return) {
-      if (isSlashMenuOpen && filteredSlashCommands.length > 0) {
-        const chosen = filteredSlashCommands[selectedSlashIdx] ?? filteredSlashCommands[0];
-        if (chosen && inputValue.trim() === chosen.command) {
-          void executeCommandOrMessage(chosen.command);
-          return;
-        } else if (chosen && !SLASH_COMMANDS.some((c) => c.command === inputValue.trim())) {
+      if (
+        isSlashMenuOpen &&
+        filteredSlashCommands.length > 0 &&
+        !inputValue.trim().includes(' ')
+      ) {
+        const chosen =
+          filteredSlashCommands[selectedSlashIdx] ?? filteredSlashCommands[0];
+        if (chosen) {
           void executeCommandOrMessage(chosen.command);
           return;
         }
@@ -444,11 +439,55 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   });
 
   const harnesses = HarnessRegistry.listHarnesses();
-  const activeHarness = harnesses.find((h) => h.role === activeRole) ?? harnesses[0];
-  const activeModelCfg = orchestrator.storage.getRoleConfig(project.id, activeRole);
+  const activeRoleDisplayName = getRoleDisplayName(activeRole, language);
+  const activeModelCfg = orchestrator.storage.getRoleConfig(
+    project.id,
+    activeRole,
+  );
   const messages = orchestrator.storage.listMessages(project.id, activeRole);
   const lastMessages = messages.slice(-3);
   const roleConfigs = orchestrator.storage.listRoleConfigs(project.id);
+
+  // Settings Modal Component
+  const renderSettingsModal = () => (
+    <Box
+      flexDirection="column"
+      width={Math.min(82, dimensions.columns - 8)}
+      borderStyle="double"
+      borderColor="yellow"
+      paddingX={2}
+      paddingY={1}
+      marginBottom={1}
+    >
+      <Text bold color="yellow">
+        ⚙ {t.settingsTitle}
+      </Text>
+      <Text dimColor>{t.settingsSubtitle}</Text>
+      <Box marginTop={1} justifyContent="space-between">
+        <Box flexDirection="column">
+          <Text bold color="white">
+            ❯ {t.settingLanguageLabel}
+          </Text>
+          <Text dimColor>  {t.settingLanguageDesc}</Text>
+        </Box>
+        <Box>
+          <Text
+            bold={language === 'en'}
+            color={language === 'en' ? 'green' : 'gray'}
+          >
+            [ English (en) ]
+          </Text>
+          <Text> </Text>
+          <Text
+            bold={language === 'es'}
+            color={language === 'es' ? 'green' : 'gray'}
+          >
+            [ Español (es) ]
+          </Text>
+        </Box>
+      </Box>
+    </Box>
+  );
 
   // ==========================================================================
   // RENDER MODE 1: OPENCODE-STYLE CLEAN FULLSCREEN VIEW (DEFAULT ON STARTUP)
@@ -466,11 +505,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         {/* Top subtle bar */}
         <Box justifyContent="space-between" width="100%">
           <Text dimColor>
-            pocli v1.0.0 · proyecto: <Text color="white">{project.name}</Text> · fase:{' '}
-            <Text color="cyan">{project.phase}</Text>
+            pocli v1.0.0 · {t.projectLabel}:{' '}
+            <Text color="white">{project.name}</Text> · {t.phaseLabel}:{' '}
+            <Text color="cyan">{project.phase}</Text> · lang:{' '}
+            <Text color="yellow">{language.toUpperCase()}</Text>
           </Text>
           <Text dimColor>
-            vista: <Text color="green">limpia</Text> (pulsa <Text color="yellow">Ctrl+Tab</Text> para Multipanel)
+            {t.viewLabel}: <Text color="green">{t.cleanViewName}</Text> (
+            {t.toggleViewHint})
           </Text>
         </Box>
 
@@ -491,17 +533,21 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             ))}
             <Box marginTop={1}>
               <Text dimColor>
-                Equipo Virtual de Ingeniería ·{' '}
+                {t.virtualEngineeringTeam} ·{' '}
                 <Text color="white" bold>
-                  {activeHarness.displayName}
+                  {activeRoleDisplayName}
                 </Text>{' '}
-                ({activeModelCfg.modelId}) · Arq v{project.approvedArchitectureVersion}
+                ({activeModelCfg.modelId}) · {t.archVersionShort} v
+                {project.approvedArchitectureVersion}
               </Text>
             </Box>
           </Box>
 
+          {/* Interactive Settings Panel when /settings is active */}
+          {isSettingsOpen && renderSettingsModal()}
+
           {/* Recent conversation snippet if any */}
-          {(lastMessages.length > 0 || streamingText) && (
+          {!isSettingsOpen && (lastMessages.length > 0 || streamingText) && (
             <Box
               flexDirection="column"
               width={Math.min(92, dimensions.columns - 8)}
@@ -517,17 +563,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     bold
                     color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
                   >
-                    {m.fromRole === 'product_owner' ? 'Product Owner' : activeHarness.displayName}:
+                    {m.fromRole === 'product_owner'
+                      ? getRoleDisplayName('product_owner', language)
+                      : activeRoleDisplayName}
+                    :
                   </Text>
                   <Text>
-                    {m.content.length > 220 ? `${m.content.slice(0, 220)}...` : m.content}
+                    {m.content.length > 220
+                      ? `${m.content.slice(0, 220)}...`
+                      : m.content}
                   </Text>
                 </Box>
               ))}
               {streamingText && (
                 <Box flexDirection="column">
                   <Text bold color="green">
-                    {activeHarness.displayName} (streaming):
+                    {activeRoleDisplayName} (streaming):
                   </Text>
                   <Text>{streamingText}</Text>
                 </Box>
@@ -536,7 +587,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           )}
 
           {/* Slash Command Popover Menu when user types "/" */}
-          {isSlashMenuOpen && (
+          {!isSettingsOpen && isSlashMenuOpen && (
             <Box
               flexDirection="column"
               width={Math.min(92, dimensions.columns - 8)}
@@ -546,19 +597,27 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               marginBottom={1}
             >
               <Text bold color="magenta">
-                Comandos disponibles (↑/↓ seleccionar · Tab autocompletar · Enter ejecutar)
+                {t.availableCommandsHeader}
               </Text>
               {filteredSlashCommands.length === 0 ? (
-                <Text dimColor>Sin coincidencias para "{inputValue}"</Text>
+                <Text dimColor>
+                  {t.noCommandMatches} "{inputValue}"
+                </Text>
               ) : (
-                filteredSlashCommands.slice(0, 7).map((item, idx) => {
+                filteredSlashCommands.slice(0, 8).map((item, idx) => {
                   const isSelected = idx === selectedSlashIdx;
                   return (
                     <Box key={item.command} justifyContent="space-between">
-                      <Text color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
+                      <Text
+                        color={isSelected ? 'cyan' : 'white'}
+                        bold={isSelected}
+                      >
                         {isSelected ? '❯ ' : '  '}
                         {item.command.padEnd(14, ' ')}
-                        <Text dimColor={!isSelected} color={isSelected ? 'white' : undefined}>
+                        <Text
+                          dimColor={!isSelected}
+                          color={isSelected ? 'white' : undefined}
+                        >
                           {item.description}
                         </Text>
                       </Text>
@@ -591,14 +650,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 <Text>{inputValue}</Text>
                 <Text color="cyan">█</Text>
               </Text>
-              <Text dimColor>
-                [{activeRole}]
-              </Text>
+              <Text dimColor>[{activeRole}]</Text>
             </Box>
             <Box justifyContent="space-between" marginTop={0}>
-              <Text dimColor>
-                Escribe tu instrucción o <Text color="yellow">"/"</Text> para comandos (/propose, /approve, /handoff, /implement, /validate)
-              </Text>
+              <Text dimColor>{t.inputPlaceholderHint}</Text>
               <Text dimColor>Enter ↵</Text>
             </Box>
           </Box>
@@ -607,9 +662,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         {/* Bottom Status Bar */}
         <Box justifyContent="space-between" width="100%">
           <Text color={busy ? 'yellow' : 'gray'}>{statusBanner}</Text>
-          <Text dimColor>
-            <Text color="yellow">/</Text> comandos · <Text color="yellow">Ctrl+Tab</Text> multipanel · <Text color="yellow">Esc</Text> salir
-          </Text>
+          <Text dimColor>{t.bottomShortcutsHint}</Text>
         </Box>
       </Box>
     );
@@ -631,29 +684,39 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       {/* Header Bar */}
       <Box justifyContent="space-between">
         <Text bold color="cyan">
-          PO CLI — Centro de Mando Multipanel (Linux)
+          {t.multipanelHeaderTitle}
         </Text>
         <Text>
-          Proyecto: <Text bold color="yellow">{project.name}</Text> | Fase:{' '}
-          <Text bold color="green">{project.phase}</Text> | Arq:{' '}
-          <Text bold>v{project.approvedArchitectureVersion}</Text> | Ciclos QA:{' '}
-          <Text bold>{project.correctionCycleCount}</Text>
+          {t.projectLabel}: <Text bold color="yellow">{project.name}</Text> |{' '}
+          {t.phaseLabel}: <Text bold color="green">{project.phase}</Text> |{' '}
+          {t.archVersionShort}:{' '}
+          <Text bold>v{project.approvedArchitectureVersion}</Text> |{' '}
+          {t.qaCyclesShort}: <Text bold>{project.correctionCycleCount}</Text> |
+          Lang: <Text bold color="yellow">{language.toUpperCase()}</Text>
         </Text>
       </Box>
+
+      {isSettingsOpen && (
+        <Box marginTop={1} justifyContent="center">
+          {renderSettingsModal()}
+        </Box>
+      )}
 
       {/* Main Split Body */}
       <Box flexDirection="row" flexGrow={1} marginTop={1}>
         {/* Left Sidebar: Team, Artifacts & Notebooks */}
         <Box flexDirection="column" width="42%" paddingRight={2}>
           <Text bold underline color="magenta">
-            1. Equipo Virtual de Ingeniería
+            {t.sectionTeamTitle}
           </Text>
           {harnesses.map((h, idx) => {
             const cfg = roleConfigs.find((rc) => rc.role === h.role);
             const isSelected = h.role === activeRole;
+            const roleLabel = getRoleDisplayName(h.role, language);
             return (
               <Text key={h.role} color={isSelected ? 'green' : 'white'}>
-                {isSelected ? '▶ ' : '  '}[{idx + 1}] {h.displayName} ({cfg?.modelId ?? 'default'} |{' '}
+                {isSelected ? '▶ ' : '  '}[{idx + 1}] {roleLabel} (
+                {cfg?.modelId ?? 'default'} |{' '}
                 {cfg?.executionModality ?? 'LOCAL'})
               </Text>
             );
@@ -661,15 +724,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
           <Box marginTop={1} flexDirection="column">
             <Text bold underline color="magenta">
-              2. Artefactos Versionados ({artifacts.length})
+              {t.sectionArtifactsTitle(artifacts.length)}
             </Text>
             {artifacts.length === 0 ? (
-              <Text dimColor>  Sin artefactos generados aún.</Text>
+              <Text dimColor>{t.noArtifactsYet}</Text>
             ) : (
               artifacts.slice(0, 8).map((art) => (
                 <Text key={art.id}>
-                  {'  '}• <Text bold>{art.code}</Text> v{art.version} [{art.status}] →{' '}
-                  {art.tracesTo.join(',') || 'raíz'}
+                  {'  '}• <Text bold>{art.code}</Text> v{art.version} [
+                  {art.status}] →{' '}
+                  {art.tracesTo.join(',') || t.rootTraceLabel}
                 </Text>
               ))
             )}
@@ -677,14 +741,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
           <Box marginTop={1} flexDirection="column">
             <Text bold underline color="magenta">
-              3. Notebooks RAG Asociados ({notebooks.length})
+              {t.sectionNotebooksTitle(notebooks.length)}
             </Text>
             {notebooks.length === 0 ? (
-              <Text dimColor>  Sin notebooks vinculados.</Text>
+              <Text dimColor>{t.noNotebooksLinked}</Text>
             ) : (
               notebooks.map((nb) => (
                 <Text key={nb.id}>
-                  {'  '}• <Text bold color="cyan">{nb.name}</Text> ({nb.allowedRoles.join(',')})
+                  {'  '}• <Text bold color="cyan">{nb.name}</Text> (
+                  {nb.allowedRoles.join(',')})
                 </Text>
               ))
             )}
@@ -700,14 +765,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           paddingX={1}
         >
           <Text bold color="yellow">
-            Canal Directo PO ↔ {activeHarness.displayName.toUpperCase()}
+            {t.directChannelHeader(activeRoleDisplayName)}
           </Text>
           {messages.length === 0 ? (
-            <Text dimColor>No hay mensajes en este canal todavía.</Text>
+            <Text dimColor>{t.noMessagesInChannel}</Text>
           ) : (
             messages.slice(-5).map((m) => (
               <Box key={m.id} flexDirection="column" marginTop={1}>
-                <Text bold color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}>
+                <Text
+                  bold
+                  color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
+                >
                   [{m.fromRole} → {m.toRole}]:
                 </Text>
                 <Text>
@@ -721,17 +789,21 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       </Box>
 
       {/* Slash Menu Popover inside Multipanel mode */}
-      {isSlashMenuOpen && (
+      {!isSettingsOpen && isSlashMenuOpen && (
         <Box
           flexDirection="column"
           borderStyle="round"
           borderColor="magenta"
           paddingX={1}
         >
-          {filteredSlashCommands.slice(0, 5).map((item, idx) => {
+          {filteredSlashCommands.slice(0, 6).map((item, idx) => {
             const isSelected = idx === selectedSlashIdx;
             return (
-              <Text key={item.command} color={isSelected ? 'cyan' : 'white'} bold={isSelected}>
+              <Text
+                key={item.command}
+                color={isSelected ? 'cyan' : 'white'}
+                bold={isSelected}
+              >
                 {isSelected ? '❯ ' : '  '}
                 {item.command.padEnd(14, ' ')} — {item.description}
               </Text>
@@ -741,7 +813,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       )}
 
       {/* Bottom Input Box + Status Footer */}
-      <Box flexDirection="column" borderStyle="single" borderColor="cyan" paddingX={1}>
+      <Box
+        flexDirection="column"
+        borderStyle="single"
+        borderColor="cyan"
+        paddingX={1}
+      >
         <Box justifyContent="space-between">
           <Text>
             <Text bold color="cyan">
@@ -750,9 +827,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text>{inputValue}</Text>
             <Text color="cyan">█</Text>
           </Text>
-          <Text dimColor>
-            Pulsa <Text color="yellow">Ctrl+Tab</Text> para volver a vista limpia
-          </Text>
+          <Text dimColor>{t.returnToCleanViewHint}</Text>
         </Box>
         <Text color={busy ? 'yellow' : 'gray'}>{statusBanner}</Text>
       </Box>

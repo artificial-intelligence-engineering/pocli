@@ -1,39 +1,57 @@
 # Product Owner CLI (`pocli`)
 
-Entorno TUI/CLI nativo en Linux para el desarrollo de software asistido por un **equipo virtual de ingeniería** (`Arquitecto de Software`, `Desarrollador Experto`, `Ingeniero de QA` y especialistas extensibles) dirigido por el **Product Owner humano**, con soporte de **Notebooks de conocimiento RAG** en el filesystem y aislamiento de procesos.
+A native Linux TUI/CLI software engineering environment powered by a **virtual team of specialized AI agents** (`Software Architect`, `Senior Developer`, `Independent QA Engineer`, and extensible specialists) directed by the **human Product Owner**, featuring filesystem **RAG Knowledge Notebooks**, multi-language support (`en` / `es`), and OS-level process sandboxing.
 
 ---
 
-## Arquitectura e Implementación (Fases 0 a 7)
+## Architecture & Implementation (Phases 0 to 7)
 
-* **Documentación y ADRs:**
-  * [agents/AGENTS.md](agents/AGENTS.md) — Especificación maestra del producto.
-  * [agents/IMPLEMENTATION_PLAN.md](agents/IMPLEMENTATION_PLAN.md) — Plan de implementación por fases.
-  * [docs/adr/000-oss-benchmark-matrix.md](docs/adr/000-oss-benchmark-matrix.md) — Matriz comparativa de proyectos open source (*Slipwright, AWS CAO, Open Orchestra, TinySDLC, Pi, OpenCode*).
-  * [docs/adr/001-architecture-and-runtime.md](docs/adr/001-architecture-and-runtime.md) — Arquitectura modular, IPC `JSON-RPC 2.0`, `node:sqlite` + `FTS5`, Notebooks RAG y Sandboxing en Linux.
-* **Módulos principales (`src/`):**
-  * `src/core/contracts.ts` & `src/core/workflow.ts`: Esquemas `Zod`, máquina de estados de las **8 fases del Workflow** y motor de reglas de autoridad (`AuthorityGuard`).
-  * `src/storage/database.ts`: Persistencia desacoplada sobre `node:sqlite` (`WAL` + `FTS5`), artefactos versionados en disco con hashes `SHA-256`, historial de aprobaciones, consultas arquitectónicas, informes de QA y 4 capas de memoria.
-  * `src/runtime/notebook-rag.ts`: Gestión de **Notebooks** asociados a directorios del filesystem, indexación incremental (`SHA-256`), vigilancia de cambios en Linux (`fs.watch`/inotify) y recuperación híbrida (`SQLite FTS5 BM25` + similitud vectorial coseno) con citas verificables.
-  * `src/runtime/process-runner.ts` & `src/runtime/agent-worker.ts`: Ejecución de agentes en procesos independientes de Linux comunicados mediante `JSON-RPC 2.0` sobre `stdio`, soportando `LOCAL_PROCESS`, `LINUX_BWRAP` (namespaces vía Bubblewrap) y `OCI_CONTAINER`.
-  * `src/runtime/mcp-client.ts`: Cliente Model Context Protocol (`MCP`) sobre `JSON-RPC 2.0` con permisos por rol.
-  * `src/runtime/orchestrator.ts`: Orquestador central del equipo virtual y coordinación de artefactos, handoffs, consultas y ciclos de validación QA.
-  * `src/tui/CommandCenterApp.tsx`: Centro de mando interactivo en terminal construido con **Ink**.
+* **Documentation & ADRs:**
+  * [agents/AGENTS.md](agents/AGENTS.md) — Master product specification.
+  * [agents/IMPLEMENTATION_PLAN.md](agents/IMPLEMENTATION_PLAN.md) — Phased implementation plan.
+  * [docs/adr/000-oss-benchmark-matrix.md](docs/adr/000-oss-benchmark-matrix.md) — Open-source reference benchmark matrix (*Slipwright, AWS CAO, Open Orchestra, TinySDLC, Pi, OpenCode*).
+  * [docs/adr/001-architecture-and-runtime.md](docs/adr/001-architecture-and-runtime.md) — Modular architecture, `JSON-RPC 2.0` IPC, `node:sqlite` + `FTS5`, RAG Notebooks, and Linux sandboxing.
+* **Core Modules (`src/`):**
+  * `src/core/contracts.ts`, `src/core/workflow.ts`, & `src/core/i18n.ts`: `Zod` domain schemas, the **8-phase Workflow state machine**, authority policy enforcement (`AuthorityGuard`), and multi-language (`en`/`es`) dictionary.
+  * `src/storage/database.ts`: Decoupled persistence built on `node:sqlite` (`WAL` + `FTS5`), versioned artifacts materialized on disk with `SHA-256` hashes, approval history, architectural consultations, QA reports, 4-layer memory, and persisted application settings.
+  * `src/runtime/notebook-rag.ts`: Management of **Notebooks** mapped to filesystem directories, incremental `SHA-256` indexing, live file watching on Linux (`fs.watch`/inotify), and hybrid retrieval (`SQLite FTS5 BM25` + vector cosine similarity) with verifiable source citations.
+  * `src/runtime/process-runner.ts` & `src/runtime/agent-worker.ts`: Execution of agents in independent Linux OS processes communicating via `JSON-RPC 2.0` over `stdio`, supporting `LOCAL_PROCESS`, `LINUX_BWRAP` (Linux namespaces via Bubblewrap), and `OCI_CONTAINER`.
+  * `src/runtime/mcp-client.ts`: Model Context Protocol (`MCP`) client over `JSON-RPC 2.0` with role-based permissions.
+  * `src/runtime/orchestrator.ts`: Central orchestrator coordinating the virtual engineering team, artifacts, handoffs, consultations, and QA validation cycles.
+  * `src/tui/CommandCenterApp.tsx`: Fullscreen terminal UI built with **Ink**, featuring an OpenCode-style clean startup view, interactive `/` slash command menu (including `/settings` for switching between English and Spanish), and `Ctrl+Tab` toggle to the Multipanel Command Center.
 
 ---
 
-## Uso Rápido
+## Quick Start
 
 ```bash
-# Ejecutar la suite de pruebas de integración (Fases 0 a 7)
+# Run the integration test suite (Phases 0 to 7)
 npm test
 
-# Ejecutar una demostración completa de las 8 fases del workflow en Linux
+# Run a full 8-phase engineering workflow demonstration on Linux
 npx tsx src/cli.ts demo
 
-# Iniciar el Centro de Mando interactivo TUI (Ink)
+# Launch the interactive fullscreen TUI Command Center (Ink)
 npm run tui
 
-# Compilar a JavaScript en ./dist
+# Build TypeScript to ./dist
 npm run build
 ```
+
+---
+
+## Interactive TUI Controls & Slash Commands
+
+* Press **`Ctrl+Tab`** at any time to toggle between the **Clean OpenCode View** and the **Multipanel Command Center**.
+* Type **`/`** in the prompt input box to open the interactive command menu:
+  * `/architect`, `/developer`, `/qa` — Switch active professional interlocutor.
+  * `/propose` — Request a formal architecture and requirements proposal from the Architect.
+  * `/approve` / `/reject` — Formally approve or reject `ARCH-001` as Product Owner.
+  * `/handoff` — Transfer the approved normative bundle to the Developer.
+  * `/implement` — Instruct the Developer to implement the approved handoff.
+  * `/consult` — Trigger a formal Developer → Architect authority consultation.
+  * `/validate` — Execute independent QA validation tests and collect evidence.
+  * `/accept` — Final project acceptance by the Product Owner.
+  * `/notebooks` — Re-index and inspect linked RAG Notebooks.
+  * `/settings` — Open the interactive Settings modal or switch UI language (`/settings lang en` or `/settings lang es`).
+  * `/view`, `/clear`, `/exit`.

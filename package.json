@@ -1,7 +1,7 @@
 {
   "name": "pocli",
   "version": "1.0.0",
-  "description": "Product Owner CLI (PO CLI) — Entorno TUI/CLI de Ingeniería de Software con Equipo Virtual de Agentes, Notebooks RAG y Sandboxing en Linux",
+  "description": "Product Owner CLI (PO CLI) — Linux TUI/CLI Software Engineering Environment with Virtual Agent Team, RAG Notebooks, and Process Sandboxing",
   "type": "module",
   "bin": {
     "pocli": "./dist/cli.js"

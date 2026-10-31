@@ -21,6 +21,7 @@ import {
   RoleModelConfig,
   WorkflowPhase,
 } from '../core/contracts.js';
+import { AppSettings, SupportedLanguage } from '../core/i18n.js';
 import { AuthorityGuard } from '../core/workflow.js';
 
 export interface StoredMessage {
@@ -216,7 +217,44 @@ export class PoCliDatabase {
         PRIMARY KEY (project_id, role),
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
+
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
+  }
+
+  // ==========================================================================
+  // APPLICATION SETTINGS (MULTI-LANGUAGE & FUTURE PREFERENCES)
+  // ==========================================================================
+
+  getSettings(): AppSettings {
+    const langRow = this.db
+      .prepare(`SELECT value FROM settings WHERE key = 'language'`)
+      .get() as { value: string } | undefined;
+    const lang: SupportedLanguage =
+      langRow?.value === 'es' ? 'es' : 'en';
+    return {
+      language: lang,
+    };
+  }
+
+  updateSettings(partial: Partial<AppSettings>): AppSettings {
+    const now = new Date().toISOString();
+    if (partial.language) {
+      this.db
+        .prepare(
+          `INSERT INTO settings (key, value, updated_at)
+           VALUES ('language', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = excluded.updated_at`,
+        )
+        .run(partial.language, now);
+    }
+    return this.getSettings();
   }
 
   // ==========================================================================
@@ -810,32 +848,32 @@ export class PoCliDatabase {
 
   private formatQaReportMarkdown(code: string, payload: QaReportPayload): string {
     return [
-      `# ${code} — Informe de Validación QA`,
+      `# ${code} — Independent QA Validation Report`,
       ``,
-      `**Recomendación:** \`${payload.recommendation}\``,
-      `**Resumen:** ${payload.summary}`,
+      `**Recommendation:** \`${payload.recommendation}\``,
+      `**Summary:** ${payload.summary}`,
       ``,
-      `## 1. Pruebas Ejecutadas (${payload.executedTests.length})`,
+      `## 1. Executed Tests (${payload.executedTests.length})`,
       ...payload.executedTests.map((t) => `- ${t}`),
       ``,
-      `## 2. Pruebas Superadas (${payload.passedTests.length})`,
+      `## 2. Passed Tests (${payload.passedTests.length})`,
       ...payload.passedTests.map((t) => `- [x] ${t}`),
       ``,
-      `## 3. Pruebas Fallidas (${payload.failedTests.length})`,
+      `## 3. Failed Tests (${payload.failedTests.length})`,
       ...(payload.failedTests.length > 0
         ? payload.failedTests.map((t) => `- [ ] ${t}`)
-        : ['- Ninguna']),
+        : ['- None']),
       ``,
-      `## 4. Evidencias de Ejecución`,
+      `## 4. Execution Evidence`,
       ...payload.evidences.map((e) => `\`\`\`text\n${e}\n\`\`\``),
       ``,
-      `## 5. Defectos Identificados (${payload.defects.length})`,
+      `## 5. Identified Defects (${payload.defects.length})`,
       ...(payload.defects.length > 0
         ? payload.defects.map(
             (d) =>
-              `- **[${d.code}] (${d.severity}) ${d.title}**: Criterio incumplido: ${d.violatedCriteria}. Evidencia: \`${d.evidence}\``,
+              `- **[${d.code}] (${d.severity}) ${d.title}**: Violated criteria: ${d.violatedCriteria}. Evidence: \`${d.evidence}\``,
           )
-        : ['- Sin defectos abiertos.']),
+        : ['- No open defects.']),
     ].join('\n');
   }
 

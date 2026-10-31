@@ -315,7 +315,7 @@ export class NotebookRagEngine {
 
   static formatCitationTag(citation: RagCitation): string {
     const ext = citation.externalRef ? ` | Ref: ${citation.externalRef}` : '';
-    return `[Notebook: ${citation.notebookName} | Doc: ${citation.documentPath} | Sección: ${citation.section} (${citation.lineRange})${ext}]`;
+    return `[Notebook: ${citation.notebookName} | Doc: ${citation.documentPath} | Section: ${citation.section} (${citation.lineRange})${ext}]`;
   }
 
   private removeChunksForFile(notebookId: string, relPath: string): void {

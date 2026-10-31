@@ -31,7 +31,7 @@ export interface AgentTurnOutput {
 }
 
 /**
- * Multi-Model LLM Gateway (AGENTS.md Sections 10, 11, 12).
+ * Multi-Model LLM Gateway.
  * Decouples workflow execution from specific LLM providers and allows different
  * models for Architect, Developer, QA, and custom specialists.
  */
@@ -116,7 +116,7 @@ export class LlmGateway {
         messages: [
           {
             role: 'system',
-            content: `${input.systemPrompt}\n\n[ARTEFACTOS NORMATIVOS]\n${input.normativeArtifactsSummary}\n\n[FUENTES NOTEBOOKS RAG]\n${ragBlock}`,
+            content: `${input.systemPrompt}\n\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}\n\n[RAG NOTEBOOK SOURCES]\n${ragBlock}`,
           },
           { role: 'user', content: input.userPrompt },
         ],
@@ -163,7 +163,7 @@ export class LlmGateway {
         model: modelId,
         max_tokens: 2048,
         temperature,
-        system: `${input.systemPrompt}\n\n[ARTEFACTOS NORMATIVOS]\n${input.normativeArtifactsSummary}\n\n[FUENTES NOTEBOOKS RAG]\n${ragBlock}`,
+        system: `${input.systemPrompt}\n\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}\n\n[RAG NOTEBOOK SOURCES]\n${ragBlock}`,
         messages: [{ role: 'user', content: input.userPrompt }],
       }),
     });
@@ -206,7 +206,7 @@ export class LlmGateway {
         systemInstruction: {
           parts: [
             {
-              text: `${input.systemPrompt}\n\n[ARTEFACTOS NORMATIVOS]\n${input.normativeArtifactsSummary}\n\n[FUENTES NOTEBOOKS RAG]\n${ragBlock}`,
+              text: `${input.systemPrompt}\n\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}\n\n[RAG NOTEBOOK SOURCES]\n${ragBlock}`,
             },
           ],
         },
@@ -243,7 +243,7 @@ export class LlmGateway {
     );
     const citationFooter =
       citationTags.length > 0
-        ? `\n\nFuentes consultadas en Notebooks:\n${citationTags.map((t) => `- ${t}`).join('\n')}`
+        ? `\n\nSources consulted in Notebooks:\n${citationTags.map((t) => `- ${t}`).join('\n')}`
         : '';
 
     const toolCalls: AgentToolCallRequest[] = [];
@@ -251,14 +251,23 @@ export class LlmGateway {
 
     if (input.role === 'architect') {
       const promptLower = input.userPrompt.toLowerCase();
-      if (promptLower.includes('arquitectura') || promptLower.includes('diseñ') || promptLower.includes('propon') || promptLower.includes('requisito')) {
+      if (
+        promptLower.includes('architecture') ||
+        promptLower.includes('design') ||
+        promptLower.includes('propose') ||
+        promptLower.includes('requirement') ||
+        promptLower.includes('arquitectura') ||
+        promptLower.includes('diseñ') ||
+        promptLower.includes('propon') ||
+        promptLower.includes('requisito')
+      ) {
         toolCalls.push(
           {
             name: 'propose_requirement',
             arguments: {
               code: 'REQ-001',
-              title: `Requisitos Funcionales de ${input.projectName}`,
-              content: `# REQ-001: Requisitos Funcionales\n\n- Contexto: ${input.userPrompt}\n- Criterio de aceptación: Procesamiento determinista y validado por pruebas.`,
+              title: `Functional Requirements — ${input.projectName}`,
+              content: `# REQ-001: Functional Requirements\n\n- Context: ${input.userPrompt}\n- Acceptance criterion: Deterministic processing verified by automated QA tests.`,
               citations: citationTags,
             },
           },
@@ -266,8 +275,8 @@ export class LlmGateway {
             name: 'record_adr',
             arguments: {
               code: 'ADR-001',
-              title: 'Arquitectura Modular con Contratos Tipados',
-              content: `# ADR-001: Contratos Tipados y Separación de Capas\n\nSe adopta una arquitectura modular con validación de esquemas y persistencia desacoplada.`,
+              title: 'Modular Architecture with Typed Contracts',
+              content: `# ADR-001: Typed Contracts and Layer Separation\n\nAdopts a modular architecture with schema validation and decoupled persistence.`,
               tracesTo: ['REQ-001'],
               citations: citationTags,
             },
@@ -276,8 +285,8 @@ export class LlmGateway {
             name: 'write_architecture_doc',
             arguments: {
               code: 'ARCH-001',
-              title: `Arquitectura de Referencia — ${input.projectName}`,
-              content: `# ARCH-001: Arquitectura Técnica\n\n## Módulos y Contratos\n1. \`domain\`: Entidades y validación.\n2. \`service\`: Lógica de negocio conforme a REQ-001 y ADR-001.\n\n## Restricciones\n- Prohibido acoplar presentación con persistencia.`,
+              title: `Reference Architecture — ${input.projectName}`,
+              content: `# ARCH-001: Technical Architecture\n\n## Modules and Contracts\n1. \`domain\`: Core entities and validation.\n2. \`service\`: Business logic compliant with REQ-001 and ADR-001.\n\n## Constraints\n- Presentation and persistence layers must remain strictly decoupled.`,
               tracesTo: ['REQ-001', 'ADR-001'],
               citations: citationTags,
             },
@@ -286,8 +295,8 @@ export class LlmGateway {
             name: 'write_specification',
             arguments: {
               code: 'SPEC-001',
-              title: `Especificación Técnica para Desarrollador — ${input.projectName}`,
-              content: `# SPEC-001: Especificación de Implementación\n\n- Implementar el módulo principal cumpliendo \`ARCH-001\` y \`REQ-001\`.\n- Exportar funciones puras verificables por QA.`,
+              title: `Developer Technical Specification — ${input.projectName}`,
+              content: `# SPEC-001: Implementation Specification\n\n- Implement the primary module fulfilling \`ARCH-001\` and \`REQ-001\`.\n- Export pure functions verifiable by independent QA.`,
               tracesTo: ['REQ-001', 'ARCH-001'],
               citations: citationTags,
             },
@@ -300,40 +309,47 @@ export class LlmGateway {
           },
         );
         replyText =
-          `He analizado tus necesidades para **${input.projectName}** y elaborado la propuesta formal:\n` +
-          `- \`REQ-001\`: Requisitos funcionales y criterios de aceptación.\n` +
-          `- \`ADR-001\`: Decisión arquitectónica sobre contratos y modularidad.\n` +
-          `- \`ARCH-001\`: Arquitectura técnica propuesta (en estado \`PENDING_APPROVAL\`).\n` +
-          `- \`SPEC-001\`: Especificación técnica detallada para el Desarrollador.\n\n` +
-          `Quedo a la espera de tu revisión y **Aprobación Formal** como Product Owner antes de transferir al Desarrollador.${citationFooter}`;
+          `I have analyzed the requirements for **${input.projectName}** and prepared the formal proposal:\n` +
+          `- \`REQ-001\`: Functional requirements and acceptance criteria.\n` +
+          `- \`ADR-001\`: Architectural decision record on contracts and modularity.\n` +
+          `- \`ARCH-001\`: Proposed technical architecture (status \`PENDING_APPROVAL\`).\n` +
+          `- \`SPEC-001\`: Detailed technical specification for the Developer.\n\n` +
+          `Awaiting your review and **Formal Approval** as Product Owner before handoff to the Developer.${citationFooter}`;
       } else {
         replyText =
-          `[Arquitecto de Software] He analizado tu consulta sobre **${input.projectName}** (Fase actual: \`${input.phase}\`). ` +
-          `Puedo detallar alternativas arquitectónicas, registrar nuevos ADRs o preparar la propuesta formal \`ARCH-001\` para tu aprobación.${citationFooter}`;
+          `[Software Architect] I have analyzed your inquiry regarding **${input.projectName}** (Current phase: \`${input.phase}\`). ` +
+          `I can evaluate architectural alternatives, record new ADRs, or prepare the formal \`ARCH-001\` proposal for your approval.${citationFooter}`;
       }
     } else if (input.role === 'developer') {
       const promptLower = input.userPrompt.toLowerCase();
-      if (promptLower.includes('ambigüedad') || promptLower.includes('desvi') || promptLower.includes('cambiar arquitectura') || promptLower.includes('bloqueo')) {
+      if (
+        promptLower.includes('ambiguity') ||
+        promptLower.includes('deviat') ||
+        promptLower.includes('blocker') ||
+        promptLower.includes('ambigüedad') ||
+        promptLower.includes('desvi') ||
+        promptLower.includes('bloqueo')
+      ) {
         toolCalls.push({
           name: 'consult_architect',
           arguments: {
-            subject: 'Consulta sobre restricción arquitectónica detectada en implementación',
+            subject: 'Consultation regarding architectural constraint during implementation',
             ambiguityOrBlocker: input.userPrompt,
-            proposedAlternative: 'Introducir adaptador intermedio manteniendo el contrato de ARCH-001.',
+            proposedAlternative: 'Introduce an intermediate adapter while preserving the ARCH-001 contract.',
             impactedArtifacts: ['ARCH-001', 'SPEC-001'],
           },
         });
         replyText =
-          `[Desarrollador Experto] He detectado una posible desviación o ambigüedad respecto a \`ARCH-001\`. ` +
-          `Cumpliendo la regla de autoridad, no modificaré la arquitectura unilateralmente: he enviado una consulta formal (\`consult_architect\`) al Arquitecto.${citationFooter}`;
+          `[Senior Developer] I detected a potential deviation or ambiguity regarding \`ARCH-001\`. ` +
+          `Following the authority rule, I will not modify the architecture unilaterally: I have submitted a formal consultation (\`consult_architect\`) to the Software Architect.${citationFooter}`;
       } else {
         toolCalls.push(
           {
             name: 'write_implementation_plan',
             arguments: {
               code: 'PLAN-001',
-              title: `Plan de Implementación — ${input.projectName}`,
-              content: `# PLAN-001: Plan de Implementación\n\nBasado en \`ARCH-001\` y \`SPEC-001\`:\n1. Implementar módulo de dominio.\n2. Preparar verificación para QA.`,
+              title: `Implementation Plan — ${input.projectName}`,
+              content: `# PLAN-001: Implementation Plan\n\nBased on \`ARCH-001\` and \`SPEC-001\`:\n1. Implement core domain module.\n2. Prepare verification deliverable for QA.`,
               tracesTo: ['ARCH-001', 'SPEC-001'],
               citations: citationTags,
             },
@@ -343,22 +359,22 @@ export class LlmGateway {
             arguments: {
               code: 'CODE-001',
               relFilePath: 'src/app-module.js',
-              content: `// Generado conforme a ARCH-001 y SPEC-001\nexport function executeBusinessLogic(input) {\n  if (!input || typeof input.value !== 'number') {\n    throw new Error('INVALID_INPUT');\n  }\n  return { ok: true, result: input.value * 2, architectureVersion: 'ARCH-001' };\n}\n`,
+              content: `// Generated in compliance with ARCH-001 and SPEC-001\nexport function executeBusinessLogic(input) {\n  if (!input || typeof input.value !== 'number') {\n    throw new Error('INVALID_INPUT');\n  }\n  return { ok: true, result: input.value * 2, architectureVersion: 'ARCH-001' };\n}\n`,
               tracesTo: ['REQ-001', 'ARCH-001', 'SPEC-001'],
               citations: citationTags,
             },
           },
         );
         replyText =
-          `[Desarrollador Experto] He trabajado sobre el paquete de Handoff aprobado (\`REQ-001\`, \`ARCH-001\`, \`SPEC-001\`) y generado:\n` +
-          `- \`PLAN-001\`: Plan de implementación.\n` +
-          `- \`CODE-001\` (\`src/app-module.js\`): Implementación alineada con los contratos aprobados.${citationFooter}`;
+          `[Senior Developer] Worked on the approved Handoff bundle (\`REQ-001\`, \`ARCH-001\`, \`SPEC-001\`) and produced:\n` +
+          `- \`PLAN-001\`: Implementation plan.\n` +
+          `- \`CODE-001\` (\`src/app-module.js\`): Source implementation aligned with approved contracts.${citationFooter}`;
       }
     } else if (input.role === 'qa') {
       replyText =
-        `[Ingeniero de QA] Listo para ejecutar pruebas independientes de validación sobre \`REQ-001\`, \`ARCH-001\` y \`CODE-001\`, recogiendo evidencias reales antes de emitir dictamen (\`ACCEPT\` o \`REJECT\`).${citationFooter}`;
+        `[Independent QA Engineer] Ready to execute independent validation tests against \`REQ-001\`, \`ARCH-001\`, and \`CODE-001\`, collecting real execution evidence before issuing a verdict (\`ACCEPT\` or \`REJECT\`).${citationFooter}`;
     } else {
-      replyText = `[Especialista ${input.role}] Análisis completado para ${input.projectName}.${citationFooter}`;
+      replyText = `[Specialist ${input.role}] Analysis completed for ${input.projectName}.${citationFooter}`;
     }
 
     if (onStreamToken && replyText) {
@@ -376,4 +392,3 @@ export class LlmGateway {
     };
   }
 }
-

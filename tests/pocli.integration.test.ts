@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   AuthorityGuard,
   HarnessRegistry,
+  I18N_DICTIONARY,
   LinuxAgentProcessRunner,
   NotebookRagEngine,
   PoCliDatabase,
@@ -41,7 +42,7 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     const res = await orchestrator.chatWithProfessional({
       projectId: project.id,
       targetRole: 'architect',
-      message: 'Hola Arquitecto, revisemos el alcance inicial.',
+      message: 'Hello Architect, let us review the initial scope.',
       onStreamChunk: (chunk) => streamedChunks.push(chunk),
     });
 
@@ -66,7 +67,7 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     const archTurn = await orchestrator.chatWithProfessional({
       projectId: project.id,
       targetRole: 'architect',
-      message: 'Diseña y propón la arquitectura y requisitos del sistema.',
+      message: 'Design and propose the formal architecture and requirements for the system.',
     });
 
     expect(archTurn.createdArtifacts.map((a) => a.code)).toEqual([
@@ -119,9 +120,9 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     // Developer consults Architect on an issue that requires PO intervention
     const escalated = await orchestrator.consultArchitectFromDeveloper({
       projectId: project.id,
-      subject: 'Cambio de alcance en requisito de persistencia',
-      ambiguityOrBlocker: 'Necesitamos cambiar requisito funcional principal',
-      proposedAlternative: 'Usar almacenamiento en memoria temporal',
+      subject: 'Scope change in persistence requirement',
+      ambiguityOrBlocker: 'We need to change the primary functional requirement',
+      proposedAlternative: 'Use temporary in-memory storage',
       impactedArtifacts: ['REQ-001', 'ARCH-001'],
       requiresPoIntervention: true,
     });
@@ -132,8 +133,8 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       projectId: project.id,
       consultationId: escalated.id,
       approved: true,
-      poDecisionNotes: 'Se aprueba la actualización a ARCH-001 v2.',
-      updatedArchitectureContent: '# ARCH-001 v2: Arquitectura actualizada con autorización del PO',
+      poDecisionNotes: 'Approved update to ARCH-001 v2.',
+      updatedArchitectureContent: '# ARCH-001 v2: Architecture updated with PO authorization',
     });
     expect(resolvedByPo.status).toBe('APPROVED_BY_PO');
     expect(storage.getProject(project.id)!.approvedArchitectureVersion).toBe(2);
@@ -150,7 +151,7 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     await orchestrator.chatWithProfessional({
       projectId: project.id,
       targetRole: 'architect',
-      message: 'Propón la arquitectura formal para PaymentGateway.',
+      message: 'Propose the formal architecture for PaymentGateway.',
     });
     orchestrator.reviewArchitectureByPo({
       projectId: project.id,
@@ -193,7 +194,7 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     await orchestrator.chatWithProfessional({
       projectId: project.id,
       targetRole: 'developer',
-      message: 'Corrige e implementa el módulo cumpliendo SPEC-001.',
+      message: 'Fix and implement the module fulfilling SPEC-001.',
     });
 
     // QA re-validates -> MUST ACCEPT and transition to PHASE_8_FINAL_ACCEPTANCE
@@ -208,7 +209,7 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     // Final PO Acceptance -> COMPLETED
     const finalProject = orchestrator.acceptProjectByPo({
       projectId: project.id,
-      comments: 'Todas las evidencias de QA-002 son satisfactorias.',
+      comments: 'All evidence in QA-002 is satisfactory.',
     });
     expect(finalProject.phase).toBe('COMPLETED');
   });
@@ -221,25 +222,25 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
 
     fs.writeFileSync(
       path.join(archKbDir, 'microservices.md'),
-      `# Patrones de Microservicios\n\n## Outbox Transaccional\nPara garantizar consistencia eventual entre base de datos y bus de eventos se debe usar el patrón Transactional Outbox.\n`,
+      `# Microservices Patterns\n\n## Transactional Outbox\nTo guarantee eventual consistency between database and event bus, use the Transactional Outbox pattern.\n`,
       'utf8',
     );
     fs.writeFileSync(
       path.join(devKbDir, 'strict-ts.md'),
-      `# Guía de TypeScript Estricto\n\n## Validación con Zod\nUsa safeParse en todas las fronteras IPC y valida esquemas JSON-RPC.\n`,
+      `# Strict TypeScript Guide\n\n## Zod Validation\nUse safeParse at all IPC boundaries and validate JSON-RPC schemas.\n`,
       'utf8',
     );
 
     const { notebook: archNb, indexResult: idx1 } = orchestrator.createAndIndexNotebook({
-      name: 'Notebook-Arquitectura',
-      description: 'Patrones de arquitectura distribuida',
+      name: 'Notebook-Architecture',
+      description: 'Distributed architecture patterns',
       dirPath: archKbDir,
       allowedRoles: ['architect'], // Exclusive to Architect
       externalRefs: [
         {
           title: 'Microservices.io Outbox Pattern',
           url: 'https://microservices.io/patterns/data/transactional-outbox.html',
-          notes: 'Referencia canónica de Outbox',
+          notes: 'Canonical Outbox reference',
         },
       ],
     });
@@ -253,7 +254,7 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
 
     const { notebook: devNb } = orchestrator.createAndIndexNotebook({
       name: 'Notebook-TypeScript',
-      description: 'Guías de implementación en TypeScript',
+      description: 'TypeScript implementation guidelines',
       dirPath: devKbDir,
       allowedRoles: ['developer'], // Exclusive to Developer
     });
@@ -266,29 +267,45 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     storage.linkNotebookToProject(project.id, archNb.id);
     storage.linkNotebookToProject(project.id, devNb.id);
 
-    // Architect queries RAG -> can see Notebook-Arquitectura, cannot see Notebook-TypeScript
+    // Architect queries RAG -> can see Notebook-Architecture, cannot see Notebook-TypeScript
     const archCitations = orchestrator.rag.queryForProjectRole({
       projectId: project.id,
       role: 'architect',
-      query: 'consistencia eventual Transactional Outbox',
+      query: 'eventual consistency Transactional Outbox',
     });
     expect(archCitations.length).toBeGreaterThan(0);
-    expect(archCitations.every((c) => c.notebookName === 'Notebook-Arquitectura')).toBe(true);
+    expect(archCitations.every((c) => c.notebookName === 'Notebook-Architecture')).toBe(true);
     const formatted = NotebookRagEngine.formatCitationTag(archCitations[0]);
-    expect(formatted).toContain('Notebook: Notebook-Arquitectura');
-    expect(formatted).toContain('Sección: Outbox Transaccional');
+    expect(formatted).toContain('Notebook: Notebook-Architecture');
+    expect(formatted).toContain('Section: Transactional Outbox');
 
-    // Developer queries RAG -> can see Notebook-TypeScript, cannot see Notebook-Arquitectura
+    // Developer queries RAG -> can see Notebook-TypeScript, cannot see Notebook-Architecture
     const devCitations = orchestrator.rag.queryForProjectRole({
       projectId: project.id,
       role: 'developer',
-      query: 'Validación con Zod en fronteras JSON-RPC',
+      query: 'Zod Validation at JSON-RPC boundaries',
     });
     expect(devCitations.length).toBeGreaterThan(0);
     expect(devCitations.every((c) => c.notebookName === 'Notebook-TypeScript')).toBe(true);
   });
 
-  it('Phase 5 & 7: supports MCP stdio servers with role permissions, 4-layer memory, Linux bwrap sandboxing, and extensible specialist roles', async () => {
+  it('Phase 5 & 7: supports multi-language settings (/settings en|es), MCP stdio servers, 4-layer memory, Linux bwrap sandboxing, and extensible specialist roles', async () => {
+    // 0. Test Multi-Language Settings persistence (default 'en', switchable to 'es')
+    expect(storage.getSettings().language).toBe('en');
+    expect(
+      I18N_DICTIONARY.en.slashCommands.some((c) => c.command === '/settings'),
+    ).toBe(true);
+    expect(
+      I18N_DICTIONARY.es.slashCommands.some((c) => c.command === '/settings'),
+    ).toBe(true);
+
+    const updatedEs = storage.updateSettings({ language: 'es' });
+    expect(updatedEs.language).toBe('es');
+    expect(storage.getSettings().language).toBe('es');
+
+    const updatedEn = storage.updateSettings({ language: 'en' });
+    expect(updatedEn.language).toBe('en');
+
     const project = orchestrator.createProject({
       name: 'PlatformAdvanced',
       description: 'Testing MCP, 4-layer memory, bwrap and custom specialists',
@@ -316,8 +333,8 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     // 2. Test Extensible Specialist Role (e.g., security_auditor)
     HarnessRegistry.registerCustomHarness({
       role: 'security_auditor',
-      displayName: 'Auditor de Seguridad DevSecOps',
-      systemPrompt: 'Audita vulnerabilidades y emite informes de seguridad.',
+      displayName: 'DevSecOps Security Auditor',
+      systemPrompt: 'Audits vulnerabilities and emits security reports.',
       allowedTools: ['query_notebooks'],
       allowedArtifactTypes: ['QA_REPORT', 'DEFECT', 'DOCUMENTATION'],
     });
@@ -395,9 +412,8 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     const secTurn = await orchestrator.chatWithProfessional({
       projectId: project.id,
       targetRole: 'security_auditor',
-      message: 'Ejecuta auditoría preliminar del proyecto.',
+      message: 'Execute preliminary security audit for the project.',
     });
     expect(secTurn.reply).toContain('security_auditor');
   });
 });
-

@@ -10,7 +10,7 @@ import { CommandCenterApp } from './tui/CommandCenterApp.js';
 function enterFullscreenTerminal(): void {
   if (process.stdout.isTTY) {
     // Enter alternate screen buffer, clear screen, move cursor to home (1,1),
-    // and enable xterm modifyOtherKeys so Ctrl+Tab sends distinct escape sequence
+    // and enable xterm modifyOtherKeys so Ctrl+Tab sends a distinct escape sequence
     process.stdout.write('\x1b[?1049h\x1b[2J\x1b[H\x1b[>4;1m');
   } else {
     process.stdout.write('\x1b[2J\x1b[H');
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
     if (!project) {
       project = orchestrator.createProject({
         name: 'Demo-Service-Linux',
-        description: 'Servicio de procesamiento diseñado y validado con el equipo virtual de PO CLI',
+        description: 'Processing service designed and validated with the PO CLI virtual engineering team',
         workspaceDir: path.join(dataDir, 'workspaces', 'demo-service'),
       });
     }
@@ -65,100 +65,100 @@ async function main(): Promise<void> {
   }
 
   if (subcommand === 'demo') {
-    console.log('=== PO CLI — Ejecución Demostrativa del Workflow Completo (8 Fases) ===\n');
+    console.log('=== PO CLI — Full 8-Phase Engineering Workflow Demonstration ===\n');
     const workspaceDir = path.join(dataDir, 'workspaces', `walkthrough-${Date.now()}`);
-    const kbDir = path.join(dataDir, 'notebooks', 'arquitectura-clean');
+    const kbDir = path.join(dataDir, 'notebooks', 'clean-architecture');
     fs.mkdirSync(kbDir, { recursive: true });
     fs.writeFileSync(
       path.join(kbDir, 'guidelines.md'),
-      `# Principios de Arquitectura Hexagonal\nToda lógica de negocio debe residir en módulos puros desacoplados de la infraestructura.\n\n## Contrato de Salida\nLas funciones del dominio deben retornar objetos con propiedad \`ok: true\` y resultado numérico validado.\n`,
+      `# Hexagonal Architecture Principles\nAll core business logic must reside in pure modules decoupled from infrastructure.\n\n## Output Contract\nDomain functions must return objects with property \`ok: true\` and a validated numeric result.\n`,
       'utf8',
     );
 
-    // 1. Crear e indexar Notebook de Conocimiento
+    // 1. Create and index Knowledge Notebook
     const { notebook, indexResult } = orchestrator.createAndIndexNotebook({
-      name: `Arquitectura-Hexagonal-${Date.now()}`,
-      description: 'Guía corporativa de arquitectura y contratos de dominio',
+      name: `Hexagonal-Architecture-${Date.now()}`,
+      description: 'Corporate architecture guidelines and domain contracts',
       dirPath: kbDir,
       allowedRoles: ['architect', 'developer', 'qa'],
     });
     console.log(
-      `[Fase 6 / Notebooks] Notebook '${notebook.name}' indexado (${indexResult.totalChunks} chunks).`,
+      `[Phase 6 / Notebooks] Notebook '${notebook.name}' indexed (${indexResult.totalChunks} chunks).`,
     );
 
-    // 2. Fase 1: Crear Proyecto y vincular Notebook
+    // 2. Phase 1: Create Project and link Notebook
     const project = orchestrator.createProject({
       name: 'CoreBillingEngine',
-      description: 'Motor de cálculo de facturación con validación estricta',
+      description: 'Billing calculation engine with strict contract validation',
       workspaceDir,
     });
     storage.linkNotebookToProject(project.id, notebook.id);
-    console.log(`[Fase 1] Proyecto creado: ${project.name} (${project.id}) — Fase: ${project.phase}`);
+    console.log(`[Phase 1] Project created: ${project.name} (${project.id}) — Phase: ${project.phase}`);
 
-    // 3. Fase 2: Conversación con el Arquitecto
+    // 3. Phase 2: Conversation with the Software Architect
     const archTurn = await orchestrator.chatWithProfessional({
       projectId: project.id,
       targetRole: 'architect',
-      message: 'Diseña y propón la arquitectura hexagonal y requisitos para CoreBillingEngine.',
+      message: 'Design and propose the hexagonal architecture and requirements for CoreBillingEngine.',
     });
     console.log(
-      `[Fase 2] Arquitecto (Worker PID ${archTurn.workerPid}, Modalidad ${archTurn.modalityUsed}) generó ${archTurn.createdArtifacts.map((a) => a.code).join(', ')}.`,
+      `[Phase 2] Architect (Worker PID ${archTurn.workerPid}, Modality ${archTurn.modalityUsed}) generated ${archTurn.createdArtifacts.map((a) => a.code).join(', ')}.`,
     );
-    console.log(`         Citas RAG utilizadas: ${archTurn.citations.length}`);
+    console.log(`          RAG citations used: ${archTurn.citations.length}`);
 
-    // 4. Fase 3: Aprobación formal del Product Owner
+    // 4. Phase 3: Formal Approval by the Product Owner
     const { approval, project: afterApproval } = orchestrator.reviewArchitectureByPo({
       projectId: project.id,
       artifactCode: 'ARCH-001',
       decision: 'APPROVED',
-      comments: 'Aprobada la arquitectura v1 tras revisar contratos y trazabilidad.',
+      comments: 'Approved architecture v1 after reviewing contracts and traceability.',
     });
     console.log(
-      `[Fase 3] Arquitectura ${approval.artifactCode} v${approval.artifactVersion} ${approval.decision} por Product Owner — Fase: ${afterApproval.phase}`,
+      `[Phase 3] Architecture ${approval.artifactCode} v${approval.artifactVersion} ${approval.decision} by Product Owner — Phase: ${afterApproval.phase}`,
     );
 
-    // 5. Fase 4: Handoff al Desarrollador
+    // 5. Phase 4: Developer Handoff
     const handoff = orchestrator.performDeveloperHandoff(project.id);
     console.log(
-      `[Fase 4] Handoff transferido al Desarrollador (ARCH v${handoff.approvedArchitectureVersion}, ${handoff.requirements.length} reqs, ${handoff.specifications.length} specs).`,
+      `[Phase 4] Handoff transferred to Developer (ARCH v${handoff.approvedArchitectureVersion}, ${handoff.requirements.length} reqs, ${handoff.specifications.length} specs).`,
     );
 
-    // 6. Fase 5: Implementación y Consulta Arquitectónica
+    // 6. Phase 5: Implementation and Architectural Consultation
     const consultation = await orchestrator.consultArchitectFromDeveloper({
       projectId: project.id,
-      subject: 'Validación de entradas nulas en executeBusinessLogic',
-      ambiguityOrBlocker: '¿Se debe lanzar excepción explícita INVALID_INPUT ante payload nulo?',
-      proposedAlternative: 'Lanzar Error("INVALID_INPUT") manteniendo firma pura.',
+      subject: 'Null input validation in executeBusinessLogic',
+      ambiguityOrBlocker: 'Should an explicit INVALID_INPUT exception be thrown on null payload?',
+      proposedAlternative: 'Throw Error("INVALID_INPUT") while preserving pure signature.',
       impactedArtifacts: ['ARCH-001', 'SPEC-001'],
       requiresPoIntervention: false,
     });
     console.log(
-      `[Fase 5] Consulta Desarrollador -> Arquitecto resuelta: ${consultation.status}`,
+      `[Phase 5] Developer -> Architect consultation resolved: ${consultation.status}`,
     );
 
     const devTurn = await orchestrator.chatWithProfessional({
       projectId: project.id,
       targetRole: 'developer',
-      message: 'Procede con la implementación del módulo conforme a la arquitectura aprobada.',
+      message: 'Proceed with implementing the module in compliance with the approved architecture.',
     });
     console.log(
-      `[Fase 5] Desarrollador (Worker PID ${devTurn.workerPid}) implementó: ${devTurn.createdArtifacts.map((a) => a.code).join(', ')}`,
+      `[Phase 5] Developer (Worker PID ${devTurn.workerPid}) implemented: ${devTurn.createdArtifacts.map((a) => a.code).join(', ')}`,
     );
 
-    // 7. Fase 6: Validación Independiente de QA
+    // 7. Phase 6: Independent QA Validation
     const qaRes = await orchestrator.submitToQaAndValidate({
       projectId: project.id,
     });
     console.log(
-      `[Fase 6] Ingeniero de QA emitió ${qaRes.qaArtifact.code}: ${qaRes.payload.recommendation} (${qaRes.payload.passedTests.length}/${qaRes.payload.executedTests.length} pruebas superadas) — Fase: ${qaRes.project.phase}`,
+      `[Phase 6] QA Engineer emitted ${qaRes.qaArtifact.code}: ${qaRes.payload.recommendation} (${qaRes.payload.passedTests.length}/${qaRes.payload.executedTests.length} tests passed) — Phase: ${qaRes.project.phase}`,
     );
 
-    // 8. Fase 8: Aceptación Final del Product Owner
+    // 8. Phase 8: Final Acceptance by the Product Owner
     const completed = orchestrator.acceptProjectByPo({
       projectId: project.id,
-      comments: 'Entrega verificada por QA y aceptada formalmente por el Product Owner.',
+      comments: 'Deliverable verified by QA and formally accepted by the Product Owner.',
     });
-    console.log(`[Fase 8] Estado final del proyecto: ${completed.phase}\n`);
+    console.log(`[Phase 8] Final project state: ${completed.phase}\n`);
 
     storage.close();
     return;
@@ -166,10 +166,10 @@ async function main(): Promise<void> {
 
   console.log(
     [
-      'Product Owner CLI (PO CLI) — Comandos disponibles:',
-      '  npm start / npm run tui Inicia el Centro de Mando en pantalla completa (Ink TUI)',
-      '  npx tsx src/cli.ts demo Ejecuta una demostración completa de las 8 fases en Linux',
-      '  npm test                Ejecuta la suite de pruebas de integración de las 7 fases',
+      'Product Owner CLI (PO CLI) — Available commands:',
+      '  npm start / npm run tui Launch the fullscreen Command Center (Ink TUI)',
+      '  npx tsx src/cli.ts demo Run a full 8-phase workflow demonstration on Linux',
+      '  npm test                Run the integration test suite across all 7 phases',
     ].join('\n'),
   );
   storage.close();

@@ -1,105 +1,104 @@
-# ADR-000: Matriz Comparativa de Proyectos Open Source de Referencia
+# ADR-000: Open Source Reference Projects Benchmark Matrix
 
-**Estado:** Aprobado (Fase 0)  
-**Fecha:** 2026-10-31  
-**Contexto:** Evaluación técnica de los 6 proyectos candidatos identificados en `agents/AGENTS.md` (Sección 13 y 16) para determinar qué patrones e implementaciones reutilizar, qué adaptar y qué desarrollar a medida para **Product Owner CLI (PO CLI)**.
+**Status:** Approved (Phase 0)  
+**Date:** 2026-10-31  
+**Context:** Technical evaluation of the 6 candidate open-source projects identified in `agents/AGENTS.md` (Sections 13 and 16) to determine which patterns and components to reuse, adapt, or build from scratch for **Product Owner CLI (PO CLI)**.
 
 ---
 
-## 1. Análisis Individual de Candidatos
+## 1. Individual Candidate Analysis
 
 ### 1.1. Slipwright (`ksksertac/slipwright`)
-* **Propósito:** Equipo de desarrollo asistido por IA autoalojado con modelo de *human-in-the-loop gating*.
-* **Arquitectura y modelo de agentes:** Define roles explícitos (*Product Owner, Architect, Builders/Specialists, QA, DevOps*) coordinados por una máquina de estados determinista. Cada salida de agente se valida contra esquemas tipados.
-* **Fortalezas clave:**
-  * Gates de aprobación humana explícitos en cada hito (Backlog, Arquitectura, Casos de Prueba, Código).
-  * Salidas estructuradas por esquema tipado para evitar mutaciones descontroladas.
-* **Limitaciones para PO CLI:**
-  * Orientado a un centro de control Web (`localhost:8500` en contenedor Docker) en lugar de una experiencia TUI/CLI nativa de terminal.
-  * El rol de Product Owner es asumido parcialmente por un agente generador de backlog, mientras que en PO CLI el **Product Owner es el humano** y el Arquitecto es su interlocutor técnico principal.
-  * Carece del concepto de **Notebooks de conocimiento** gestionados en el filesystem con RAG trazable.
+* **Purpose:** Self-hosted AI software development team framework built around a *human-in-the-loop gating* model.
+* **Architecture & Agent Model:** Defines explicit roles (*Product Owner, Architect, Builders/Specialists, QA, DevOps*) coordinated by a deterministic state machine. Every agent response is validated against typed schemas.
+* **Key Strengths:**
+  * Explicit human approval gates at major milestones (Backlog, Architecture, Test Cases, Code).
+  * Typed schema validation for agent outputs to prevent uncontrolled mutations.
+* **Limitations for PO CLI:**
+  * Designed around a Dockerized Web UI (`localhost:8500`) rather than a native Linux terminal TUI/CLI.
+  * Delegates part of the Product Owner role to an AI backlog agent, whereas in PO CLI the **human user is the Product Owner** and the Architect is the primary technical interlocutor.
+  * Lacks user-managed **Knowledge Notebooks** on the filesystem with traceable RAG citations.
 
 ### 1.2. CLI Agent Orchestrator — CAO (`awslabs/cli-agent-orchestrator`)
-* **Propósito:** Orquestador jerárquico de AWS Labs para coordinar múltiples agentes CLI (Claude Code, Kiro, Codex) en sesiones aisladas.
-* **Arquitectura y modelo de agentes:** Modelo supervisor/trabajador (*lead agent* + *worker agents*) ejecutándose en sesiones `tmux` aisladas y comunicándose mediante herramientas MCP.
-* **Fortalezas clave:**
-  * Gestión de perfiles de agentes y aislamiento de sesiones de terminal en Linux.
-  * Integración de MCP para coordinación y delegación.
-* **Limitaciones para PO CLI:**
-  * Depende de envolver CLIs de terceros mediante `tmux` (scraping/inyección en terminal), lo que introduce fragilidad frente a un protocolo estructurado `JSON-RPC 2.0` sobre `stdio`.
-  * No implementa una máquina de estados SDLC con artefactos normativos ni la regla de autoridad `Desarrollador → consulta obligatoria → Arquitecto → Product Owner`.
+* **Purpose:** Hierarchical orchestrator by AWS Labs designed to coordinate multiple CLI coding assistants (Claude Code, Kiro, Codex) in isolated sessions.
+* **Architecture & Agent Model:** Supervisor/worker model (*lead agent* + *worker agents*) running inside isolated `tmux` sessions and communicating through MCP tools.
+* **Key Strengths:**
+  * Agent profile management and terminal session isolation on Linux.
+  * Native MCP integration for coordination and task delegation.
+* **Limitations for PO CLI:**
+  * Relies on wrapping third-party CLIs via `tmux` terminal scraping/injection, which is fragile compared to a structured `JSON-RPC 2.0` protocol over `stdio`.
+  * Does not enforce an SDLC state machine with normative artifacts or the authority rule `Developer → mandatory consultation → Architect → Product Owner`.
 
-### 1.3. Open Orchestra (`0xSero/orchestra` y patrones derivados)
-* **Propósito:** Orquestación multiagente *hub-and-spoke* (Conductor + Subagentes especialistas) integrada con entornos como OpenCode y flujos basados en especificaciones.
-* **Fortalezas clave:**
-  * Separación entre especificación técnica y ejecución.
-  * Uso de *playbooks* por rol y aislamiento mediante *git worktrees*.
-* **Limitaciones para PO CLI:**
-  * El modelo *hub-and-spoke* puro centraliza toda conversación en un "Conductor" opaco, impidiendo la comunicación directa e interactiva del usuario con cada profesional (`PO ↔ Arquitecto`, `PO ↔ Desarrollador`, `PO ↔ QA`) y las consultas directas reguladas entre pares (`Desarrollador ↔ Arquitecto`).
+### 1.3. Open Orchestra (`0xSero/orchestra` and related patterns)
+* **Purpose:** *Hub-and-spoke* multi-agent orchestration (Conductor + Specialist subagents) integrated with environments like OpenCode and spec-driven workflows.
+* **Key Strengths:**
+  * Separation between technical specification and code execution.
+  * Role playbooks and isolation via *git worktrees*.
+* **Limitations for PO CLI:**
+  * A pure *hub-and-spoke* model routes all interaction through an opaque "Conductor", preventing direct interactive conversations between the user and each professional (`PO ↔ Architect`, `PO ↔ Developer`, `PO ↔ QA`) as well as regulated peer consultations (`Developer ↔ Architect`).
 
 ### 1.4. TinySDLC (`Minh-Tam-Solution/tinysdlc`)
-* **Propósito:** Orquestador minimalista en TypeScript que modela procesos de ingeniería con separación estricta de funciones (*Researcher, PM, Architect, Coder, Reviewer, Tester, DevOps*).
-* **Fortalezas clave:**
-  * Principio estricto de **No Self-Review** (el desarrollador nunca valida su propia entrega; QA/Tester es independiente).
-  * Cola de mensajes basada en archivos sencilla de auditar.
-* **Limitaciones para PO CLI:**
-  * Demasiados roles granulares (8 roles) para el equipo nuclear inicial, lo que añade latencia burocrática innecesaria frente a la tríada óptima (`Arquitecto`, `Desarrollador`, `QA`).
-  * Sin sistema RAG ni Notebooks de usuario.
+* **Purpose:** Minimalist TypeScript orchestrator modeling software engineering workflows with strict separation of duties (*Researcher, PM, Architect, Coder, Reviewer, Tester, DevOps*).
+* **Key Strengths:**
+  * Strict **No Self-Review** principle (the developer never grades their own delivery; QA/Tester is independent).
+  * Simple, auditable file-based message queue.
+* **Limitations for PO CLI:**
+  * Too many granular roles (8 roles) for the initial core team, adding unnecessary latency compared to the optimal triad (`Architect`, `Developer`, `QA`).
+  * No built-in RAG engine or user Notebooks.
 
 ### 1.5. Pi (`badlogic/pi-mono`)
-* **Propósito:** Toolkit y agente de programación minimalista en TypeScript con TUI ultrarrápida.
-* **Fortalezas clave:**
-  * **Agent Loop limpio y minimalista:** Prompts de sistema concisos, bajo consumo de tokens, ejecución directa de herramientas y excelente soporte para modelos locales y remotos.
-  * Estructura de sesiones ramificable y extensible mediante TypeScript.
-* **Limitaciones para PO CLI:**
-  * Es un *single-agent coding assistant*, no un entorno de equipo de ingeniería con roles, artefactos versionados ni ciclo formal de QA.
+* **Purpose:** Minimalist TypeScript AI coding agent toolkit with a fast TUI.
+* **Key Strengths:**
+  * **Clean, minimalist Agent Loop:** Concise system prompts, low token overhead, direct tool execution, and strong support for both local and remote models.
+  * Branchable session tree and TypeScript extensibility.
+* **Limitations for PO CLI:**
+  * Single-agent coding assistant rather than a multi-role engineering team environment with versioned artifacts and formal QA cycles.
 
 ### 1.6. OpenCode (`anomalyco/opencode`)
-* **Propósito:** Entorno de desarrollo asistido por IA en terminal con arquitectura cliente/servidor local, soporte MCP y sistema de permisos.
-* **Fortalezas clave:**
-  * Excelente referencia de UX en terminal (paneles de estado, streaming de herramientas, permisos explícitos para comandos peligrosos e integración con MCP).
-  * Separación limpia entre el servidor de runtime local y la interfaz TUI.
-* **Limitaciones para PO CLI:**
-  * Sus agentes (`plan` / `build`) son modos de edición de código, no profesionales con responsabilidad colegiada, auditoría de desviaciones arquitectónicas ni bases de conocimiento tipo Notebook.
+* **Purpose:** Terminal-based AI development environment featuring a local client/server architecture, MCP support, and a permissions system.
+* **Key Strengths:**
+  * Benchmark terminal UX (clean centered startup banner, `/` slash commands, tool streaming, explicit permissions, and MCP integration).
+  * Clean separation between the local runtime engine and the TUI presentation layer.
+* **Limitations for PO CLI:**
+  * Its built-in agents (`plan` / `build`) are code editing modes rather than distinct engineering roles with authority boundaries, architectural deviation audits, and Notebook knowledge bases.
 
 ---
 
-## 2. Matriz Comparativa (16 Criterios de `AGENTS.md`)
+## 2. Comparative Matrix (16 Criteria from `AGENTS.md`)
 
-| Criterio | Slipwright | AWS CAO | Open Orchestra | TinySDLC | Pi (`pi-mono`) | OpenCode | **Decisión para PO CLI** |
+| Criterion | Slipwright | AWS CAO | Open Orchestra | TinySDLC | Pi (`pi-mono`) | OpenCode | **Decision for PO CLI** |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1. Arquitectura interna** | Coordinador + Workers + Web UI | Supervisor sobre `tmux` + MCP | Hub-and-spoke plugin | Basado en colas de archivos | Monorepo TS modular | Servidor local + Cliente TUI | **Orquestador Core + Procesos Agente vía JSON-RPC + TUI Ink desacoplada** |
-| **2. Lenguaje y stack** | TS / Node / Docker | Python / CLI | TS / YAML | TypeScript / Node | TypeScript / Node | Go + TypeScript | **TypeScript sobre Node.js 24 LTS en Linux** |
-| **3. Modelo de agentes** | 5 roles SDLC | Jerárquico libre | Conductor + Workers | 8 roles SDLC | Agente único extensible | Agente Build / Plan + Subagentes | **3 roles nucleares (`Arquitecto`, `Desarrollador`, `QA`) + extensible** |
-| **4. Agent Loop y Runtime** | Basado en pasos tipados | Delegado al CLI externo | Delegado al host | Básico por turnos | Loop iterativo minimalista | Loop completo con permisos | **Inspirado en Pi (minimalista y tipado con Zod)** |
-| **5. Orquestación** | Máquina de estados determinista | Supervisor LLM | Conductor central | Cadena secuencial / fan-out | N/A | Sub-tareas síncronas | **Máquina de estados determinista (8 fases) + enrutador de autoridad** |
-| **6. Gestión de sesiones** | Persistida en volumen | Sesiones `tmux` | Por tarea | Archivos JSON/MD | Árbol de sesiones | SQLite / Archivos locales | **SQLite nativo (`node:sqlite`) con sesiones por rol e inter-agente** |
-| **7. Comunicación inter-agente** | Handoff por estado | MCP / `tmux` | Vía Conductor | Cola de archivos | N/A | Retorno a agente padre | **Protocolo explícito (`consult_architect`, `submit_for_qa`, `submit_qa_report`)** |
-| **8. Workflows y estados** | Gated pipeline | Ad-hoc | Basado en playbooks | Secuencial por rol | Libre | Libre | **8 Fases formales con ciclo de corrección QA ↔ Dev ↔ Arch** |
-| **9. Aprobaciones humanas** | Sí (Web Gates) | Manual en CLI | Opcional | Opcional | Permisos de tool | Permisos de tool | **Gates de dominio en TUI (Aprobación de Arquitectura, Enmiendas y Aceptación Final)** |
-| **10. Integración MCP** | Limitada | Sí (Nativa) | Sí | No | Vía extensiones | Sí (Nativa) | **Cliente MCP JSON-RPC en Runtime con permisos por rol** |
-| **11. Memoria y RAG** | Contexto de fase | Sin RAG propio | Archivos de spec | Archivos MD | Contexto en sesión | Indexación de código | **4 capas de memoria + Notebooks en Filesystem con RAG híbrido (FTS5 + Vector)** |
-| **12. TUI / CLI** | No (Web UI) | CLI + `tmux` | Depende del host | CLI básico | TUI rápida | TUI avanzada | **Ink (React for CLI) como Centro de Mando multipanel** |
-| **13. Persistencia** | DB en Docker | Sistema de archivos | Archivos locales | Archivos locales | JSONL en disco | SQLite / JSON | **SQLite (`node:sqlite`) + Artefactos versionados con SHA-256 en Filesystem** |
-| **14. Licencia** | Open Source / Self-hosted | Apache-2.0 | MIT | MIT | MIT | MIT | **Compatible (adoptamos patrones y librerías MIT/Apache-2.0)** |
-| **15. Actividad** | Activo | Activo (AWS Labs) | Variable | Experimental | Muy activo | Muy activo | **Sin dependencia bloqueante de frameworks monolíticos** |
-| **16. Reutilización en PO CLI** | Patrón de Gates + Schemas | Patrón de aislamiento de procesos | Patrón de Handoff de specs | Regla *No Self-Review* | Diseño del Agent Loop | Patrón de permisos y UX TUI | **Combinación selectiva sobre arquitectura propia** |
+| **1. Internal Architecture** | Coordinator + Workers + Web UI | Supervisor over `tmux` + MCP | Hub-and-spoke plugin | File-based queue | Modular TS monorepo | Local server + TUI client | **Core Orchestrator + Agent Processes via JSON-RPC + Decoupled Ink TUI** |
+| **2. Language & Stack** | TS / Node / Docker | Python / CLI | TS / YAML | TypeScript / Node | TypeScript / Node | Go + TypeScript | **TypeScript on Node.js 24 LTS on Linux** |
+| **3. Agent Model** | 5 SDLC roles | Free hierarchy | Conductor + Workers | 8 SDLC roles | Single extensible agent | Build / Plan + Subagents | **3 core roles (`Architect`, `Developer`, `QA`) + extensible** |
+| **4. Agent Loop & Runtime** | Typed step execution | Delegated to external CLI | Delegated to host | Basic turn-based | Minimalist iterative loop | Full loop with permissions | **Inspired by Pi (minimalist and typed with Zod)** |
+| **5. Orchestration** | Deterministic state machine | LLM Supervisor | Central Conductor | Sequential chain / fan-out | N/A | Synchronous subtasks | **Deterministic state machine (8 phases) + authority router** |
+| **6. Session Management** | Volume-persisted | `tmux` sessions | Per task | JSON/MD files | Session tree | SQLite / Local files | **Native SQLite (`node:sqlite`) with role & inter-agent sessions** |
+| **7. Inter-Agent Comms** | State handoff | MCP / `tmux` | Via Conductor | File queue | N/A | Return to parent agent | **Explicit protocol (`consult_architect`, `submit_for_qa`, `submit_qa_report`)** |
+| **8. Workflows & States** | Gated pipeline | Ad-hoc | Playbook-driven | Role-sequential | Freeform | Freeform | **8 Formal phases with QA ↔ Dev ↔ Arch correction loop** |
+| **9. Human Approvals** | Yes (Web Gates) | Manual in CLI | Optional | Optional | Tool permissions | Tool permissions | **Domain Gates in TUI (Architecture Approval, Amendments, Final Acceptance)** |
+| **10. MCP Integration** | Limited | Yes (Native) | Yes | No | Via extensions | Yes (Native) | **JSON-RPC MCP Client in Runtime with per-role permissions** |
+| **11. Memory & RAG** | Phase context | No native RAG | Spec files | MD files | Session context | Code indexing | **4-layer memory + Filesystem Notebooks with Hybrid RAG (FTS5 + Vector)** |
+| **12. TUI / CLI** | No (Web UI) | CLI + `tmux` | Host-dependent | Basic CLI | Fast TUI | Advanced TUI | **Ink (React for CLI) with Clean OpenCode View + Multipanel Command Center** |
+| **13. Persistence** | Docker DB | Filesystem | Local files | Local files | Disk JSONL | SQLite / JSON | **SQLite (`node:sqlite`) + SHA-256 Versioned Artifacts on Filesystem** |
+| **14. License** | Open Source / Self-hosted | Apache-2.0 | MIT | MIT | MIT | MIT | **Compatible (adopting patterns and MIT/Apache-2.0 libraries)** |
+| **15. Maintenance** | Active | Active (AWS Labs) | Variable | Experimental | Very active | Very active | **No blocking dependency on monolithic frameworks** |
+| **16. Reuse in PO CLI** | Gates + Schemas pattern | Process isolation pattern | Spec handoff pattern | *No Self-Review* rule | Agent Loop design | TUI UX & `/` commands | **Selective combination on a dedicated architecture** |
 
 ---
 
-## 3. Veredicto: Qué Reutilizar, Qué Adaptar y Qué Desarrollar
+## 3. Verdict: What to Reuse, What to Adapt, and What to Build
 
-1. **Qué reutilizar directamente (Librerías maduras):**
-   * **Node.js 24 Built-in SQLite (`node:sqlite`) + FTS5:** Persistencia relacional, historial de sesiones, auditoría de aprobaciones y búsqueda léxica BM25 sin dependencias C++ externas.
-   * **Zod:** Validación estricta de esquemas para contratos IPC (`JSON-RPC 2.0`), llamadas a herramientas y artefactos.
-   * **Ink + React:** Capa de presentación TUI declarativa y desacoplada del Core.
-   * **Herramientas nativas de Linux (`child_process`, `bwrap` / Bubblewrap, `podman`, `fs.watch`/inotify):** Ejecución de procesos, aislamiento por namespaces/contenedores OCI y vigilancia de archivos en Notebooks.
-2. **Qué adaptar conceptualmente:**
-   * De **Pi (`pi-mono`)**: El diseño de un *Agent Loop* ligero, predecible y sin sobrecarga de frameworks pesados como LangChain.
-   * De **Slipwright** y **TinySDLC**: La máquina de estados con *gates* humanos y la separación estricta entre quien implementa (Desarrollador) y quien certifica con evidencias (QA).
-   * De **OpenCode**: La separación entre el motor de runtime/eventos y la interfaz TUI.
-3. **Qué desarrollar como valor diferencial de PO CLI:**
-   * El **Modelo de Autoridad Tripartito** supervisado por el Product Owner humano (`PO ↔ Arquitecto ↔ Desarrollador ↔ QA`), incluyendo el bloqueo de cambios arquitectónicos unilaterales y el flujo formal de consulta y enmienda (`consult_architect` / `request_architecture_amendment`).
-   * El **Sistema de Artefactos Normativos Versionados** con trazabilidad bidireccional (`Requisito ↔ ADR/Arquitectura ↔ Código ↔ Caso de Prueba / Informe QA`).
-   * El **Sistema de Notebooks de Conocimiento en Filesystem** conectados al motor RAG híbrido con control de acceso por rol y citas verificables.
-
+1. **Direct Reuse (Mature Libraries & Platform Capabilities):**
+   * **Node.js 24 Built-in SQLite (`node:sqlite`) + FTS5:** Relational persistence, session history, approval audit logs, application settings, and BM25 lexical search with zero native C++ addon build issues.
+   * **Zod:** Strict schema validation for IPC contracts (`JSON-RPC 2.0`), tool calls, and domain artifacts.
+   * **Ink + React:** Declarative TUI presentation layer decoupled from Core and Runtime.
+   * **Linux Native Capabilities (`child_process`, `bwrap` / Bubblewrap, `podman`, `fs.watch`/inotify):** Process management, namespace/OCI sandboxing, and live Notebook directory monitoring.
+2. **Conceptual Adaptation:**
+   * From **Pi (`pi-mono`)**: Lightweight, predictable *Agent Loop* without heavy framework overhead.
+   * From **Slipwright** and **TinySDLC**: Deterministic state machine with human gates and strict separation between implementation (Developer) and evidence-based verification (QA).
+   * From **OpenCode**: Clean fullscreen startup experience with centered banner, interactive `/` slash commands, and runtime-to-TUI decoupling.
+3. **Custom Development (Core PO CLI Differentiation):**
+   * **Tripartite Authority Model** supervised by the human Product Owner (`PO ↔ Architect ↔ Developer ↔ QA`), enforcing unilateral architectural change blocks and formal consultation/amendment flows.
+   * **Versioned Normative Artifact System** with bidirectional traceability (`Requirement ↔ ADR/Architecture ↔ Source Code ↔ Test Case / QA Report`).
+   * **Filesystem Knowledge Notebooks** integrated with the hybrid RAG engine, role-based access control, and mandatory source citations.

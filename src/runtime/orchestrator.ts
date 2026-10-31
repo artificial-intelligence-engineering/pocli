@@ -223,20 +223,20 @@ export class PoCliOrchestrator extends EventEmitter {
       .filter((c) => c.status === 'RESOLVED_BY_ARCHITECT' || c.status === 'APPROVED_BY_PO');
 
     const markdownSummary = [
-      `# Paquete Normativo de Transferencia al Desarrollador (Handoff)`,
-      `**Proyecto:** ${project.name}`,
-      `**Arquitectura Aprobada:** ${arch.code} v${arch.version} (SHA-256: \`${arch.sha256.slice(0, 12)}\`)`,
+      `# Normative Developer Handoff Bundle`,
+      `**Project:** ${project.name}`,
+      `**Approved Architecture:** ${arch.code} v${arch.version} (SHA-256: \`${arch.sha256.slice(0, 12)}\`)`,
       ``,
-      `## 1. Arquitectura Aprobada (${arch.code})`,
+      `## 1. Approved Architecture (${arch.code})`,
       arch.content,
       ``,
-      `## 2. Requisitos (${requirements.map((r) => r.code).join(', ')})`,
+      `## 2. Requirements (${requirements.map((r) => r.code).join(', ')})`,
       ...requirements.map((r) => r.content),
       ``,
-      `## 3. Decisiones Arquitectónicas (${adrs.map((a) => a.code).join(', ')})`,
+      `## 3. Architectural Decision Records (${adrs.map((a) => a.code).join(', ')})`,
       ...adrs.map((a) => a.content),
       ``,
-      `## 4. Especificaciones Técnicas (${specifications.map((s) => s.code).join(', ')})`,
+      `## 4. Technical Specifications (${specifications.map((s) => s.code).join(', ')})`,
       ...specifications.map((s) => s.content),
     ].join('\n\n');
 
@@ -293,18 +293,18 @@ export class PoCliOrchestrator extends EventEmitter {
       projectId: params.projectId,
       fromRole: 'developer',
       toRole: 'architect',
-      content: `[CONSULTA ARQUITECTÓNICA ${consultation.id}] ${params.subject}\nBloqueo: ${params.ambiguityOrBlocker}\nPropuesta: ${params.proposedAlternative}`,
+      content: `[ARCHITECTURAL CONSULTATION ${consultation.id}] ${params.subject}\nBlocker: ${params.ambiguityOrBlocker}\nProposal: ${params.proposedAlternative}`,
     });
 
     const needsPo =
       params.requiresPoIntervention ??
-      (params.ambiguityOrBlocker.toLowerCase().includes('cambiar') ||
-        params.ambiguityOrBlocker.toLowerCase().includes('alcance') ||
-        params.ambiguityOrBlocker.toLowerCase().includes('requisito'));
+      (params.ambiguityOrBlocker.toLowerCase().includes('change') ||
+        params.ambiguityOrBlocker.toLowerCase().includes('scope') ||
+        params.ambiguityOrBlocker.toLowerCase().includes('requirement'));
 
     const assessment = needsPo
-      ? `La propuesta del Desarrollador impacta compromisos aprobados por el Product Owner en ${params.impactedArtifacts.join(', ')}. Se eleva consulta al Product Owner para autorización.`
-      : `Resolución técnica del Arquitecto: Se autoriza el adaptador técnico propuesto por el Desarrollador manteniendo intactos los contratos de ${params.impactedArtifacts.join(', ')}.`;
+      ? `The Developer proposal impacts commitments approved by the Product Owner in ${params.impactedArtifacts.join(', ')}. Escalating consultation to the Product Owner for authorization.`
+      : `Architect Technical Resolution: The technical adapter proposed by the Developer is authorized while preserving all contracts in ${params.impactedArtifacts.join(', ')}.`;
 
     const evaluated = this.storage.evaluateConsultationByArchitect({
       consultationId: consultation.id,
@@ -316,7 +316,7 @@ export class PoCliOrchestrator extends EventEmitter {
       projectId: params.projectId,
       fromRole: 'architect',
       toRole: 'developer',
-      content: `[RESPUESTA ARQUITECTO ${evaluated.status}] ${assessment}`,
+      content: `[ARCHITECT RESPONSE ${evaluated.status}] ${assessment}`,
     });
 
     this.emit('consultation:evaluated', evaluated);
@@ -342,7 +342,7 @@ export class PoCliOrchestrator extends EventEmitter {
         projectId: params.projectId,
         code: 'ARCH-001',
         type: 'ARCHITECTURE',
-        title: 'Arquitectura Técnica Actualizada tras Consulta',
+        title: 'Technical Architecture Updated After Consultation',
         content: params.updatedArchitectureContent,
         authorRole: 'architect',
         status: 'PENDING_APPROVAL',
@@ -396,7 +396,7 @@ export class PoCliOrchestrator extends EventEmitter {
       projectId: project.id,
       fromRole: 'developer',
       toRole: 'qa',
-      content: 'Entrega preparada para validación independiente de QA.',
+      content: 'Deliverable prepared and submitted for independent QA validation.',
     });
 
     let executedTests: string[] = [];
@@ -430,7 +430,7 @@ export class PoCliOrchestrator extends EventEmitter {
           {
             id: `def_${Date.now()}`,
             code: 'DEF-001',
-            title: 'Fallo en ejecución de comando de verificación QA',
+            title: 'QA verification command execution failed',
             severity: 'HIGH',
             violatedCriteria: 'REQ-001 / SPEC-001',
             evidence: output.slice(0, 300),
@@ -442,18 +442,18 @@ export class PoCliOrchestrator extends EventEmitter {
       // Default independent verification of generated source code artifact in workspace
       const targetFile = path.join(project.workspaceDir, 'src', 'app-module.js');
       executedTests = [
-        'Verificar existencia de módulo implementado src/app-module.js',
-        'Verificar contrato funcional executeBusinessLogic({ value: 21 }) === 42',
-        'Verificar manejo de entradas inválidas executeBusinessLogic(null)',
+        'Verify existence of implemented module src/app-module.js',
+        'Verify functional contract executeBusinessLogic({ value: 21 }) === 42',
+        'Verify invalid input handling executeBusinessLogic(null)',
       ];
       if (!fs.existsSync(targetFile)) {
         failedTests = [...executedTests];
-        evidences = [`Archivo no encontrado en workspace: ${targetFile}`];
+        evidences = [`File not found in workspace: ${targetFile}`];
         defects = [
           {
             id: `def_${Date.now()}`,
             code: 'DEF-001',
-            title: 'Artefacto de código fuente no encontrado en workspace',
+            title: 'Source code artifact missing in project workspace',
             severity: 'CRITICAL',
             violatedCriteria: 'SPEC-001',
             evidence: `Missing ${targetFile}`,
@@ -486,7 +486,7 @@ export class PoCliOrchestrator extends EventEmitter {
             {
               id: `def_${Date.now()}`,
               code: 'DEF-001',
-              title: 'Resultado funcional incorrecto respecto a SPEC-001',
+              title: 'Incorrect functional output against SPEC-001',
               severity: 'HIGH',
               violatedCriteria: 'REQ-001 / SPEC-001',
               evidence: output,
@@ -510,8 +510,8 @@ export class PoCliOrchestrator extends EventEmitter {
       recommendation,
       summary:
         recommendation === 'ACCEPT'
-          ? 'Todas las pruebas independientes de QA han sido superadas con evidencia verificable.'
-          : `Se rechazó la entrega tras detectar ${defects.length} defecto(s) durante las pruebas independientes.`,
+          ? 'All independent QA verification tests passed with verifiable execution evidence.'
+          : `Deliverable rejected after identifying ${defects.length} defect(s) during independent verification tests.`,
     };
 
     const existingReports = this.storage.listQaReports(project.id);
@@ -522,7 +522,7 @@ export class PoCliOrchestrator extends EventEmitter {
       projectId: project.id,
       fromRole: 'qa',
       toRole: 'developer',
-      content: `[INFORME ${reportCode}: ${recommendation}] ${payload.summary}`,
+      content: `[REPORT ${reportCode}: ${recommendation}] ${payload.summary}`,
       metadata: { reportCode, defectCount: defects.length },
     });
 
@@ -597,11 +597,11 @@ export class PoCliOrchestrator extends EventEmitter {
 
   private buildNormativeContextString(projectId: string): string {
     const artifacts = this.storage.listArtifacts(projectId, true);
-    if (artifacts.length === 0) return 'Sin artefactos registrados todavía.';
+    if (artifacts.length === 0) return 'No normative artifacts registered yet.';
     return artifacts
       .map(
         (a) =>
-          `[${a.code} v${a.version} | ${a.type} | Estado: ${a.status} | Trazabilidad: ${a.tracesTo.join(',') || 'raíz'}] ${a.title}`,
+          `[${a.code} v${a.version} | ${a.type} | Status: ${a.status} | TracesTo: ${a.tracesTo.join(',') || 'root'}] ${a.title}`,
       )
       .join('\n');
   }
@@ -622,7 +622,7 @@ export class PoCliOrchestrator extends EventEmitter {
             projectId,
             code: String(args.code ?? 'REQ-001'),
             type: 'REQUIREMENT',
-            title: String(args.title ?? 'Requisitos Funcionales'),
+            title: String(args.title ?? 'Functional Requirements'),
             content: String(args.content ?? ''),
             authorRole: role,
             status: 'DRAFT',
@@ -635,7 +635,7 @@ export class PoCliOrchestrator extends EventEmitter {
             projectId,
             code: String(args.code ?? 'ADR-001'),
             type: 'ADR',
-            title: String(args.title ?? 'Decisión Arquitectónica'),
+            title: String(args.title ?? 'Architectural Decision Record'),
             content: String(args.content ?? ''),
             authorRole: role,
             status: 'DRAFT',
@@ -649,7 +649,7 @@ export class PoCliOrchestrator extends EventEmitter {
             projectId,
             code: String(args.code ?? 'ARCH-001'),
             type: 'ARCHITECTURE',
-            title: String(args.title ?? 'Arquitectura Técnica'),
+            title: String(args.title ?? 'Technical Architecture'),
             content: String(args.content ?? ''),
             authorRole: role,
             status: 'PENDING_APPROVAL',
@@ -663,7 +663,7 @@ export class PoCliOrchestrator extends EventEmitter {
             projectId,
             code: String(args.code ?? 'SPEC-001'),
             type: 'SPECIFICATION',
-            title: String(args.title ?? 'Especificación Técnica'),
+            title: String(args.title ?? 'Technical Specification'),
             content: String(args.content ?? ''),
             authorRole: role,
             status: 'DRAFT',
@@ -681,7 +681,7 @@ export class PoCliOrchestrator extends EventEmitter {
             projectId,
             code: String(args.code ?? 'PLAN-001'),
             type: 'IMPLEMENTATION_PLAN',
-            title: String(args.title ?? 'Plan de Implementación'),
+            title: String(args.title ?? 'Implementation Plan'),
             content: String(args.content ?? ''),
             authorRole: role,
             status: 'APPROVED',
@@ -696,7 +696,7 @@ export class PoCliOrchestrator extends EventEmitter {
             projectId,
             code: String(args.code ?? 'CODE-001'),
             type: 'SOURCE_CODE',
-            title: `Código Fuente (${relFilePath})`,
+            title: `Source Code (${relFilePath})`,
             content: String(args.content ?? ''),
             authorRole: role,
             status: 'DRAFT',
@@ -709,7 +709,7 @@ export class PoCliOrchestrator extends EventEmitter {
         this.storage.createConsultation({
           projectId,
           fromRole: role,
-          subject: String(args.subject ?? 'Consulta arquitectónica'),
+          subject: String(args.subject ?? 'Architectural Consultation'),
           ambiguityOrBlocker: String(args.ambiguityOrBlocker ?? ''),
           proposedAlternative: String(args.proposedAlternative ?? ''),
           impactedArtifacts: (args.impactedArtifacts as string[]) ?? ['ARCH-001'],
