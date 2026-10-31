@@ -1,0 +1,403 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  AuthorityGuard,
+  HarnessRegistry,
+  LinuxAgentProcessRunner,
+  NotebookRagEngine,
+  PoCliDatabase,
+  PoCliOrchestrator,
+} from '../src/index.js';
+
+describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)', () => {
+  let tmpDir: string;
+  let storage: PoCliDatabase;
+  let orchestrator: PoCliOrchestrator;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocli-test-'));
+    storage = new PoCliDatabase(path.join(tmpDir, 'pocli.sqlite'));
+    orchestrator = new PoCliOrchestrator(storage);
+  });
+
+  afterEach(() => {
+    orchestrator.rag.stopWatchers();
+    storage.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('Phase 0 & 1: executes agent turn in isolated Linux child_process via JSON-RPC 2.0 over stdio and persists in SQLite', async () => {
+    const project = orchestrator.createProject({
+      name: 'SkeletonApp',
+      description: 'Walking skeleton test project',
+      workspaceDir: path.join(tmpDir, 'ws-skeleton'),
+    });
+
+    expect(project.phase).toBe('PHASE_2_ARCHITECT_ANALYSIS');
+
+    const streamedChunks: string[] = [];
+    const res = await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'architect',
+      message: 'Hola Arquitecto, revisemos el alcance inicial.',
+      onStreamChunk: (chunk) => streamedChunks.push(chunk),
+    });
+
+    expect(res.workerPid).toBeGreaterThan(0);
+    expect(res.workerPid).not.toBe(process.pid);
+    expect(streamedChunks.length).toBeGreaterThan(0);
+
+    const messages = storage.listMessages(project.id, 'architect');
+    expect(messages).toHaveLength(2);
+    expect(messages[0].fromRole).toBe('product_owner');
+    expect(messages[1].fromRole).toBe('architect');
+  });
+
+  it('Phase 2 & 3: enforces authority rules, versions artifacts on disk, blocks unilateral Developer changes, and handles Architect/PO consultations', async () => {
+    const project = orchestrator.createProject({
+      name: 'AuthoritySystem',
+      description: 'Project testing authority boundaries',
+      workspaceDir: path.join(tmpDir, 'ws-authority'),
+    });
+
+    // Architect proposes formal architecture
+    const archTurn = await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'architect',
+      message: 'Diseña y propón la arquitectura y requisitos del sistema.',
+    });
+
+    expect(archTurn.createdArtifacts.map((a) => a.code)).toEqual([
+      'REQ-001',
+      'ADR-001',
+      'ARCH-001',
+      'SPEC-001',
+    ]);
+    expect(archTurn.project.phase).toBe('PHASE_3_ARCHITECTURE_APPROVAL');
+
+    // Verify Architect or Developer CANNOT approve architecture (Only Product Owner can)
+    expect(() =>
+      storage.approveOrRejectArchitecture({
+        projectId: project.id,
+        artifactCode: 'ARCH-001',
+        approverRole: 'architect',
+        decision: 'APPROVED',
+        comments: 'Self-approval attempt',
+      }),
+    ).toThrow(/Authority Violation/);
+
+    // Product Owner approves architecture v1
+    const { approval, project: afterPoApproval } = orchestrator.reviewArchitectureByPo({
+      projectId: project.id,
+      artifactCode: 'ARCH-001',
+      decision: 'APPROVED',
+      comments: 'Approved v1 by Product Owner',
+    });
+    expect(approval.artifactVersion).toBe(1);
+    expect(afterPoApproval.approvedArchitectureVersion).toBe(1);
+    expect(afterPoApproval.phase).toBe('PHASE_4_DEVELOPER_HANDOFF');
+
+    // Perform Handoff to Developer
+    const handoff = orchestrator.performDeveloperHandoff(project.id);
+    expect(handoff.approvedArchitectureVersion).toBe(1);
+    expect(storage.getProject(project.id)!.phase).toBe('PHASE_5_IMPLEMENTATION');
+
+    // Rule 4: Developer CANNOT unilaterally modify ARCHITECTURE or ADR
+    expect(() =>
+      storage.saveArtifact({
+        projectId: project.id,
+        code: 'ARCH-001',
+        type: 'ARCHITECTURE',
+        title: 'Unilateral Developer Change',
+        content: 'Modified architecture without Architect/PO',
+        authorRole: 'developer',
+      }),
+    ).toThrow(/Authority Violation: Developer cannot unilaterally modify ARCHITECTURE/);
+
+    // Developer consults Architect on an issue that requires PO intervention
+    const escalated = await orchestrator.consultArchitectFromDeveloper({
+      projectId: project.id,
+      subject: 'Cambio de alcance en requisito de persistencia',
+      ambiguityOrBlocker: 'Necesitamos cambiar requisito funcional principal',
+      proposedAlternative: 'Usar almacenamiento en memoria temporal',
+      impactedArtifacts: ['REQ-001', 'ARCH-001'],
+      requiresPoIntervention: true,
+    });
+    expect(escalated.status).toBe('ESCALATED_TO_PO');
+
+    // PO resolves the escalated consultation and approves Architecture v2
+    const resolvedByPo = orchestrator.resolveEscalatedConsultationByPo({
+      projectId: project.id,
+      consultationId: escalated.id,
+      approved: true,
+      poDecisionNotes: 'Se aprueba la actualización a ARCH-001 v2.',
+      updatedArchitectureContent: '# ARCH-001 v2: Arquitectura actualizada con autorización del PO',
+    });
+    expect(resolvedByPo.status).toBe('APPROVED_BY_PO');
+    expect(storage.getProject(project.id)!.approvedArchitectureVersion).toBe(2);
+  });
+
+  it('Phase 4: executes independent QA validation, rejects defective delivery into Phase 7 Correction Cycle, re-validates fix, and completes in Phase 8', async () => {
+    const wsDir = path.join(tmpDir, 'ws-qa-cycle');
+    const project = orchestrator.createProject({
+      name: 'PaymentGateway',
+      description: 'Service with strict QA verification cycle',
+      workspaceDir: wsDir,
+    });
+
+    await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'architect',
+      message: 'Propón la arquitectura formal para PaymentGateway.',
+    });
+    orchestrator.reviewArchitectureByPo({
+      projectId: project.id,
+      decision: 'APPROVED',
+      comments: 'Approved v1',
+    });
+    orchestrator.performDeveloperHandoff(project.id);
+
+    // Developer writes a defective implementation first (returns value * 3 instead of value * 2)
+    storage.saveArtifact({
+      projectId: project.id,
+      code: 'CODE-001',
+      type: 'SOURCE_CODE',
+      title: 'Defective Implementation v1',
+      content: `export function executeBusinessLogic(input) { return { ok: true, result: input.value * 3 }; }\n`,
+      authorRole: 'developer',
+      customRelPath: 'src/app-module.js',
+      tracesTo: ['REQ-001', 'ARCH-001', 'SPEC-001'],
+    });
+
+    // QA runs independent verification -> MUST REJECT and transition to PHASE_7_CORRECTION_CYCLE
+    const firstQa = await orchestrator.submitToQaAndValidate({
+      projectId: project.id,
+    });
+    expect(firstQa.payload.recommendation).toBe('REJECT');
+    expect(firstQa.payload.defects).toHaveLength(1);
+    expect(firstQa.payload.defects[0].code).toBe('DEF-001');
+    expect(firstQa.project.phase).toBe('PHASE_7_CORRECTION_CYCLE');
+    expect(firstQa.project.correctionCycleCount).toBe(1);
+
+    // PO cannot accept project while in correction cycle
+    expect(() =>
+      orchestrator.acceptProjectByPo({
+        projectId: project.id,
+        comments: 'Premature acceptance attempt',
+      }),
+    ).toThrow(/Must pass QA validation first/);
+
+    // Developer fixes the defect in Phase 7 Correction Cycle (producing CODE-001 v2)
+    await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'developer',
+      message: 'Corrige e implementa el módulo cumpliendo SPEC-001.',
+    });
+
+    // QA re-validates -> MUST ACCEPT and transition to PHASE_8_FINAL_ACCEPTANCE
+    const secondQa = await orchestrator.submitToQaAndValidate({
+      projectId: project.id,
+    });
+    expect(secondQa.qaArtifact.code).toBe('QA-002');
+    expect(secondQa.payload.recommendation).toBe('ACCEPT');
+    expect(secondQa.payload.failedTests).toHaveLength(0);
+    expect(secondQa.project.phase).toBe('PHASE_8_FINAL_ACCEPTANCE');
+
+    // Final PO Acceptance -> COMPLETED
+    const finalProject = orchestrator.acceptProjectByPo({
+      projectId: project.id,
+      comments: 'Todas las evidencias de QA-002 son satisfactorias.',
+    });
+    expect(finalProject.phase).toBe('COMPLETED');
+  });
+
+  it('Phase 6: manages filesystem Notebooks, performs incremental SHA-256 indexing, enforces role access, and returns traceable RAG citations', () => {
+    const archKbDir = path.join(tmpDir, 'nb-arch');
+    const devKbDir = path.join(tmpDir, 'nb-typescript');
+    fs.mkdirSync(archKbDir, { recursive: true });
+    fs.mkdirSync(devKbDir, { recursive: true });
+
+    fs.writeFileSync(
+      path.join(archKbDir, 'microservices.md'),
+      `# Patrones de Microservicios\n\n## Outbox Transaccional\nPara garantizar consistencia eventual entre base de datos y bus de eventos se debe usar el patrón Transactional Outbox.\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(devKbDir, 'strict-ts.md'),
+      `# Guía de TypeScript Estricto\n\n## Validación con Zod\nUsa safeParse en todas las fronteras IPC y valida esquemas JSON-RPC.\n`,
+      'utf8',
+    );
+
+    const { notebook: archNb, indexResult: idx1 } = orchestrator.createAndIndexNotebook({
+      name: 'Notebook-Arquitectura',
+      description: 'Patrones de arquitectura distribuida',
+      dirPath: archKbDir,
+      allowedRoles: ['architect'], // Exclusive to Architect
+      externalRefs: [
+        {
+          title: 'Microservices.io Outbox Pattern',
+          url: 'https://microservices.io/patterns/data/transactional-outbox.html',
+          notes: 'Referencia canónica de Outbox',
+        },
+      ],
+    });
+    expect(idx1.indexedFiles).toBe(1);
+    expect(idx1.totalChunks).toBeGreaterThanOrEqual(2);
+
+    // Re-indexing without file changes should skip unchanged files (incremental SHA-256 check)
+    const idx2 = orchestrator.rag.indexNotebook(archNb.id);
+    expect(idx2.indexedFiles).toBe(0);
+    expect(idx2.unchangedFiles).toBe(1);
+
+    const { notebook: devNb } = orchestrator.createAndIndexNotebook({
+      name: 'Notebook-TypeScript',
+      description: 'Guías de implementación en TypeScript',
+      dirPath: devKbDir,
+      allowedRoles: ['developer'], // Exclusive to Developer
+    });
+
+    const project = orchestrator.createProject({
+      name: 'RagProject',
+      description: 'Testing multi-notebook N:M association and role filtering',
+      workspaceDir: path.join(tmpDir, 'ws-rag'),
+    });
+    storage.linkNotebookToProject(project.id, archNb.id);
+    storage.linkNotebookToProject(project.id, devNb.id);
+
+    // Architect queries RAG -> can see Notebook-Arquitectura, cannot see Notebook-TypeScript
+    const archCitations = orchestrator.rag.queryForProjectRole({
+      projectId: project.id,
+      role: 'architect',
+      query: 'consistencia eventual Transactional Outbox',
+    });
+    expect(archCitations.length).toBeGreaterThan(0);
+    expect(archCitations.every((c) => c.notebookName === 'Notebook-Arquitectura')).toBe(true);
+    const formatted = NotebookRagEngine.formatCitationTag(archCitations[0]);
+    expect(formatted).toContain('Notebook: Notebook-Arquitectura');
+    expect(formatted).toContain('Sección: Outbox Transaccional');
+
+    // Developer queries RAG -> can see Notebook-TypeScript, cannot see Notebook-Arquitectura
+    const devCitations = orchestrator.rag.queryForProjectRole({
+      projectId: project.id,
+      role: 'developer',
+      query: 'Validación con Zod en fronteras JSON-RPC',
+    });
+    expect(devCitations.length).toBeGreaterThan(0);
+    expect(devCitations.every((c) => c.notebookName === 'Notebook-TypeScript')).toBe(true);
+  });
+
+  it('Phase 5 & 7: supports MCP stdio servers with role permissions, 4-layer memory, Linux bwrap sandboxing, and extensible specialist roles', async () => {
+    const project = orchestrator.createProject({
+      name: 'PlatformAdvanced',
+      description: 'Testing MCP, 4-layer memory, bwrap and custom specialists',
+      workspaceDir: path.join(tmpDir, 'ws-advanced'),
+    });
+
+    // 1. Test 4-Layer Memory System
+    storage.upsertMemory({
+      projectId: project.id,
+      layer: 'WORKING',
+      agentRole: 'developer',
+      key: 'current_module',
+      value: 'auth-guard.ts',
+    });
+    storage.upsertMemory({
+      projectId: project.id,
+      layer: 'AGENT_SPECIFIC',
+      agentRole: 'qa',
+      key: 'preferred_assertion_style',
+      value: 'strict-exit-code-check',
+    });
+    expect(storage.listMemories(project.id, 'WORKING', 'developer')).toHaveLength(1);
+    expect(storage.listMemories(project.id, 'AGENT_SPECIFIC', 'qa')).toHaveLength(1);
+
+    // 2. Test Extensible Specialist Role (e.g., security_auditor)
+    HarnessRegistry.registerCustomHarness({
+      role: 'security_auditor',
+      displayName: 'Auditor de Seguridad DevSecOps',
+      systemPrompt: 'Audita vulnerabilidades y emite informes de seguridad.',
+      allowedTools: ['query_notebooks'],
+      allowedArtifactTypes: ['QA_REPORT', 'DEFECT', 'DOCUMENTATION'],
+    });
+    expect(AuthorityGuard.canWriteArtifact('security_auditor', 'DEFECT')).toBe(true);
+    expect(AuthorityGuard.canWriteArtifact('security_auditor', 'ARCHITECTURE')).toBe(false);
+
+    // 3. Test MCP Server over JSON-RPC stdio with role permissions
+    const mcpServerScript = path.join(tmpDir, 'mock-mcp-server.mjs');
+    fs.writeFileSync(
+      mcpServerScript,
+      `
+      import readline from 'node:readline';
+      const rl = readline.createInterface({ input: process.stdin, terminal: false });
+      rl.on('line', (line) => {
+        const req = JSON.parse(line);
+        if (req.method === 'tools/list') {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: '2.0',
+            id: req.id,
+            result: { tools: [{ name: 'lint_openapi', description: 'Lints OpenAPI spec' }] }
+          }) + '\\n');
+        } else if (req.method === 'tools/call') {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: '2.0',
+            id: req.id,
+            result: { valid: true, checkedSpec: req.params.arguments.specPath }
+          }) + '\\n');
+        }
+      });
+      `,
+      'utf8',
+    );
+
+    orchestrator.mcp.registerServer({
+      id: 'openapi-linter',
+      name: 'OpenAPI Linter MCP',
+      command: process.execPath,
+      args: [mcpServerScript],
+      allowedRoles: ['architect', 'qa'],
+    });
+
+    const tools = await orchestrator.mcp.discoverTools('openapi-linter');
+    expect(tools).toHaveLength(1);
+    expect(tools[0].name).toBe('lint_openapi');
+
+    const mcpResult = await orchestrator.mcp.callToolForRole({
+      role: 'architect',
+      serverId: 'openapi-linter',
+      toolName: 'lint_openapi',
+      args: { specPath: 'api/v1.yaml' },
+    });
+    expect(mcpResult).toEqual({ valid: true, checkedSpec: 'api/v1.yaml' });
+
+    // Developer is not in allowedRoles for openapi-linter MCP server
+    await expect(
+      orchestrator.mcp.callToolForRole({
+        role: 'developer',
+        serverId: 'openapi-linter',
+        toolName: 'lint_openapi',
+        args: { specPath: 'api/v1.yaml' },
+      }),
+    ).rejects.toThrow(/MCP Permission Denied/);
+
+    // 4. Test Multi-Model & Execution Modality configuration (including LINUX_BWRAP if supported by host)
+    storage.setRoleConfig(project.id, {
+      role: 'security_auditor',
+      provider: 'deterministic',
+      modelId: 'sec-audit-v1',
+      temperature: 0.1,
+      executionModality: LinuxAgentProcessRunner.canUseBwrap()
+        ? 'LINUX_BWRAP'
+        : 'LOCAL_PROCESS',
+    });
+
+    const secTurn = await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'security_auditor',
+      message: 'Ejecuta auditoría preliminar del proyecto.',
+    });
+    expect(secTurn.reply).toContain('security_auditor');
+  });
+});
+

@@ -1,0 +1,32 @@
+{
+  "name": "pocli",
+  "version": "1.0.0",
+  "description": "Product Owner CLI (PO CLI) — Entorno TUI/CLI de Ingeniería de Software con Equipo Virtual de Agentes, Notebooks RAG y Sandboxing en Linux",
+  "type": "module",
+  "bin": {
+    "pocli": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/cli.ts",
+    "tui": "tsx src/cli.ts tui",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "ink": "^5.1.0",
+    "react": "^18.3.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/react": "^18.3.18",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.6"
+  }
+}
+
