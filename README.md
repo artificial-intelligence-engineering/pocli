@@ -1,4 +1,20 @@
-# Product Owner CLI (`pocli`)
+<div align="center">
+<pre>
+██████╗  ██████╗      ██████╗██╗     ██╗
+██╔══██╗██╔═══██╗    ██╔════╝██║     ██║
+██████╔╝██║   ██║    ██║     ██║     ██║
+██╔═══╝ ██║   ██║    ██║     ██║     ██║
+██║     ╚██████╔╝    ╚██████╗███████╗██║
+╚═╝      ╚═════╝      ╚═════╝╚══════╝╚═╝
+</pre>
+
+# POCLI
+
+> **The open-source AI dev team in your terminal — with you as the Product Owner.**
+
+> *POCLI connects human product vision with autonomous AI agents to design, spec, and build software from the command line.*
+
+</div>
 
 A native Linux TUI/CLI software engineering environment powered by a **virtual team of specialized AI agents** (`Software Architect`, `Senior Developer`, `Independent QA Engineer`, and extensible specialists) directed by the **human Product Owner**, featuring filesystem **RAG Knowledge Notebooks**, multi-language support (`en` / `es`), and OS-level process sandboxing.
 
