@@ -92,8 +92,8 @@ export const AVAILABLE_AGENTS: AvailableAgentInfo[] = [
     role: 'architect',
     title: 'Software Architect',
     description: {
-      es: 'Diseño de arquitectura, especificaciones (ARCH-001/SPEC-001) y contratos',
-      en: 'Architecture design, specifications (ARCH-001/SPEC-001) and contracts',
+      es: 'Diseño de arquitectura, especificaciones (ARCH-001) y contratos',
+      en: 'Architecture design, formal specifications (ARCH-001) and contracts',
     },
     icon: '🏛',
   },
@@ -101,8 +101,8 @@ export const AVAILABLE_AGENTS: AvailableAgentInfo[] = [
     role: 'developer',
     title: 'Senior Developer',
     description: {
-      es: 'Implementación sobre especificaciones aprobadas dentro de sandbox Linux',
-      en: 'Software implementation on approved specs inside isolated Linux sandbox',
+      es: 'Implementación sobre especificaciones aprobadas en sandbox Linux',
+      en: 'Software implementation on approved specs inside Linux sandbox',
     },
     icon: '💻',
   },
@@ -111,7 +111,7 @@ export const AVAILABLE_AGENTS: AvailableAgentInfo[] = [
     title: 'Independent QA Engineer',
     description: {
       es: 'Validación independiente, ejecución de tests y control de calidad',
-      en: 'Independent validation, automated test execution and quality verdicts',
+      en: 'Independent validation, test execution and quality verdicts',
     },
     icon: '🧪',
   },
@@ -119,8 +119,8 @@ export const AVAILABLE_AGENTS: AvailableAgentInfo[] = [
     role: 'pm',
     title: 'Project Manager (PM)',
     description: {
-      es: 'Coordinación del equipo, consultas paralelas/secuenciales y reportes',
-      en: 'Team coordination, parallel/sequential cross-agent inquiries & status',
+      es: 'Coordinación del equipo, consultas cruzadas y reportes de estado',
+      en: 'Team coordination, cross-agent inquiries and status reporting',
     },
     icon: '📋',
   },
@@ -1815,73 +1815,95 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   );
 
   // Interactive Active Agent Selector Modal (/agents)
-  const renderAgentsModal = () => (
-    <Box
-      flexDirection="column"
-      width={Math.min(84, dimensions.columns - 6)}
-      borderStyle="round"
-      borderColor="cyan"
-      paddingX={2}
-      paddingY={1}
-      marginBottom={1}
-    >
-      <Box justifyContent="space-between" marginBottom={1}>
-        <Text bold color="cyan">
-          👥 {language === 'es' ? 'Seleccionar Agente Interlocutor' : 'Select Active Interlocutor Agent'}
-        </Text>
-        <Text dimColor>
-          {language === 'es'
-            ? '↑/↓ o 1-4 para seleccionar · Enter confirmar · Esc volver'
-            : '↑/↓ or 1-4 to select · Enter confirm · Esc back'}
-        </Text>
-      </Box>
+  const renderAgentsModal = () => {
+    const modalWidth = Math.min(92, Math.max(70, dimensions.columns - 6));
 
-      {AVAILABLE_AGENTS.map((item, idx) => {
-        const isSelected = idx === selectedAgentIdx;
-        const isCurrentActive = item.role === activeRole;
-        const roleTheme = getRoleTheme(item.role);
-        const roleCfg = orchestrator.storage.getRoleConfig(project.id, item.role);
-        const modelLabel = `${roleCfg.provider}/${roleCfg.modelId}`;
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        borderStyle="round"
+        borderColor="cyan"
+        paddingX={2}
+        paddingY={1}
+        marginBottom={1}
+      >
+        <Box justifyContent="space-between" marginBottom={1} width="100%">
+          <Text bold color="cyan">
+            👥{' '}
+            {language === 'es'
+              ? 'Seleccionar Agente Interlocutor'
+              : 'Select Active Interlocutor Agent'}
+          </Text>
+          <Text dimColor>
+            {language === 'es'
+              ? '↑/↓ o 1-4 · Enter confirmar · Esc volver'
+              : '↑/↓ or 1-4 · Enter confirm · Esc back'}
+          </Text>
+        </Box>
 
-        return (
-          <Box
-            key={item.role}
-            flexDirection="column"
-            borderStyle={isSelected ? 'single' : undefined}
-            borderColor={isSelected ? roleTheme.accentColor : undefined}
-            paddingX={1}
-            paddingY={0}
-            marginY={0}
-          >
-            <Box justifyContent="space-between">
-              <Box flexDirection="row">
-                <Text
-                  bold
-                  color={isSelected ? roleTheme.accentColor : 'white'}
-                >
-                  {isSelected ? '❯ ' : '  '}
-                  {item.icon} {item.title}{' '}
-                </Text>
-                {isCurrentActive && (
-                  <Text color="green" bold>
-                    [{language === 'es' ? 'Activo' : 'Active'}]
+        {AVAILABLE_AGENTS.map((item, idx) => {
+          const isSelected = idx === selectedAgentIdx;
+          const isCurrentActive = item.role === activeRole;
+          const roleTheme = getRoleTheme(item.role);
+          const roleCfg = orchestrator.storage.getRoleConfig(
+            project.id,
+            item.role,
+          );
+          const modelLabel = `${roleCfg.provider}/${roleCfg.modelId}`;
+          const descText = item.description[language === 'es' ? 'es' : 'en'];
+
+          return (
+            <Box
+              key={item.role}
+              flexDirection="column"
+              paddingX={1}
+              paddingY={0}
+              marginBottom={idx < AVAILABLE_AGENTS.length - 1 ? 1 : 0}
+            >
+              <Box justifyContent="space-between" width="100%">
+                <Box flexDirection="row">
+                  <Text
+                    bold={isSelected || isCurrentActive}
+                    color={
+                      isSelected
+                        ? roleTheme.accentColor
+                        : isCurrentActive
+                          ? 'green'
+                          : 'white'
+                    }
+                  >
+                    {isSelected ? '❯ ' : '  '}
+                    {item.icon} {item.title}{' '}
                   </Text>
-                )}
+                  {isCurrentActive && (
+                    <Text color="green" bold>
+                      [{language === 'es' ? 'Activo' : 'Active'}]
+                    </Text>
+                  )}
+                </Box>
+                <Text
+                  color={isSelected ? roleTheme.accentColor : 'gray'}
+                  dimColor={!isSelected}
+                >
+                  {modelLabel}
+                </Text>
               </Box>
-              <Text dimColor>
-                {modelLabel}
-              </Text>
+              <Box paddingLeft={4} width="100%">
+                <Text
+                  wrap="truncate-end"
+                  color={isSelected ? 'white' : 'gray'}
+                  dimColor={!isSelected}
+                >
+                  {descText}
+                </Text>
+              </Box>
             </Box>
-            <Box paddingLeft={4}>
-              <Text dimColor={!isSelected} color={isSelected ? 'white' : undefined}>
-                {item.description[language === 'es' ? 'es' : 'en']}
-              </Text>
-            </Box>
-          </Box>
-        );
-      })}
-    </Box>
-  );
+          );
+        })}
+      </Box>
+    );
+  };
 
   // Help Modal Component displaying all available slash commands
   const renderHelpModal = () => (
