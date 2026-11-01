@@ -1890,7 +1890,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     wrap="truncate-end"
                   >
                     {isSelected ? '❯ ' : '  '}
-                    {item.icon}  {item.title}{' '}
+                    {item.icon}{item.role === 'architect' ? '  ' : ' '}
+                    {item.title}{' '}
                     {isCurrentActive && (
                       <Text color="green" bold>
                         [{language === 'es' ? 'Activo' : 'Active'}]
@@ -1905,6 +1906,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     wrap="truncate-end"
                   >
                     {modelLabel}
+                    {item.role === 'architect' ? ' ' : ''}
                   </Text>
                 </Box>
               </Box>
