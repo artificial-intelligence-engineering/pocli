@@ -2306,7 +2306,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const chatBarWidth = Math.max(40, dimensions.columns - 2);
     const sidebarWidth = Math.max(26, Math.min(34, Math.floor(dimensions.columns * 0.25)));
     const chatAreaWidth = Math.max(30, dimensions.columns - sidebarWidth - 4);
-    const contentHeight = Math.max(8, safeViewportHeight - 4);
+    const contentHeight = Math.max(8, safeViewportHeight - 3);
 
     return (
       <Box
@@ -2319,20 +2319,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       >
         {/* Top Banner with Solid Background Color of the Active Agent */}
         {renderTopColorBanner(chatBarWidth)}
-
-        {/* Top Header Bar matching OpenCode:
-            New session               :. Información del proyecto -> */}
-        <Box width="100%" justifyContent="space-between" height={1}>
-          <Text color="gray">New session</Text>
-          <Box>
-            <Text backgroundColor={activeTheme.bgColor} color={activeTheme.fgColor} bold>
-              {' '}:.{' '}
-            </Text>
-            <Text backgroundColor={activeTheme.bgColor} color={activeTheme.fgColor}>
-              {' '}{language === 'es' ? 'Información del proyecto' : 'Project Information'}  →{' '}
-            </Text>
-          </Box>
-        </Box>
 
         {/* Center Main Area:
             If a modal is open, render modal centered.
