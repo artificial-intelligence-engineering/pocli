@@ -140,3 +140,4 @@ describe('LLMRouter Unit & Failover Engine', () => {
     expect(['pollinations', 'aihorde', 'ollama-local']).toContain(result.providerId);
   }, 45000);
 });
+

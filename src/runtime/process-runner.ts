@@ -109,7 +109,7 @@ export class LinuxAgentProcessRunner {
           child.kill('SIGTERM');
           reject(new Error(`Agent worker process timed out for role ${input.role}`));
         }
-      }, 30000);
+      }, 120000);
 
       rl.on('line', (line) => {
         const trimmed = line.trim();

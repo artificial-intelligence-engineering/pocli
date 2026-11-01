@@ -94,7 +94,7 @@ export class LLMRouter {
   constructor(config: RouterConfig) {
     this.strategy = config.strategy ?? 'auto:smart';
     this.fallbackEnabled = config.fallbackEnabled ?? true;
-    this.requestTimeoutMs = config.requestTimeoutMs ?? 45000;
+    this.requestTimeoutMs = config.requestTimeoutMs ?? 90000;
 
     for (const p of config.providers) {
       this.providers.set(p.id, p);
@@ -385,6 +385,49 @@ export class LLMRouter {
 
       if (!response.ok) {
         const errorText = await response.text();
+
+        // Graceful rate-limit backoff handling (e.g. Pollinations 45s anonymous window)
+        if (response.status === 402 || response.status === 429) {
+          const match =
+            errorText.match(/retry after (\d+)s/i) ||
+            errorText.match(/wait (\d+) seconds/i);
+          const waitSec = match ? parseInt(match[1], 10) : 0;
+          if (waitSec > 0 && waitSec <= 50) {
+            if (onStreamChunk) {
+              onStreamChunk(
+                `\n[PO CLI: Esperando ${waitSec}s para el siguiente turno gratuito... (Configura GROQ_API_KEY o GEMINI_API_KEY para respuestas inmediatas)]\n`,
+              );
+            }
+            await new Promise((resolve) => setTimeout(resolve, (waitSec + 1) * 1000));
+            const retryRes = await fetch(provider.endpoint, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(bodyPayload),
+              signal: controller.signal,
+            });
+            if (retryRes.ok) {
+              const retryData = (await retryRes.json()) as {
+                choices?: Array<{
+                  message?: { content?: string; reasoning?: string };
+                  text?: string;
+                }>;
+              };
+              const retryRaw =
+                retryData.choices?.[0]?.message?.content ??
+                retryData.choices?.[0]?.text ??
+                retryData.choices?.[0]?.message?.reasoning ??
+                '';
+              const retryReply = cleanModelOutput(retryRaw);
+              if (retryReply) {
+                if (onStreamChunk) {
+                  onStreamChunk(retryReply);
+                }
+                return retryReply;
+              }
+            }
+          }
+        }
+
         throw new Error(`HTTP ${response.status}: ${errorText.slice(0, 300)}`);
       }
 
