@@ -13,6 +13,7 @@ import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
 import {
   AVAILABLE_MODELS_CATALOG,
+  getModelVendorLabel,
   ModelCatalogEntry,
   resolveModelSpec,
 } from '../runtime/llm-gateway.js';
@@ -1309,7 +1310,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   );
 
   const renderTopColorBanner = (barWidth: number) => {
-    const bannerText = ` ${project.name}  │  ${activeRoleDisplayName}  │  ${activeModelCfg.provider}/${activeModelCfg.modelId} `;
+    const vendorLabel = getModelVendorLabel(
+      activeModelCfg.provider,
+      activeModelCfg.modelId,
+    );
+    const bannerText = ` ${project.name}  │  ${activeRoleDisplayName}  │  ${vendorLabel}/${activeModelCfg.modelId} `;
     const fullBannerLine = fitAndPadLine(bannerText, barWidth);
 
     return (
@@ -1617,7 +1622,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const selectedTargetSummary =
       modelsTargetRole === 'all'
         ? allAgentsShareSameModel && firstRoleCfg
-          ? `ALL (${t.modelsAllAgentsLabel}) — [${firstRoleCfg.provider}] ${firstRoleCfg.modelId}`
+          ? `ALL (${t.modelsAllAgentsLabel}) — [${getModelVendorLabel(
+              firstRoleCfg.provider,
+              firstRoleCfg.modelId,
+            )}] ${firstRoleCfg.modelId}`
           : `ALL — ${(
               ['pm', 'architect', 'developer', 'qa'] as const
             )
@@ -1629,9 +1637,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         : `${roleShortLiterals[modelsTargetRole]} (${getRoleDisplayName(
             modelsTargetRole,
             language,
-          )}) — [${selectedTargetCfg?.provider ?? 'anthropic'}] ${
-            selectedTargetCfg?.modelId ?? 'default'
-          }`;
+          )}) — [${getModelVendorLabel(
+            selectedTargetCfg?.provider ?? 'anthropic',
+            selectedTargetCfg?.modelId,
+          )}] ${selectedTargetCfg?.modelId ?? 'default'}`;
 
     return (
       <Box
@@ -1748,11 +1757,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   >
                     {isRowSelected ? '❯ ' : '  '}
                     <Text color="cyan">
-                      [{m.provider.toUpperCase().padEnd(13, ' ')}]
+                      [{m.vendor.padEnd(10, ' ')}]
                     </Text>{' '}
-                    {m.displayName.padEnd(28, ' ')}{' '}
+                    <Text color={m.isFree ? 'green' : 'gray'}>
+                      [{m.isFree ? 'Free' : 'Paid'}]
+                    </Text>{' '}
+                    <Text bold={isRowSelected} color={isRowSelected ? 'white' : undefined}>
+                      {m.modelId.padEnd(28, ' ')}
+                    </Text>{' '}
                     <Text dimColor>
-                      ({m.modelId}) · {m.contextWindow} · {m.recommendedFor}
+                      · {m.contextWindow} · {m.recommendedFor}
                     </Text>
                   </Text>
                   <Box height={1}>

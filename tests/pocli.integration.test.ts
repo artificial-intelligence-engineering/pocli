@@ -843,7 +843,7 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     });
     // PM remains on its default model until changed
     expect(storage.getRoleConfig(project.id, 'pm').modelId).toBe(
-      'gemini-2.5-pro-pm',
+      'gemini-2.5-pro',
     );
   });
 });

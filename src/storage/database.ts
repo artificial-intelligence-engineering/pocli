@@ -376,6 +376,21 @@ export class PoCliDatabase {
       );
     `);
 
+    // Migrate any legacy deterministic role_configs to canonical vendor/model IDs
+    this.db.exec(`
+      UPDATE role_configs
+      SET provider = 'anthropic', model_id = 'claude-3-7-sonnet'
+      WHERE provider = 'deterministic' AND model_id LIKE 'claude%';
+
+      UPDATE role_configs
+      SET provider = 'openai', model_id = 'gpt-4o'
+      WHERE provider = 'deterministic' AND model_id LIKE 'gpt%';
+
+      UPDATE role_configs
+      SET provider = 'gemini', model_id = 'gemini-2.5-pro'
+      WHERE provider = 'deterministic' AND model_id LIKE 'gemini%';
+    `);
+
     // Ensure backward-compatible schema migration for existing SQLite databases
     const msgCols = this.db
       .prepare(`PRAGMA table_info(messages)`)
@@ -484,32 +499,32 @@ export class PoCliDatabase {
       )
       .run(id, params.name, params.description, workspaceDir, phase, now, now);
 
-    // Initialize default multi-model role configs for the 3 core specialists
+    // Initialize default multi-model role configs for the 4 core specialists
     this.setRoleConfig(id, {
       role: 'architect',
-      provider: 'deterministic',
-      modelId: 'claude-3-7-sonnet-architect',
+      provider: 'anthropic',
+      modelId: 'claude-3-7-sonnet',
       temperature: 0.2,
       executionModality: 'LOCAL_PROCESS',
     });
     this.setRoleConfig(id, {
       role: 'developer',
-      provider: 'deterministic',
-      modelId: 'claude-3-7-sonnet-coder',
+      provider: 'anthropic',
+      modelId: 'claude-3-7-sonnet',
       temperature: 0.1,
       executionModality: 'LOCAL_PROCESS',
     });
     this.setRoleConfig(id, {
       role: 'qa',
-      provider: 'deterministic',
-      modelId: 'gpt-4o-qa-verifier',
+      provider: 'openai',
+      modelId: 'gpt-4o',
       temperature: 0.0,
       executionModality: 'LOCAL_PROCESS',
     });
     this.setRoleConfig(id, {
       role: 'pm',
-      provider: 'deterministic',
-      modelId: 'gemini-2.5-pro-pm',
+      provider: 'gemini',
+      modelId: 'gemini-2.5-pro',
       temperature: 0.1,
       executionModality: 'LOCAL_PROCESS',
     });

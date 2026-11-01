@@ -9,9 +9,11 @@ import { NotebookRagEngine } from './notebook-rag.js';
 
 export interface ModelCatalogEntry {
   provider: LlmProviderType;
+  vendor: string;
   providerLabel: string;
   modelId: string;
   displayName: string;
+  isFree: boolean;
   contextWindow: string;
   recommendedFor: string;
   defaultTemperature: number;
@@ -19,43 +21,50 @@ export interface ModelCatalogEntry {
 
 /**
  * OpenCode-inspired Model Catalog for per-agent model selection (/models).
- * Grouped by provider (Anthropic, OpenAI, Google Gemini, Ollama Local, and
- * Deterministic Offline Specialists).
+ * Grouped by vendor (Anthropic, OpenAI, Gemini, and Meta).
  */
 export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = [
   // Anthropic
   {
     provider: 'anthropic',
+    vendor: 'ANTHROPIC',
     providerLabel: 'Anthropic',
     modelId: 'claude-sonnet-4-20250514',
     displayName: 'Claude Sonnet 4',
+    isFree: false,
     contextWindow: '200K',
-    recommendedFor: 'Architecture & Code',
+    recommendedFor: 'Architecture & Deep Code',
     defaultTemperature: 0.1,
   },
   {
     provider: 'anthropic',
+    vendor: 'ANTHROPIC',
     providerLabel: 'Anthropic',
     modelId: 'claude-3-7-sonnet',
     displayName: 'Claude 3.7 Sonnet',
+    isFree: false,
     contextWindow: '200K',
     recommendedFor: 'Extended Thinking & Specs',
     defaultTemperature: 0.1,
   },
   {
     provider: 'anthropic',
+    vendor: 'ANTHROPIC',
     providerLabel: 'Anthropic',
     modelId: 'claude-3-5-sonnet',
     displayName: 'Claude 3.5 Sonnet',
+    isFree: false,
     contextWindow: '200K',
     recommendedFor: 'Fast Implementation',
     defaultTemperature: 0.2,
   },
   {
     provider: 'anthropic',
+    vendor: 'ANTHROPIC',
     providerLabel: 'Anthropic',
     modelId: 'claude-3-5-haiku',
     displayName: 'Claude 3.5 Haiku',
+    isFree: true,
     contextWindow: '200K',
     recommendedFor: 'Low-Latency Tasks',
     defaultTemperature: 0.2,
@@ -63,36 +72,44 @@ export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = [
   // OpenAI
   {
     provider: 'openai',
+    vendor: 'OPENAI',
     providerLabel: 'OpenAI',
     modelId: 'gpt-4.1',
     displayName: 'GPT-4.1',
+    isFree: false,
     contextWindow: '1M',
     recommendedFor: 'Full-Repo Engineering',
     defaultTemperature: 0.1,
   },
   {
     provider: 'openai',
+    vendor: 'OPENAI',
     providerLabel: 'OpenAI',
     modelId: 'gpt-4o',
     displayName: 'GPT-4o',
+    isFree: false,
     contextWindow: '128K',
     recommendedFor: 'General & QA Verification',
     defaultTemperature: 0.1,
   },
   {
     provider: 'openai',
+    vendor: 'OPENAI',
     providerLabel: 'OpenAI',
     modelId: 'o3-mini',
     displayName: 'OpenAI o3-mini',
+    isFree: true,
     contextWindow: '200K',
     recommendedFor: 'Strict QA & Edge Cases',
     defaultTemperature: 0.0,
   },
   {
     provider: 'openai',
+    vendor: 'OPENAI',
     providerLabel: 'OpenAI',
     modelId: 'o1',
     displayName: 'OpenAI o1',
+    isFree: false,
     contextWindow: '200K',
     recommendedFor: 'Formal Verification & ADRs',
     defaultTemperature: 0.0,
@@ -100,116 +117,123 @@ export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = [
   // Google Gemini
   {
     provider: 'gemini',
+    vendor: 'GEMINI',
     providerLabel: 'Google Gemini',
     modelId: 'gemini-2.5-pro',
     displayName: 'Gemini 2.5 Pro',
+    isFree: false,
     contextWindow: '1M',
     recommendedFor: 'PM Consolidation & Deep Context',
     defaultTemperature: 0.1,
   },
   {
     provider: 'gemini',
+    vendor: 'GEMINI',
     providerLabel: 'Google Gemini',
     modelId: 'gemini-2.5-flash',
     displayName: 'Gemini 2.5 Flash',
+    isFree: true,
     contextWindow: '1M',
     recommendedFor: 'Fast Multi-Agent Inquiries',
     defaultTemperature: 0.2,
   },
   {
     provider: 'gemini',
+    vendor: 'GEMINI',
     providerLabel: 'Google Gemini',
     modelId: 'gemini-2.0-flash',
     displayName: 'Gemini 2.0 Flash',
+    isFree: true,
     contextWindow: '1M',
     recommendedFor: 'High-Throughput Tasks',
     defaultTemperature: 0.2,
   },
-  // Ollama (Local Linux)
+  // Meta (Open-Weights / Local Execution)
   {
     provider: 'ollama',
-    providerLabel: 'Ollama (Local)',
-    modelId: 'qwen2.5-coder:32b',
-    displayName: 'Qwen 2.5 Coder 32B',
-    contextWindow: '128K',
-    recommendedFor: 'Local Air-Gapped Coding',
-    defaultTemperature: 0.2,
-  },
-  {
-    provider: 'ollama',
-    providerLabel: 'Ollama (Local)',
-    modelId: 'deepseek-r1:32b',
-    displayName: 'DeepSeek R1 32B',
-    contextWindow: '128K',
-    recommendedFor: 'Local Reasoning & QA',
-    defaultTemperature: 0.1,
-  },
-  {
-    provider: 'ollama',
-    providerLabel: 'Ollama (Local)',
-    modelId: 'llama3.3:70b',
+    vendor: 'META',
+    providerLabel: 'Meta',
+    modelId: 'llama-3.3-70b',
     displayName: 'Llama 3.3 70B',
+    isFree: true,
     contextWindow: '128K',
-    recommendedFor: 'Local Architecture & PM',
-    defaultTemperature: 0.2,
-  },
-  // Deterministic Built-in Specialists (Offline / Zero-Key)
-  {
-    provider: 'deterministic',
-    providerLabel: 'Built-in Deterministic',
-    modelId: 'claude-3-7-sonnet-arch',
-    displayName: 'Deterministic Architect Specialist',
-    contextWindow: 'Offline',
-    recommendedFor: 'Zero-Key Architect (Default)',
-    defaultTemperature: 0.1,
-  },
-  {
-    provider: 'deterministic',
-    providerLabel: 'Built-in Deterministic',
-    modelId: 'claude-3-7-sonnet-dev',
-    displayName: 'Deterministic Developer Specialist',
-    contextWindow: 'Offline',
-    recommendedFor: 'Zero-Key Developer (Default)',
+    recommendedFor: 'Open-Weights Architecture & PM',
     defaultTemperature: 0.2,
   },
   {
-    provider: 'deterministic',
-    providerLabel: 'Built-in Deterministic',
-    modelId: 'gpt-4o-qa-verifier',
-    displayName: 'Deterministic QA Verifier',
-    contextWindow: 'Offline',
-    recommendedFor: 'Zero-Key QA Engineer (Default)',
-    defaultTemperature: 0.0,
+    provider: 'ollama',
+    vendor: 'META',
+    providerLabel: 'Meta',
+    modelId: 'llama-3.1-8b',
+    displayName: 'Llama 3.1 8B',
+    isFree: true,
+    contextWindow: '128K',
+    recommendedFor: 'Fast Local Coding & Tasks',
+    defaultTemperature: 0.2,
   },
   {
-    provider: 'deterministic',
-    providerLabel: 'Built-in Deterministic',
-    modelId: 'gemini-2.5-pro-pm',
-    displayName: 'Deterministic PM Consolidator',
-    contextWindow: 'Offline',
-    recommendedFor: 'Zero-Key Project Manager (Default)',
-    defaultTemperature: 0.1,
+    provider: 'ollama',
+    vendor: 'META',
+    providerLabel: 'Meta',
+    modelId: 'codellama-34b',
+    displayName: 'CodeLlama 34B',
+    isFree: true,
+    contextWindow: '128K',
+    recommendedFor: 'Air-Gapped Code Generation',
+    defaultTemperature: 0.2,
   },
 ];
 
 /**
+ * Resolves the canonical vendor company name (ANTHROPIC, OPENAI, GEMINI, META)
+ * for any provider/modelId combination.
+ */
+export function getModelVendorLabel(
+  provider: string,
+  modelId?: string,
+): string {
+  const lowerModel = (modelId ?? '').toLowerCase();
+  const catalogMatch = AVAILABLE_MODELS_CATALOG.find(
+    (m) => m.modelId.toLowerCase() === lowerModel,
+  );
+  if (catalogMatch) return catalogMatch.vendor;
+
+  if (lowerModel.startsWith('claude') || provider === 'anthropic') {
+    return 'ANTHROPIC';
+  }
+  if (
+    lowerModel.startsWith('gpt') ||
+    lowerModel.startsWith('o1') ||
+    lowerModel.startsWith('o3') ||
+    provider === 'openai'
+  ) {
+    return 'OPENAI';
+  }
+  if (lowerModel.startsWith('gemini') || provider === 'gemini') {
+    return 'GEMINI';
+  }
+  return 'META';
+}
+
+/**
  * Resolves a model catalog entry by `provider/modelId`, `modelId`, or partial query,
- * or parses a custom `provider/modelId` specification (e.g. `ollama/codellama:34b`).
+ * or parses a custom `provider/modelId` specification (e.g. `meta/llama-3.3-70b`).
  */
 export function resolveModelSpec(query: string): ModelCatalogEntry | null {
   const trimmed = query.trim();
   if (!trimmed) return null;
   const lower = trimmed.toLowerCase();
 
-  // 1. Exact match on `provider/modelId` or `modelId`
+  // 1. Exact match on `provider/modelId`, `vendor/modelId`, or `modelId`
   const exact = AVAILABLE_MODELS_CATALOG.find(
     (m) =>
       `${m.provider}/${m.modelId}`.toLowerCase() === lower ||
+      `${m.vendor}/${m.modelId}`.toLowerCase() === lower ||
       m.modelId.toLowerCase() === lower,
   );
   if (exact) return exact;
 
-  // 2. Custom `provider/modelId` syntax for any supported provider
+  // 2. Custom `provider/modelId` or `meta/modelId` syntax
   if (trimmed.includes('/')) {
     const [rawProv, ...rest] = trimmed.split('/');
     const provLower = rawProv.toLowerCase();
@@ -220,15 +244,20 @@ export function resolveModelSpec(query: string): ModelCatalogEntry | null {
         provLower === 'openai' ||
         provLower === 'gemini' ||
         provLower === 'ollama' ||
+        provLower === 'meta' ||
         provLower === 'deterministic')
     ) {
-      const provider = provLower as LlmProviderType;
+      const provider: LlmProviderType =
+        provLower === 'meta' ? 'ollama' : (provLower as LlmProviderType);
+      const vendor = getModelVendorLabel(provider, customModelId);
       return {
         provider,
-        providerLabel: provider.toUpperCase(),
+        vendor,
+        providerLabel: vendor,
         modelId: customModelId,
         displayName: customModelId,
-        contextWindow: 'Custom',
+        isFree: provider === 'ollama',
+        contextWindow: '128K',
         recommendedFor: 'Custom Model',
         defaultTemperature: 0.2,
       };
