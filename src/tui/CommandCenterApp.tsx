@@ -1816,7 +1816,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   // Interactive Active Agent Selector Modal (/agents)
   const renderAgentsModal = () => {
-    const modalWidth = Math.min(92, Math.max(70, dimensions.columns - 6));
+    const modalWidth = Math.min(92, Math.max(70, dimensions.columns - 4));
 
     return (
       <Box
@@ -1824,18 +1824,23 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         width={modalWidth}
         borderStyle="round"
         borderColor="cyan"
-        paddingX={2}
+        paddingX={1}
         paddingY={1}
         marginBottom={1}
       >
-        <Box justifyContent="space-between" marginBottom={1} width="100%">
-          <Text bold color="cyan">
+        <Box
+          justifyContent="space-between"
+          marginBottom={1}
+          width="100%"
+          paddingX={1}
+        >
+          <Text bold color="cyan" wrap="truncate-end">
             👥{' '}
             {language === 'es'
               ? 'Seleccionar Agente Interlocutor'
               : 'Select Active Interlocutor Agent'}
           </Text>
-          <Text dimColor>
+          <Text dimColor wrap="truncate-end">
             {language === 'es'
               ? '↑/↓ o 1-4 · Enter confirmar · Esc volver'
               : '↑/↓ or 1-4 · Enter confirm · Esc back'}
@@ -1850,7 +1855,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             project.id,
             item.role,
           );
-          const modelLabel = `${roleCfg.provider}/${roleCfg.modelId}`;
+          const catalogEntry = AVAILABLE_MODELS_CATALOG.find(
+            (m) =>
+              m.provider === roleCfg.provider &&
+              m.modelId.toLowerCase() === roleCfg.modelId.toLowerCase(),
+          );
+          const modelName = catalogEntry?.displayName ?? roleCfg.modelId;
+          const rawModelLabel = `${roleCfg.provider}/${modelName}`;
+          const modelLabel =
+            rawModelLabel.length > 28
+              ? `${rawModelLabel.slice(0, 26)}..`
+              : rawModelLabel;
           const descText = item.description[language === 'es' ? 'es' : 'en'];
 
           return (
@@ -1862,7 +1877,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               marginBottom={idx < AVAILABLE_AGENTS.length - 1 ? 1 : 0}
             >
               <Box justifyContent="space-between" width="100%">
-                <Box flexDirection="row">
+                <Box flexDirection="row" flexShrink={1}>
                   <Text
                     bold={isSelected || isCurrentActive}
                     color={
@@ -1872,24 +1887,28 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                           ? 'green'
                           : 'white'
                     }
+                    wrap="truncate-end"
                   >
                     {isSelected ? '❯ ' : '  '}
-                    {item.icon} {item.title}{' '}
+                    {item.icon}  {item.title}{' '}
+                    {isCurrentActive && (
+                      <Text color="green" bold>
+                        [{language === 'es' ? 'Activo' : 'Active'}]
+                      </Text>
+                    )}
                   </Text>
-                  {isCurrentActive && (
-                    <Text color="green" bold>
-                      [{language === 'es' ? 'Activo' : 'Active'}]
-                    </Text>
-                  )}
                 </Box>
-                <Text
-                  color={isSelected ? roleTheme.accentColor : 'gray'}
-                  dimColor={!isSelected}
-                >
-                  {modelLabel}
-                </Text>
+                <Box flexShrink={0} paddingLeft={2}>
+                  <Text
+                    color={isSelected ? roleTheme.accentColor : 'gray'}
+                    dimColor={!isSelected}
+                    wrap="truncate-end"
+                  >
+                    {modelLabel}
+                  </Text>
+                </Box>
               </Box>
-              <Box paddingLeft={4} width="100%">
+              <Box paddingLeft={5} width="100%">
                 <Text
                   wrap="truncate-end"
                   color={isSelected ? 'white' : 'gray'}
