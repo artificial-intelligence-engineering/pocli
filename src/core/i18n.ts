@@ -51,6 +51,18 @@ export interface UiTranslations {
   settingWorkDirEditPrompt: string;
   settingsSavedMsg: (lang: SupportedLanguage) => string;
   workDirSavedMsg: (dir: string) => string;
+  modelsTitle: string;
+  modelsSubtitle: string;
+  modelsTargetAgentLabel: string;
+  modelsAllAgentsLabel: string;
+  modelsSearchLabel: string;
+  modelsSearchPlaceholder: string;
+  modelsAssignedMsg: (
+    targetLabel: string,
+    provider: string,
+    modelId: string,
+  ) => string;
+  modelsNotFoundMsg: (query: string) => string;
   helpTitle: string;
   helpSubtitle: string;
   helpOpenedMsg: string;
@@ -135,6 +147,18 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       `✔ Settings updated: Interface language set to ${lang === 'en' ? 'English (en)' : 'Spanish (es)'}.`,
     workDirSavedMsg: (dir) =>
       `✔ Central Working & Artifacts Directory updated to: ${dir}`,
+    modelsTitle: 'Select Model — Per-Agent Model Picker (/models)',
+    modelsSubtitle:
+      '←/→ or Tab: target agent · ↑/↓ or Wheel: select model · Type to filter · Enter/Click: apply · Esc: close',
+    modelsTargetAgentLabel: 'Target Agent Conversation:',
+    modelsAllAgentsLabel: 'All Agents',
+    modelsSearchLabel: 'Search:',
+    modelsSearchPlaceholder:
+      'type to filter models (e.g. claude, gpt, gemini, ollama, deterministic)...',
+    modelsAssignedMsg: (targetLabel, provider, modelId) =>
+      `✔ Model for ${targetLabel} set to ${provider}/${modelId} in SQLite.`,
+    modelsNotFoundMsg: (query) =>
+      `✖ Model "${query}" not found. Use /models to open the interactive model picker.`,
     helpTitle: 'Available Commands & Shortcuts (/help)',
     helpSubtitle: 'Press Esc, Enter, or q to close help',
     helpOpenedMsg: 'Showing all available slash commands (/help).',
@@ -286,6 +310,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
           'Pi-style context window compaction for active agent or all (/compact [all])',
       },
       {
+        command: '/models',
+        description:
+          'OpenCode-style model picker to configure LLM model per agent (/models [agent] [provider/model])',
+      },
+      {
         command: '/db',
         description:
           'Inspect SQLite database or run query (/db [.stats|.tables|.experts|<sql>])',
@@ -354,6 +383,18 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       `✔ Configuración actualizada: Idioma establecido a ${lang === 'en' ? 'Inglés (en)' : 'Español (es)'}.`,
     workDirSavedMsg: (dir) =>
       `✔ Directorio Central de Trabajo y Artefactos actualizado a: ${dir}`,
+    modelsTitle: 'Seleccionar Modelo — Configuración de Modelo por Agente (/models)',
+    modelsSubtitle:
+      '←/→ o Tab: agente destino · ↑/↓ o Rueda: elegir modelo · Escribe para filtrar · Enter/Clic: aplicar · Esc: cerrar',
+    modelsTargetAgentLabel: 'Conversación de Agente Destino:',
+    modelsAllAgentsLabel: 'Todos los Agentes',
+    modelsSearchLabel: 'Buscar:',
+    modelsSearchPlaceholder:
+      'escribe para filtrar modelos (ej. claude, gpt, gemini, ollama, deterministic)...',
+    modelsAssignedMsg: (targetLabel, provider, modelId) =>
+      `✔ Modelo para ${targetLabel} establecido a ${provider}/${modelId} en SQLite.`,
+    modelsNotFoundMsg: (query) =>
+      `✖ Modelo "${query}" no encontrado. Usa /models para abrir el selector interactivo.`,
     helpTitle: 'Comandos Disponibles y Atajos (/help)',
     helpSubtitle: 'Pulsa Esc, Enter o q para cerrar la ayuda',
     helpOpenedMsg: 'Mostrando todos los comandos disponibles (/help).',
@@ -503,6 +544,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         command: '/compact',
         description:
           'Compactar context window (estilo Pi) del agente activo o todos (/compact [all])',
+      },
+      {
+        command: '/models',
+        description:
+          'Selector de modelos estilo OpenCode para configurar el LLM por agente (/models [agente] [proveedor/modelo])',
       },
       {
         command: '/db',

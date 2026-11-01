@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   AuthorityGuard,
+  AVAILABLE_MODELS_CATALOG,
   DEFAULT_POCLI_HOME_DIR,
   executeDbCommandOrQuery,
   HarnessRegistry,
@@ -14,6 +15,7 @@ import {
   parseMouseEvents,
   PoCliDatabase,
   PoCliOrchestrator,
+  resolveModelSpec,
 } from '../src/index.js';
 
 describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)', () => {
@@ -781,5 +783,67 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       x: 20,
       y: 10,
     });
+  });
+
+  it('supports OpenCode-style /models catalog resolution and independent per-agent model configuration in SQLite', () => {
+    const project = orchestrator.createProject({
+      name: 'PerAgentModelsProject',
+      description: 'Project testing independent LLM model per specialist agent',
+      workspaceDir: path.join(tmpDir, 'per-agent-models-ws'),
+    });
+
+    expect(AVAILABLE_MODELS_CATALOG.length).toBeGreaterThanOrEqual(12);
+
+    const claudeSonnet4 = resolveModelSpec('anthropic/claude-sonnet-4-20250514');
+    expect(claudeSonnet4).not.toBeNull();
+    expect(claudeSonnet4?.provider).toBe('anthropic');
+
+    const o3Mini = resolveModelSpec('o3-mini');
+    expect(o3Mini).not.toBeNull();
+    expect(o3Mini?.provider).toBe('openai');
+
+    const customOllama = resolveModelSpec('ollama/mistral-small:24b');
+    expect(customOllama).not.toBeNull();
+    expect(customOllama?.provider).toBe('ollama');
+    expect(customOllama?.modelId).toBe('mistral-small:24b');
+
+    // Configure distinct models for each specialist agent in the same project
+    storage.assignModelToRole({
+      projectId: project.id,
+      role: 'architect',
+      provider: claudeSonnet4!.provider,
+      modelId: claudeSonnet4!.modelId,
+      temperature: claudeSonnet4!.defaultTemperature,
+    });
+    storage.assignModelToRole({
+      projectId: project.id,
+      role: 'qa',
+      provider: o3Mini!.provider,
+      modelId: o3Mini!.modelId,
+      temperature: o3Mini!.defaultTemperature,
+    });
+    storage.assignModelToRole({
+      projectId: project.id,
+      role: 'developer',
+      provider: customOllama!.provider,
+      modelId: customOllama!.modelId,
+    });
+
+    expect(storage.getRoleConfig(project.id, 'architect')).toMatchObject({
+      provider: 'anthropic',
+      modelId: 'claude-sonnet-4-20250514',
+    });
+    expect(storage.getRoleConfig(project.id, 'qa')).toMatchObject({
+      provider: 'openai',
+      modelId: 'o3-mini',
+    });
+    expect(storage.getRoleConfig(project.id, 'developer')).toMatchObject({
+      provider: 'ollama',
+      modelId: 'mistral-small:24b',
+    });
+    // PM remains on its default model until changed
+    expect(storage.getRoleConfig(project.id, 'pm').modelId).toBe(
+      'gemini-2.5-pro-pm',
+    );
   });
 });

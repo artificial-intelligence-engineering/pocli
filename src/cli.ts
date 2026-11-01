@@ -11,6 +11,10 @@ import {
   runInteractiveDbRepl,
 } from './storage/db-repl.js';
 import { PoCliOrchestrator } from './runtime/orchestrator.js';
+import {
+  AVAILABLE_MODELS_CATALOG,
+  resolveModelSpec,
+} from './runtime/llm-gateway.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
 
 function enterFullscreenTerminal(): void {
@@ -94,6 +98,63 @@ async function main(): Promise<void> {
     } finally {
       storage.close();
     }
+    return;
+  }
+
+  // OpenCode-style `pocli models` command:
+  //   - `pocli models` -> lists per-agent configured models + available models catalog
+  //   - `pocli models <agent|all> <provider/model>` -> assigns model to agent in SQLite
+  if (subcommand === 'models' || subcommand === 'model') {
+    let project = storage.getActiveProject();
+    if (!project) {
+      project = orchestrator.createProject({
+        name: 'Demo-Service-Linux',
+        description:
+          'Processing service designed and validated with the PO CLI virtual engineering team',
+        workspaceDir: path.join(centralWorkDir, 'workspaces', 'demo-service'),
+      });
+    }
+
+    const arg1 = args[1];
+    const arg2 = args[2];
+    if (arg1 && arg2) {
+      const resolved = resolveModelSpec(arg2);
+      if (!resolved) {
+        console.error(`Model "${arg2}" not found.`);
+        storage.close();
+        process.exit(1);
+      }
+      const targetRole = arg1.toLowerCase();
+      storage.assignModelToRole({
+        projectId: project.id,
+        role: targetRole,
+        provider: resolved.provider,
+        modelId: resolved.modelId,
+        temperature: resolved.defaultTemperature,
+      });
+      console.log(
+        `✔ Assigned ${resolved.provider}/${resolved.modelId} to ${targetRole} in project "${project.name}".`,
+      );
+      storage.close();
+      return;
+    }
+
+    const roleConfigs = storage.listRoleConfigs(project.id);
+    console.log(
+      `\n=== Active Project "${project.name}" — Per-Agent Model Assignments ===`,
+    );
+    for (const rc of roleConfigs) {
+      console.log(
+        `  • ${rc.role.padEnd(12, ' ')} -> ${rc.provider}/${rc.modelId} (temp=${rc.temperature}, mode=${rc.executionModality})`,
+      );
+    }
+    console.log(`\n=== Available Models Catalog (pocli models / /models) ===`);
+    for (const m of AVAILABLE_MODELS_CATALOG) {
+      console.log(
+        `  • ${(m.provider + '/' + m.modelId).padEnd(36, ' ')} ${m.displayName.padEnd(32, ' ')} [${m.contextWindow} · ${m.recommendedFor}]`,
+      );
+    }
+    storage.close();
     return;
   }
 

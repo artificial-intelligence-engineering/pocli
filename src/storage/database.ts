@@ -1801,6 +1801,34 @@ export class PoCliDatabase {
       );
   }
 
+  assignModelToRole(params: {
+    projectId: string;
+    role: ActorRole | 'all';
+    provider: LlmProviderType;
+    modelId: string;
+    temperature?: number;
+  }): RoleModelConfig[] {
+    const targetRoles: ActorRole[] =
+      params.role === 'all'
+        ? ['pm', 'architect', 'developer', 'qa']
+        : [params.role];
+
+    const updated: RoleModelConfig[] = [];
+    for (const r of targetRoles) {
+      const existing = this.getRoleConfig(params.projectId, r);
+      const nextCfg: RoleModelConfig = {
+        role: r,
+        provider: params.provider,
+        modelId: params.modelId,
+        temperature: params.temperature ?? existing.temperature,
+        executionModality: existing.executionModality,
+      };
+      this.setRoleConfig(params.projectId, nextCfg);
+      updated.push(nextCfg);
+    }
+    return updated;
+  }
+
   getRoleConfig(projectId: string, role: ActorRole): RoleModelConfig {
     const row = this.db
       .prepare(`SELECT * FROM role_configs WHERE project_id = ? AND role = ?`)

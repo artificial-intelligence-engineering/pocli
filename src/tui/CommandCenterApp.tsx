@@ -12,6 +12,11 @@ import { executeDbCommandOrQuery } from '../storage/db-repl.js';
 import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
 import {
+  AVAILABLE_MODELS_CATALOG,
+  ModelCatalogEntry,
+  resolveModelSpec,
+} from '../runtime/llm-gateway.js';
+import {
   DISABLE_MOUSE_TRACKING_SEQ,
   ENABLE_MOUSE_TRACKING_SEQ,
   isMouseSequence,
@@ -137,6 +142,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     useState<boolean>(false);
   const [selectedProjectIdx, setSelectedProjectIdx] = useState<number>(0);
 
+  // Interactive OpenCode-style Per-Agent Model Picker Modal (/models)
+  const [isModelsModalOpen, setIsModelsModalOpen] = useState<boolean>(false);
+  const [modelsTargetRole, setModelsTargetRole] = useState<ActorRole | 'all'>(
+    'architect',
+  );
+  const [modelsFilterQuery, setModelsFilterQuery] = useState<string>('');
+  const [selectedModelIdx, setSelectedModelIdx] = useState<number>(0);
+  const [roleConfigVersion, setRoleConfigVersion] = useState<number>(0);
+
   // Prompt input, slash command menu & mouse scroll state
   const [inputValue, setInputValue] = useState<string>('');
   const [selectedSlashIdx, setSelectedSlashIdx] = useState<number>(0);
@@ -257,9 +271,69 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsSettingsOpen(false);
     setIsEditingWorkDir(false);
     setIsProjectsModalOpen(false);
+    setIsModelsModalOpen(false);
+    setModelsFilterQuery('');
     setDbModalOutput('');
     setProjectWizardStep('CLOSED');
   };
+
+  const openModelsModal = (targetRole?: ActorRole | 'all') => {
+    const resolvedTarget = targetRole ?? activeRole;
+    closeAllModals();
+    setModelsTargetRole(resolvedTarget);
+    setModelsFilterQuery('');
+    if (resolvedTarget !== 'all') {
+      const currentCfg = orchestrator.storage.getRoleConfig(
+        project.id,
+        resolvedTarget,
+      );
+      const foundIdx = AVAILABLE_MODELS_CATALOG.findIndex(
+        (m) =>
+          m.provider === currentCfg.provider &&
+          m.modelId === currentCfg.modelId,
+      );
+      setSelectedModelIdx(foundIdx >= 0 ? foundIdx : 0);
+    } else {
+      setSelectedModelIdx(0);
+    }
+    setIsModelsModalOpen(true);
+  };
+
+  const applyModelSelection = (
+    targetRole: ActorRole | 'all',
+    entry: ModelCatalogEntry,
+  ) => {
+    orchestrator.storage.assignModelToRole({
+      projectId: project.id,
+      role: targetRole,
+      provider: entry.provider,
+      modelId: entry.modelId,
+      temperature: entry.defaultTemperature,
+    });
+    setRoleConfigVersion((v) => v + 1);
+    refreshState();
+    const targetLabel =
+      targetRole === 'all'
+        ? t.modelsAllAgentsLabel
+        : getRoleDisplayName(targetRole, language);
+    setStatusBanner(
+      t.modelsAssignedMsg(targetLabel, entry.provider, entry.modelId),
+    );
+  };
+
+  const filteredModels = useMemo(() => {
+    const q = modelsFilterQuery.trim().toLowerCase();
+    if (!q) return AVAILABLE_MODELS_CATALOG;
+    return AVAILABLE_MODELS_CATALOG.filter(
+      (m) =>
+        m.modelId.toLowerCase().includes(q) ||
+        m.displayName.toLowerCase().includes(q) ||
+        m.provider.toLowerCase().includes(q) ||
+        m.providerLabel.toLowerCase().includes(q) ||
+        m.recommendedFor.toLowerCase().includes(q) ||
+        `${m.provider}/${m.modelId}`.toLowerCase().includes(q),
+    );
+  }, [modelsFilterQuery]);
 
   const createAndActivateProject = (rawName: string, rawDir: string) => {
     const cleanName = rawName.trim() || `Project-${Date.now()}`;
@@ -300,6 +374,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     inputValue.startsWith('/') &&
     projectWizardStep === 'CLOSED' &&
     !isProjectsModalOpen &&
+    !isModelsModalOpen &&
     !isHelpOpen &&
     !isSettingsOpen;
   const slashToken = inputValue.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
@@ -632,6 +707,49 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         );
         return;
       }
+      if (cmdToken === '/models' || cmdToken === '/model') {
+        const arg1 = parts[1]?.trim();
+        const arg2 = parts.slice(2).join(' ').trim();
+        const knownTargets = ['pm', 'architect', 'developer', 'qa', 'all'];
+
+        if (!arg1) {
+          if (isModelsModalOpen) {
+            closeAllModals();
+          } else {
+            openModelsModal(activeRole);
+          }
+          return;
+        }
+
+        const arg1Lower = arg1.toLowerCase();
+        // `/models <agent|all> <provider/model>`
+        if (knownTargets.includes(arg1Lower) && arg2) {
+          const resolved = resolveModelSpec(arg2);
+          if (!resolved) {
+            setStatusBanner(t.modelsNotFoundMsg(arg2));
+            return;
+          }
+          applyModelSelection(arg1Lower as ActorRole | 'all', resolved);
+          return;
+        }
+
+        // `/models <agent|all>` -> opens interactive picker targeting that agent
+        if (knownTargets.includes(arg1Lower) && !arg2) {
+          openModelsModal(arg1Lower as ActorRole | 'all');
+          return;
+        }
+
+        // `/models <provider/model>` -> assigns directly to the active agent
+        const inlineSpec = parts.slice(1).join(' ').trim();
+        const resolved = resolveModelSpec(inlineSpec);
+        if (resolved) {
+          applyModelSelection(activeRole, resolved);
+          return;
+        }
+
+        setStatusBanner(t.modelsNotFoundMsg(inlineSpec));
+        return;
+      }
       if (cmdToken === '/db') {
         closeAllModals();
         const queryArg = parts.slice(1).join(' ').trim() || '.stats';
@@ -702,6 +820,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     // 1. Handle Mouse Wheel Scrolling
     if (ev.action === 'wheel') {
       const isUp = ev.button === 'wheel-up';
+      if (isModelsModalOpen && filteredModels.length > 0) {
+        setSelectedModelIdx((prev) =>
+          isUp
+            ? prev > 0
+              ? prev - 1
+              : filteredModels.length - 1
+            : prev < filteredModels.length - 1
+              ? prev + 1
+              : 0,
+        );
+        return;
+      }
       if (isProjectsModalOpen && allProjects.length > 0) {
         setSelectedProjectIdx((prev) =>
           isUp
@@ -779,6 +909,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (isHelpOpen || dbModalOutput.length > 0) {
         setIsHelpOpen(false);
         setDbModalOutput('');
+        return;
+      }
+
+      // Interactive Models modal: click applies selected model
+      if (isModelsModalOpen && filteredModels.length > 0) {
+        const chosen =
+          filteredModels[selectedModelIdx] ?? filteredModels[0];
+        if (chosen) {
+          applyModelSelection(modelsTargetRole, chosen);
+          setIsModelsModalOpen(false);
+          setModelsFilterQuery('');
+        }
         return;
       }
 
@@ -921,6 +1063,75 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // 2b. Handle OpenCode-style Per-Agent Model Picker Modal (/models or Ctrl+O)
+    if (isModelsModalOpen) {
+      if (key.escape) {
+        setIsModelsModalOpen(false);
+        setModelsFilterQuery('');
+        return;
+      }
+
+      const targetOptions = ['pm', 'architect', 'developer', 'qa', 'all'] as const;
+      if (key.leftArrow || key.rightArrow || key.tab) {
+        const currIdx = Math.max(
+          0,
+          targetOptions.indexOf(
+            modelsTargetRole as (typeof targetOptions)[number],
+          ),
+        );
+        const delta = key.leftArrow ? -1 : 1;
+        const nextTarget =
+          targetOptions[
+            (currIdx + delta + targetOptions.length) % targetOptions.length
+          ];
+        setModelsTargetRole(nextTarget);
+        if (nextTarget !== 'all' && !modelsFilterQuery) {
+          const cfg = orchestrator.storage.getRoleConfig(
+            project.id,
+            nextTarget,
+          );
+          const foundIdx = AVAILABLE_MODELS_CATALOG.findIndex(
+            (m) => m.provider === cfg.provider && m.modelId === cfg.modelId,
+          );
+          if (foundIdx >= 0) setSelectedModelIdx(foundIdx);
+        }
+        return;
+      }
+
+      if (key.upArrow && filteredModels.length > 0) {
+        setSelectedModelIdx((prev) =>
+          prev > 0 ? prev - 1 : filteredModels.length - 1,
+        );
+        return;
+      }
+      if (key.downArrow && filteredModels.length > 0) {
+        setSelectedModelIdx((prev) =>
+          prev < filteredModels.length - 1 ? prev + 1 : 0,
+        );
+        return;
+      }
+      if (key.return && filteredModels.length > 0) {
+        const chosen =
+          filteredModels[selectedModelIdx] ?? filteredModels[0];
+        if (chosen) {
+          applyModelSelection(modelsTargetRole, chosen);
+          setIsModelsModalOpen(false);
+          setModelsFilterQuery('');
+        }
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setModelsFilterQuery((prev) => prev.slice(0, -1));
+        setSelectedModelIdx(0);
+        return;
+      }
+      if (!key.ctrl && !key.meta && input) {
+        setModelsFilterQuery((prev) => prev + input);
+        setSelectedModelIdx(0);
+      }
+      return;
+    }
+
     // 3. Handle interactive Help or DB modal when open
     if (isHelpOpen || dbModalOutput.length > 0) {
       if (key.escape || key.return || input === 'q') {
@@ -975,6 +1186,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           return;
         }
       }
+      return;
+    }
+
+    // OpenCode Ctrl+O shortcut to open the Per-Agent Model Picker (/models)
+    if (key.ctrl && input === 'o') {
+      openModelsModal(activeRole);
       return;
     }
 
@@ -1056,7 +1273,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const activeTheme = getRoleTheme(activeRole);
   const activeModelCfg = useMemo(
     () => orchestrator.storage.getRoleConfig(project.id, activeRole),
-    [orchestrator.storage, project.id, activeRole, expertSummaries],
+    [
+      orchestrator.storage,
+      project.id,
+      activeRole,
+      expertSummaries,
+      roleConfigVersion,
+    ],
   );
   const messages = useMemo(
     () => orchestrator.storage.listMessages(project.id, activeRole),
@@ -1073,7 +1296,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const multipanelMessages = sliceWindowedMessages(4);
   const roleConfigs = useMemo(
     () => orchestrator.storage.listRoleConfigs(project.id),
-    [orchestrator.storage, project.id, expertSummaries],
+    [orchestrator.storage, project.id, expertSummaries, roleConfigVersion],
   );
   const repoSummary =
     project.repositories.length > 0
@@ -1345,10 +1568,233 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     </Box>
   );
 
+  // OpenCode-style Interactive Per-Agent Model Picker Modal (/models or Ctrl+O)
+  const renderModelsModal = () => {
+    const targetOptions = [
+      'pm',
+      'architect',
+      'developer',
+      'qa',
+      'all',
+    ] as const;
+    const targetTheme =
+      modelsTargetRole === 'all'
+        ? {
+            bgColor: 'cyan' as const,
+            fgColor: 'black' as const,
+            accentColor: 'cyan' as const,
+          }
+        : getRoleTheme(modelsTargetRole);
+
+    // Larger, strictly fixed modal dimensions so moving left/right/up/down or
+    // typing in the filter never changes the dialog width or height.
+    const modalWidth = Math.max(76, Math.min(128, dimensions.columns - 6));
+    const innerWidth = Math.max(68, modalWidth - 6);
+    const tabWidth = Math.max(12, Math.floor((innerWidth - 4) / 5));
+    const windowSize = Math.max(
+      6,
+      Math.min(12, Math.max(22, dimensions.rows - 1) - 19),
+    );
+    const modalHeight = windowSize + 15;
+
+    const startIdx = Math.max(
+      0,
+      Math.min(
+        selectedModelIdx - Math.floor(windowSize / 2),
+        Math.max(0, filteredModels.length - windowSize),
+      ),
+    );
+    const visibleModels = filteredModels.slice(startIdx, startIdx + windowSize);
+
+    const selectedTargetCfg =
+      modelsTargetRole === 'all'
+        ? undefined
+        : roleConfigs.find((rc) => rc.role === modelsTargetRole);
+    const selectedTargetSummary =
+      modelsTargetRole === 'all'
+        ? `${t.modelsAllAgentsLabel} — ${roleConfigs
+            .map((rc) => `${rc.role.toUpperCase()}: ${rc.modelId}`)
+            .join(' · ')}`
+        : `${getRoleDisplayName(modelsTargetRole, language)} — [${
+            selectedTargetCfg?.provider ?? 'anthropic'
+          }] ${selectedTargetCfg?.modelId ?? 'default'}`;
+
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        height={modalHeight}
+        borderStyle="double"
+        borderColor={targetTheme.accentColor}
+        paddingX={2}
+        paddingY={1}
+      >
+        <Box justifyContent="space-between" height={1}>
+          <Text bold color={targetTheme.accentColor} wrap="truncate-end">
+            🤖 {t.modelsTitle}
+          </Text>
+          <Text dimColor wrap="truncate-end">
+            [{project.name}]
+          </Text>
+        </Box>
+        <Box height={1}>
+          <Text dimColor wrap="truncate-end">
+            {t.modelsSubtitle}
+          </Text>
+        </Box>
+
+        {/* Per-Agent Target Selector Bar: strictly fixed 1-line tabs + 1-line summary */}
+        <Box marginTop={1} flexDirection="column" height={3}>
+          <Box justifyContent="space-between" height={1}>
+            <Text bold color="white" wrap="truncate-end">
+              {t.modelsTargetAgentLabel}
+            </Text>
+            <Text color={targetTheme.accentColor} wrap="truncate-end">
+              {selectedTargetSummary}
+            </Text>
+          </Box>
+          <Box
+            flexDirection="row"
+            width="100%"
+            height={1}
+            marginTop={1}
+            justifyContent="space-between"
+          >
+            {targetOptions.map((opt) => {
+              const isSelectedTarget = modelsTargetRole === opt;
+              const optTheme =
+                opt === 'all'
+                  ? {
+                      bgColor: 'cyan' as const,
+                      fgColor: 'black' as const,
+                      accentColor: 'cyan' as const,
+                    }
+                  : getRoleTheme(opt);
+              const cfg =
+                opt === 'all'
+                  ? undefined
+                  : roleConfigs.find((rc) => rc.role === opt);
+              const rawLabel =
+                opt === 'all'
+                  ? t.modelsAllAgentsLabel
+                  : `${t.expertBoxTitles[opt]} (${cfg?.modelId ?? 'default'})`;
+              const formattedTab = fitAndPadLine(
+                isSelectedTarget ? ` ▶ ${rawLabel}` : `   ${rawLabel}`,
+                tabWidth,
+              );
+
+              return (
+                <Box key={opt} width={tabWidth} height={1}>
+                  <Text
+                    bold={isSelectedTarget}
+                    wrap="truncate-end"
+                    backgroundColor={
+                      isSelectedTarget ? optTheme.bgColor : undefined
+                    }
+                    color={
+                      isSelectedTarget ? optTheme.fgColor : optTheme.accentColor
+                    }
+                  >
+                    {formattedTab}
+                  </Text>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
+
+        {/* OpenCode-style Live Search / Filter Input (fixed 3 rows) */}
+        <Box
+          marginTop={1}
+          height={3}
+          borderStyle="round"
+          borderColor={targetTheme.accentColor}
+          paddingX={1}
+          justifyContent="space-between"
+        >
+          <Text wrap="truncate-end">
+            <Text bold color={targetTheme.accentColor}>
+              {t.modelsSearchLabel} ❯{' '}
+            </Text>
+            {modelsFilterQuery ? (
+              <Text color="white">{modelsFilterQuery}</Text>
+            ) : (
+              <Text dimColor>{t.modelsSearchPlaceholder}</Text>
+            )}
+            <Text color={targetTheme.accentColor}>█</Text>
+          </Text>
+          <Text dimColor>
+            {filteredModels.length}/{AVAILABLE_MODELS_CATALOG.length}
+          </Text>
+        </Box>
+
+        {/* Scrollable Model Catalog List with strictly fixed height (windowSize rows) */}
+        <Box flexDirection="column" marginTop={1} height={windowSize}>
+          {visibleModels.length === 0 ? (
+            <Text dimColor wrap="truncate-end">
+              {t.noCommandMatches} "{modelsFilterQuery}"
+            </Text>
+          ) : (
+            visibleModels.map((m, localIdx) => {
+              const realIdx = startIdx + localIdx;
+              const isRowSelected = realIdx === selectedModelIdx;
+              const assignedRoles = (
+                ['pm', 'architect', 'developer', 'qa'] as const
+              ).filter((rKey) => {
+                const rc = roleConfigs.find((c) => c.role === rKey);
+                return rc?.provider === m.provider && rc?.modelId === m.modelId;
+              });
+
+              return (
+                <Box
+                  key={`${m.provider}/${m.modelId}`}
+                  justifyContent="space-between"
+                  height={1}
+                >
+                  <Text
+                    bold={isRowSelected}
+                    color={isRowSelected ? targetTheme.accentColor : 'white'}
+                    wrap="truncate-end"
+                  >
+                    {isRowSelected ? '❯ ' : '  '}
+                    <Text color="cyan">
+                      [{m.provider.toUpperCase().padEnd(13, ' ')}]
+                    </Text>{' '}
+                    {m.displayName.padEnd(28, ' ')}{' '}
+                    <Text dimColor>
+                      ({m.modelId}) · {m.contextWindow} · {m.recommendedFor}
+                    </Text>
+                  </Text>
+                  <Box height={1}>
+                    {assignedRoles.map((rKey) => {
+                      const rTheme = getRoleTheme(rKey);
+                      return (
+                        <Box key={rKey} marginLeft={1}>
+                          <Text
+                            bold
+                            backgroundColor={rTheme.bgColor}
+                            color={rTheme.fgColor}
+                          >
+                            {` ${rKey.toUpperCase()} `}
+                          </Text>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              );
+            })
+          )}
+        </Box>
+      </Box>
+    );
+  };
+
   const anyModalOpen =
     isHelpOpen ||
     isSettingsOpen ||
     isProjectsModalOpen ||
+    isModelsModalOpen ||
     dbModalOutput.length > 0 ||
     projectWizardStep !== 'CLOSED';
 
@@ -1394,7 +1840,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         {/* Top bar with solid color-coded background banner for the active agent */}
         {renderTopColorBanner(simpleBarWidth, t.cleanViewName)}
 
-        {/* Center Area: OpenCode-style centered banner + latest conversation + input box */}
+        {/* Center Area: When a modal is open, render ONLY the centered modal cleanly
+            without the PO CLI logo or any text/prompt boxes underneath. */}
         <Box
           flexDirection="column"
           alignItems="center"
@@ -1402,170 +1849,176 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           flexGrow={1}
           width="100%"
         >
-          {/* Centered ASCII Banner (always fixed grayscale) */}
-          <Box flexDirection="column" alignItems="center" marginBottom={1}>
-            {ASCII_LOGO.map((line, i) => (
-              <Text
-                key={i}
-                bold
-                color={i < 2 ? 'white' : 'gray'}
-                dimColor={i >= 4}
-              >
-                {line}
-              </Text>
-            ))}
-            <Box marginTop={1}>
-              <Text dimColor>
-                {t.virtualEngineeringTeam} · {t.projectLabel}:{' '}
-                <Text color="green" bold>
-                  {project.name}
-                </Text>{' '}
-                · {activeRoleDisplayName.toUpperCase()} ({activeModelCfg.modelId}) ·{' '}
-                {t.archVersionShort} v{project.approvedArchitectureVersion}
-              </Text>
-            </Box>
-          </Box>
-
-          {/* Interactive Modals */}
-          {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
-          {isProjectsModalOpen && renderProjectsListModal()}
-          {dbModalOutput.length > 0 && renderDbModal()}
-          {isHelpOpen && renderHelpModal()}
-          {isSettingsOpen && renderSettingsModal()}
-
-          {/* Recent conversation snippet if any */}
-          {!anyModalOpen && (lastMessages.length > 0 || streamingText) && (
-            <Box
-              flexDirection="column"
-              width={Math.min(92, dimensions.columns - 8)}
-              borderStyle="round"
-              borderColor="gray"
-              paddingX={2}
-              paddingY={0}
-              marginBottom={1}
-            >
-              {lastMessages.map((m) => (
-                <Box key={m.id} flexDirection="column" marginY={0}>
+          {anyModalOpen ? (
+            <>
+              {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
+              {isProjectsModalOpen && renderProjectsListModal()}
+              {isModelsModalOpen && renderModelsModal()}
+              {dbModalOutput.length > 0 && renderDbModal()}
+              {isHelpOpen && renderHelpModal()}
+              {isSettingsOpen && renderSettingsModal()}
+            </>
+          ) : (
+            <>
+              {/* Centered ASCII Banner (always fixed grayscale) */}
+              <Box flexDirection="column" alignItems="center" marginBottom={1}>
+                {ASCII_LOGO.map((line, i) => (
                   <Text
+                    key={i}
                     bold
-                    color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
+                    color={i < 2 ? 'white' : 'gray'}
+                    dimColor={i >= 4}
                   >
-                    {m.fromRole === 'product_owner'
-                      ? getRoleDisplayName('product_owner', language)
-                      : activeRoleDisplayName}
-                    :
+                    {line}
                   </Text>
+                ))}
+                <Box marginTop={1}>
+                  <Text dimColor>
+                    {t.virtualEngineeringTeam} · {t.projectLabel}:{' '}
+                    <Text color="green" bold>
+                      {project.name}
+                    </Text>{' '}
+                    · {activeRoleDisplayName.toUpperCase()} ({activeModelCfg.modelId}) ·{' '}
+                    {t.archVersionShort} v{project.approvedArchitectureVersion}
+                  </Text>
+                </Box>
+              </Box>
+
+              {/* Recent conversation snippet if any */}
+              {(lastMessages.length > 0 || streamingText) && (
+                <Box
+                  flexDirection="column"
+                  width={Math.min(92, dimensions.columns - 8)}
+                  borderStyle="round"
+                  borderColor="gray"
+                  paddingX={2}
+                  paddingY={0}
+                  marginBottom={1}
+                >
+                  {lastMessages.map((m) => (
+                    <Box key={m.id} flexDirection="column" marginY={0}>
+                      <Text
+                        bold
+                        color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
+                      >
+                        {m.fromRole === 'product_owner'
+                          ? getRoleDisplayName('product_owner', language)
+                          : activeRoleDisplayName}
+                        :
+                      </Text>
+                      <Text>
+                        {m.content.length > 220
+                          ? `${m.content.slice(0, 220)}...`
+                          : m.content}
+                      </Text>
+                    </Box>
+                  ))}
+                  {streamingText && (
+                    <Box flexDirection="column">
+                      <Text bold color="green">
+                        {activeRoleDisplayName} (streaming):
+                      </Text>
+                      <Text>{streamingText}</Text>
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {/* Slash Command Popover Menu when user types "/" */}
+              {isSlashMenuOpen && (
+                <Box
+                  flexDirection="column"
+                  width={Math.min(92, dimensions.columns - 8)}
+                  borderStyle="round"
+                  borderColor="magenta"
+                  paddingX={2}
+                  marginBottom={1}
+                >
+                  <Text bold color="magenta">
+                    {t.availableCommandsHeader}
+                  </Text>
+                  {filteredSlashCommands.length === 0 ? (
+                    <Text dimColor>
+                      {t.noCommandMatches} "{inputValue}"
+                    </Text>
+                  ) : (
+                    (() => {
+                      const windowSize = 8;
+                      const start = Math.max(
+                        0,
+                        Math.min(
+                          selectedSlashIdx - Math.floor(windowSize / 2),
+                          Math.max(0, filteredSlashCommands.length - windowSize),
+                        ),
+                      );
+                      const visible = filteredSlashCommands.slice(
+                        start,
+                        start + windowSize,
+                      );
+                      return visible.map((item, localIdx) => {
+                        const realIdx = start + localIdx;
+                        const isSelected = realIdx === selectedSlashIdx;
+                        return (
+                          <Box key={item.command} justifyContent="space-between">
+                            <Text
+                              color={isSelected ? 'cyan' : 'white'}
+                              bold={isSelected}
+                            >
+                              {isSelected ? '❯ ' : '  '}
+                              {item.command.padEnd(14, ' ')}
+                              <Text
+                                dimColor={!isSelected}
+                                color={isSelected ? 'white' : undefined}
+                              >
+                                {item.description}
+                              </Text>
+                            </Text>
+                            {item.phaseHint && (
+                              <Text color="yellow" dimColor={!isSelected}>
+                                [{item.phaseHint}]
+                              </Text>
+                            )}
+                          </Box>
+                        );
+                      });
+                    })()
+                  )}
+                </Box>
+              )}
+
+              {/* Centered OpenCode-style Prompt Box showing active project & active role */}
+              <Box
+                flexDirection="column"
+                width={Math.min(92, dimensions.columns - 8)}
+                borderStyle="round"
+                borderColor={
+                  isSlashMenuOpen ? 'magenta' : activeTheme.accentColor
+                }
+                paddingX={2}
+                paddingY={0}
+              >
+                <Box justifyContent="space-between">
                   <Text>
-                    {m.content.length > 220
-                      ? `${m.content.slice(0, 220)}...`
-                      : m.content}
+                    <Text bold color="green">
+                      [{project.name}]
+                    </Text>{' '}
+                    <Text bold color={activeTheme.accentColor}>
+                      ❯{' '}
+                    </Text>
+                    <Text>{inputValue}</Text>
+                    <Text color={activeTheme.accentColor}>█</Text>
+                  </Text>
+                  <Text dimColor>
+                    {project.name} · {activeRoleDisplayName}
                   </Text>
                 </Box>
-              ))}
-              {streamingText && (
-                <Box flexDirection="column">
-                  <Text bold color="green">
-                    {activeRoleDisplayName} (streaming):
-                  </Text>
-                  <Text>{streamingText}</Text>
+                <Box justifyContent="space-between" marginTop={0}>
+                  <Text dimColor>{t.inputPlaceholderHint}</Text>
+                  <Text dimColor>Enter ↵</Text>
                 </Box>
-              )}
-            </Box>
+              </Box>
+            </>
           )}
-
-          {/* Slash Command Popover Menu when user types "/" */}
-          {!anyModalOpen && isSlashMenuOpen && (
-            <Box
-              flexDirection="column"
-              width={Math.min(92, dimensions.columns - 8)}
-              borderStyle="round"
-              borderColor="magenta"
-              paddingX={2}
-              marginBottom={1}
-            >
-              <Text bold color="magenta">
-                {t.availableCommandsHeader}
-              </Text>
-              {filteredSlashCommands.length === 0 ? (
-                <Text dimColor>
-                  {t.noCommandMatches} "{inputValue}"
-                </Text>
-              ) : (
-                (() => {
-                  const windowSize = 8;
-                  const start = Math.max(
-                    0,
-                    Math.min(
-                      selectedSlashIdx - Math.floor(windowSize / 2),
-                      Math.max(0, filteredSlashCommands.length - windowSize),
-                    ),
-                  );
-                  const visible = filteredSlashCommands.slice(
-                    start,
-                    start + windowSize,
-                  );
-                  return visible.map((item, localIdx) => {
-                    const realIdx = start + localIdx;
-                    const isSelected = realIdx === selectedSlashIdx;
-                    return (
-                      <Box key={item.command} justifyContent="space-between">
-                        <Text
-                          color={isSelected ? 'cyan' : 'white'}
-                          bold={isSelected}
-                        >
-                          {isSelected ? '❯ ' : '  '}
-                          {item.command.padEnd(14, ' ')}
-                          <Text
-                            dimColor={!isSelected}
-                            color={isSelected ? 'white' : undefined}
-                          >
-                            {item.description}
-                          </Text>
-                        </Text>
-                        {item.phaseHint && (
-                          <Text color="yellow" dimColor={!isSelected}>
-                            [{item.phaseHint}]
-                          </Text>
-                        )}
-                      </Box>
-                    );
-                  });
-                })()
-              )}
-            </Box>
-          )}
-
-          {/* Centered OpenCode-style Prompt Box showing active project & active role */}
-          <Box
-            flexDirection="column"
-            width={Math.min(92, dimensions.columns - 8)}
-            borderStyle="round"
-            borderColor={
-              isSlashMenuOpen ? 'magenta' : activeTheme.accentColor
-            }
-            paddingX={2}
-            paddingY={0}
-          >
-            <Box justifyContent="space-between">
-              <Text>
-                <Text bold color="green">
-                  [{project.name}]
-                </Text>{' '}
-                <Text bold color={activeTheme.accentColor}>
-                  ❯{' '}
-                </Text>
-                <Text>{inputValue}</Text>
-                <Text color={activeTheme.accentColor}>█</Text>
-              </Text>
-              <Text dimColor>
-                {project.name} · {activeRoleDisplayName}
-              </Text>
-            </Box>
-            <Box justifyContent="space-between" marginTop={0}>
-              <Text dimColor>{t.inputPlaceholderHint}</Text>
-              <Text dimColor>Enter ↵</Text>
-            </Box>
-          </Box>
         </Box>
 
         {/* Bottom Status Bar */}
@@ -1599,281 +2052,270 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       {/* Top Banner with Solid Background Color of the Active Agent */}
       {renderTopColorBanner(multipanelBarWidth, t.multipanelViewName)}
 
-      {projectWizardStep !== 'CLOSED' && (
-        <Box marginTop={1} justifyContent="center">
-          {renderProjectWizardModal()}
+      {anyModalOpen ? (
+        <Box
+          flexDirection="column"
+          alignItems="center"
+          justifyContent="center"
+          flexGrow={1}
+          width="100%"
+        >
+          {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
+          {isProjectsModalOpen && renderProjectsListModal()}
+          {isModelsModalOpen && renderModelsModal()}
+          {dbModalOutput.length > 0 && renderDbModal()}
+          {isHelpOpen && renderHelpModal()}
+          {isSettingsOpen && renderSettingsModal()}
         </Box>
-      )}
+      ) : (
+        <>
+          {/* Top Row: 4 Expert Chat Summary Boxes loaded from SQLite.
+              All 4 boxes have strictly fixed height (6 rows) and width (25%) with
+              single-line truncated records so selecting an agent never resizes boxes. */}
+          <Box flexDirection="row" width="100%" height={6} marginTop={1}>
+            {(['pm', 'architect', 'developer', 'qa'] as const).map((roleKey) => {
+              const summary = expertSummaries.find(
+                (s) => s.expertRole === roleKey,
+              ) ?? {
+                projectId: project.id,
+                expertRole: roleKey,
+                totalMessages: 0,
+                activeContextTokens: 0,
+                savedTokensByCompaction: 0,
+                compactionCount: 0,
+                lastUserPrompt: '',
+                lastExpertReply: '',
+                summaryText: '',
+                recentExchanges: [],
+                updatedAt: '',
+              };
+              const roleTheme = getRoleTheme(roleKey);
+              const boxTitle = t.expertBoxTitles[roleKey];
+              const isSelected = activeRole === roleKey;
+              const statsBadge = `(${summary.totalMessages}m·${summary.activeContextTokens}t${
+                summary.savedTokensByCompaction > 0
+                  ? `·-${summary.savedTokensByCompaction}t`
+                  : ''
+              })`;
 
-      {isProjectsModalOpen && (
-        <Box marginTop={1} justifyContent="center">
-          {renderProjectsListModal()}
-        </Box>
-      )}
+              const titlePrefix = isSelected ? ` ▶ ${boxTitle}` : ` ${boxTitle}`;
+              const headerGap = Math.max(
+                1,
+                expertBoxInnerWidth - (titlePrefix.length + statsBadge.length + 1),
+              );
+              const line1 = fitAndPadLine(
+                `${titlePrefix}${' '.repeat(headerGap)}${statsBadge} `,
+                expertBoxInnerWidth,
+              );
+              const line2 =
+                summary.totalMessages === 0
+                  ? fitAndPadLine(` ${t.expertBoxNoChatsYet}`, expertBoxInnerWidth)
+                  : fitAndPadLine(
+                      ` ${t.expertBoxSummaryLabel} ${summary.summaryText}`,
+                      expertBoxInnerWidth,
+                    );
+              const ex1 = summary.recentExchanges.slice(-2)[0];
+              const ex2 = summary.recentExchanges.slice(-2)[1];
+              const line3 = ex1
+                ? fitAndPadLine(
+                    ` • [${ex1.fromRole === 'product_owner' ? 'PO' : ex1.fromRole}]: ${ex1.snippet}`,
+                    expertBoxInnerWidth,
+                  )
+                : fitAndPadLine(' ', expertBoxInnerWidth);
+              const line4 = ex2
+                ? fitAndPadLine(
+                    ` • [${ex2.fromRole === 'product_owner' ? 'PO' : ex2.fromRole}]: ${ex2.snippet}`,
+                    expertBoxInnerWidth,
+                  )
+                : fitAndPadLine(' ', expertBoxInnerWidth);
 
-      {dbModalOutput.length > 0 && (
-        <Box marginTop={1} justifyContent="center">
-          {renderDbModal()}
-        </Box>
-      )}
+              return (
+                <Box
+                  key={roleKey}
+                  flexDirection="column"
+                  width="25%"
+                  height={6}
+                  borderStyle="round"
+                  borderColor={roleTheme.accentColor}
+                  paddingX={0}
+                >
+                  <Text
+                    bold
+                    wrap="truncate-end"
+                    backgroundColor={isSelected ? roleTheme.bgColor : undefined}
+                    color={isSelected ? roleTheme.fgColor : roleTheme.accentColor}
+                  >
+                    {line1}
+                  </Text>
+                  <Text
+                    bold={isSelected}
+                    wrap="truncate-end"
+                    backgroundColor={isSelected ? roleTheme.bgColor : undefined}
+                    color={isSelected ? roleTheme.fgColor : 'white'}
+                    dimColor={!isSelected && summary.totalMessages === 0}
+                  >
+                    {line2}
+                  </Text>
+                  <Text
+                    wrap="truncate-end"
+                    backgroundColor={isSelected ? roleTheme.bgColor : undefined}
+                    color={isSelected ? roleTheme.fgColor : undefined}
+                    dimColor={!isSelected}
+                  >
+                    {line3}
+                  </Text>
+                  <Text
+                    wrap="truncate-end"
+                    backgroundColor={isSelected ? roleTheme.bgColor : undefined}
+                    color={isSelected ? roleTheme.fgColor : undefined}
+                    dimColor={!isSelected}
+                  >
+                    {line4}
+                  </Text>
+                </Box>
+              );
+            })}
+          </Box>
 
-      {isHelpOpen && (
-        <Box marginTop={1} justifyContent="center">
-          {renderHelpModal()}
-        </Box>
-      )}
-
-      {isSettingsOpen && (
-        <Box marginTop={1} justifyContent="center">
-          {renderSettingsModal()}
-        </Box>
-      )}
-
-      {/* Top Row: 4 Expert Chat Summary Boxes loaded from SQLite.
-          All 4 boxes have strictly fixed height (6 rows) and width (25%) with
-          single-line truncated records so selecting an agent never resizes boxes. */}
-      <Box flexDirection="row" width="100%" height={6} marginTop={1}>
-        {(['pm', 'architect', 'developer', 'qa'] as const).map((roleKey) => {
-          const summary = expertSummaries.find(
-            (s) => s.expertRole === roleKey,
-          ) ?? {
-            projectId: project.id,
-            expertRole: roleKey,
-            totalMessages: 0,
-            activeContextTokens: 0,
-            savedTokensByCompaction: 0,
-            compactionCount: 0,
-            lastUserPrompt: '',
-            lastExpertReply: '',
-            summaryText: '',
-            recentExchanges: [],
-            updatedAt: '',
-          };
-          const roleTheme = getRoleTheme(roleKey);
-          const boxTitle = t.expertBoxTitles[roleKey];
-          const isSelected = activeRole === roleKey;
-          const statsBadge = `(${summary.totalMessages}m·${summary.activeContextTokens}t${
-            summary.savedTokensByCompaction > 0
-              ? `·-${summary.savedTokensByCompaction}t`
-              : ''
-          })`;
-
-          const titlePrefix = isSelected ? ` ▶ ${boxTitle}` : ` ${boxTitle}`;
-          const headerGap = Math.max(
-            1,
-            expertBoxInnerWidth - (titlePrefix.length + statsBadge.length + 1),
-          );
-          const line1 = fitAndPadLine(
-            `${titlePrefix}${' '.repeat(headerGap)}${statsBadge} `,
-            expertBoxInnerWidth,
-          );
-          const line2 =
-            summary.totalMessages === 0
-              ? fitAndPadLine(` ${t.expertBoxNoChatsYet}`, expertBoxInnerWidth)
-              : fitAndPadLine(
-                  ` ${t.expertBoxSummaryLabel} ${summary.summaryText}`,
-                  expertBoxInnerWidth,
+          {/* Lower Split Body: Artifacts/Notebooks & Active Direct Channel */}
+          <Box flexDirection="row" flexGrow={1} marginTop={1}>
+            {/* Left Sidebar: Team, Artifacts & Notebooks */}
+            <Box flexDirection="column" width="42%" paddingRight={2}>
+              <Text bold underline color="magenta">
+                {t.sectionTeamTitle}
+              </Text>
+              {harnesses.map((h, idx) => {
+                const cfg = roleConfigs.find((rc) => rc.role === h.role);
+                const isSelected = h.role === activeRole;
+                const roleLabel = getRoleDisplayName(h.role, language);
+                return (
+                  <Text key={h.role} color={isSelected ? 'green' : 'white'}>
+                    {isSelected ? '▶ ' : '  '}[{idx + 1}] {roleLabel} (
+                    {cfg?.modelId ?? 'default'} |{' '}
+                    {cfg?.executionModality ?? 'LOCAL'})
+                  </Text>
                 );
-          const ex1 = summary.recentExchanges.slice(-2)[0];
-          const ex2 = summary.recentExchanges.slice(-2)[1];
-          const line3 = ex1
-            ? fitAndPadLine(
-                ` • [${ex1.fromRole === 'product_owner' ? 'PO' : ex1.fromRole}]: ${ex1.snippet}`,
-                expertBoxInnerWidth,
-              )
-            : fitAndPadLine(' ', expertBoxInnerWidth);
-          const line4 = ex2
-            ? fitAndPadLine(
-                ` • [${ex2.fromRole === 'product_owner' ? 'PO' : ex2.fromRole}]: ${ex2.snippet}`,
-                expertBoxInnerWidth,
-              )
-            : fitAndPadLine(' ', expertBoxInnerWidth);
+              })}
 
-          return (
+              <Box marginTop={1} flexDirection="column">
+                <Text bold underline color="magenta">
+                  {t.sectionArtifactsTitle(artifacts.length)}
+                </Text>
+                {artifacts.length === 0 ? (
+                  <Text dimColor>{t.noArtifactsYet}</Text>
+                ) : (
+                  artifacts.slice(0, 6).map((art) => (
+                    <Text key={art.id}>
+                      {'  '}• <Text bold>{art.code}</Text> v{art.version} [
+                      {art.status}] →{' '}
+                      {art.tracesTo.join(',') || t.rootTraceLabel}
+                    </Text>
+                  ))
+                )}
+              </Box>
+
+              <Box marginTop={1} flexDirection="column">
+                <Text bold underline color="magenta">
+                  {t.sectionNotebooksTitle(notebooks.length)}
+                </Text>
+                {notebooks.length === 0 ? (
+                  <Text dimColor>{t.noNotebooksLinked}</Text>
+                ) : (
+                  notebooks.map((nb) => (
+                    <Text key={nb.id}>
+                      {'  '}• <Text bold color="cyan">{nb.name}</Text> (
+                      {nb.allowedRoles.join(',')})
+                    </Text>
+                  ))
+                )}
+              </Box>
+            </Box>
+
+            {/* Right Panel: Conversation & Activity */}
             <Box
-              key={roleKey}
               flexDirection="column"
-              width="25%"
-              height={6}
-              borderStyle="round"
-              borderColor={roleTheme.accentColor}
-              paddingX={0}
+              width="58%"
+              borderStyle="single"
+              borderColor="gray"
+              paddingX={1}
             >
-              <Text
-                bold
-                wrap="truncate-end"
-                backgroundColor={isSelected ? roleTheme.bgColor : undefined}
-                color={isSelected ? roleTheme.fgColor : roleTheme.accentColor}
-              >
-                {line1}
+              <Text bold color="yellow">
+                {t.directChannelHeader(activeRoleDisplayName)}
               </Text>
-              <Text
-                bold={isSelected}
-                wrap="truncate-end"
-                backgroundColor={isSelected ? roleTheme.bgColor : undefined}
-                color={isSelected ? roleTheme.fgColor : 'white'}
-                dimColor={!isSelected && summary.totalMessages === 0}
-              >
-                {line2}
+              {messages.length === 0 ? (
+                <Text dimColor>{t.noMessagesInChannel}</Text>
+              ) : (
+                multipanelMessages.map((m) => (
+                  <Box key={m.id} flexDirection="column" marginTop={1}>
+                    <Text
+                      bold
+                      color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
+                    >
+                      [{m.fromRole} → {m.toRole}]:
+                    </Text>
+                    <Text>
+                      {m.content.slice(0, 200)}
+                      {m.content.length > 200 ? '...' : ''}
+                    </Text>
+                  </Box>
+                ))
+              )}
+            </Box>
+          </Box>
+
+          {/* Slash Menu Popover inside Multipanel mode */}
+          {isSlashMenuOpen && (
+            <Box
+              flexDirection="column"
+              borderStyle="round"
+              borderColor="magenta"
+              paddingX={1}
+            >
+              {filteredSlashCommands.slice(0, 6).map((item, idx) => {
+                const isSelected = idx === selectedSlashIdx;
+                return (
+                  <Text
+                    key={item.command}
+                    color={isSelected ? 'cyan' : 'white'}
+                    bold={isSelected}
+                  >
+                    {isSelected ? '❯ ' : '  '}
+                    {item.command.padEnd(14, ' ')} — {item.description}
+                  </Text>
+                );
+              })}
+            </Box>
+          )}
+
+          {/* Bottom Input Box + Status Footer always displaying the active project & agent color */}
+          <Box
+            flexDirection="column"
+            borderStyle="single"
+            borderColor={activeTheme.accentColor}
+            paddingX={1}
+          >
+            <Box justifyContent="space-between">
+              <Text>
+                <Text bold color="green">
+                  [{project.name}]
+                </Text>{' '}
+                <Text dimColor>
+                  {activeRoleDisplayName}
+                </Text>{' '}
+                <Text bold color={activeTheme.accentColor}>
+                  ❯{' '}
+                </Text>
+                <Text>{inputValue}</Text>
+                <Text color={activeTheme.accentColor}>█</Text>
               </Text>
-              <Text
-                wrap="truncate-end"
-                backgroundColor={isSelected ? roleTheme.bgColor : undefined}
-                color={isSelected ? roleTheme.fgColor : undefined}
-                dimColor={!isSelected}
-              >
-                {line3}
-              </Text>
-              <Text
-                wrap="truncate-end"
-                backgroundColor={isSelected ? roleTheme.bgColor : undefined}
-                color={isSelected ? roleTheme.fgColor : undefined}
-                dimColor={!isSelected}
-              >
-                {line4}
+              <Text dimColor>
+                dir: {project.workspaceDir} · {t.returnToCleanViewHint}
               </Text>
             </Box>
-          );
-        })}
-      </Box>
-
-      {/* Lower Split Body: Artifacts/Notebooks & Active Direct Channel */}
-      <Box flexDirection="row" flexGrow={1} marginTop={1}>
-        {/* Left Sidebar: Team, Artifacts & Notebooks */}
-        <Box flexDirection="column" width="42%" paddingRight={2}>
-          <Text bold underline color="magenta">
-            {t.sectionTeamTitle}
-          </Text>
-          {harnesses.map((h, idx) => {
-            const cfg = roleConfigs.find((rc) => rc.role === h.role);
-            const isSelected = h.role === activeRole;
-            const roleLabel = getRoleDisplayName(h.role, language);
-            return (
-              <Text key={h.role} color={isSelected ? 'green' : 'white'}>
-                {isSelected ? '▶ ' : '  '}[{idx + 1}] {roleLabel} (
-                {cfg?.modelId ?? 'default'} |{' '}
-                {cfg?.executionModality ?? 'LOCAL'})
-              </Text>
-            );
-          })}
-
-          <Box marginTop={1} flexDirection="column">
-            <Text bold underline color="magenta">
-              {t.sectionArtifactsTitle(artifacts.length)}
-            </Text>
-            {artifacts.length === 0 ? (
-              <Text dimColor>{t.noArtifactsYet}</Text>
-            ) : (
-              artifacts.slice(0, 6).map((art) => (
-                <Text key={art.id}>
-                  {'  '}• <Text bold>{art.code}</Text> v{art.version} [
-                  {art.status}] →{' '}
-                  {art.tracesTo.join(',') || t.rootTraceLabel}
-                </Text>
-              ))
-            )}
+            <Text color={busy ? 'yellow' : 'gray'}>{statusBanner}</Text>
           </Box>
-
-          <Box marginTop={1} flexDirection="column">
-            <Text bold underline color="magenta">
-              {t.sectionNotebooksTitle(notebooks.length)}
-            </Text>
-            {notebooks.length === 0 ? (
-              <Text dimColor>{t.noNotebooksLinked}</Text>
-            ) : (
-              notebooks.map((nb) => (
-                <Text key={nb.id}>
-                  {'  '}• <Text bold color="cyan">{nb.name}</Text> (
-                  {nb.allowedRoles.join(',')})
-                </Text>
-              ))
-            )}
-          </Box>
-        </Box>
-
-        {/* Right Panel: Conversation & Activity */}
-        <Box
-          flexDirection="column"
-          width="58%"
-          borderStyle="single"
-          borderColor="gray"
-          paddingX={1}
-        >
-          <Text bold color="yellow">
-            {t.directChannelHeader(activeRoleDisplayName)}
-          </Text>
-          {messages.length === 0 ? (
-            <Text dimColor>{t.noMessagesInChannel}</Text>
-          ) : (
-            multipanelMessages.map((m) => (
-              <Box key={m.id} flexDirection="column" marginTop={1}>
-                <Text
-                  bold
-                  color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
-                >
-                  [{m.fromRole} → {m.toRole}]:
-                </Text>
-                <Text>
-                  {m.content.slice(0, 200)}
-                  {m.content.length > 200 ? '...' : ''}
-                </Text>
-              </Box>
-            ))
-          )}
-        </Box>
-      </Box>
-
-      {/* Slash Menu Popover inside Multipanel mode */}
-      {!anyModalOpen && isSlashMenuOpen && (
-        <Box
-          flexDirection="column"
-          borderStyle="round"
-          borderColor="magenta"
-          paddingX={1}
-        >
-          {filteredSlashCommands.slice(0, 6).map((item, idx) => {
-            const isSelected = idx === selectedSlashIdx;
-            return (
-              <Text
-                key={item.command}
-                color={isSelected ? 'cyan' : 'white'}
-                bold={isSelected}
-              >
-                {isSelected ? '❯ ' : '  '}
-                {item.command.padEnd(14, ' ')} — {item.description}
-              </Text>
-            );
-          })}
-        </Box>
+        </>
       )}
-
-      {/* Bottom Input Box + Status Footer always displaying the active project & agent color */}
-      <Box
-        flexDirection="column"
-        borderStyle="single"
-        borderColor={activeTheme.accentColor}
-        paddingX={1}
-      >
-        <Box justifyContent="space-between">
-          <Text>
-            <Text bold color="green">
-              [{project.name}]
-            </Text>{' '}
-            <Text dimColor>
-              {activeRoleDisplayName}
-            </Text>{' '}
-            <Text bold color={activeTheme.accentColor}>
-              ❯{' '}
-            </Text>
-            <Text>{inputValue}</Text>
-            <Text color={activeTheme.accentColor}>█</Text>
-          </Text>
-          <Text dimColor>
-            dir: {project.workspaceDir} · {t.returnToCleanViewHint}
-          </Text>
-        </Box>
-        <Text color={busy ? 'yellow' : 'gray'}>{statusBanner}</Text>
-      </Box>
     </Box>
   );
 };
