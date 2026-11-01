@@ -26,6 +26,54 @@ const ASCII_LOGO = [
   '╚═╝      ╚═════╝      ╚═════╝╚══════╝╚═╝',
 ];
 
+export interface RoleColorTheme {
+  bgColor: 'magenta' | 'blue' | 'green' | 'yellow' | 'cyan';
+  fgColor: 'white' | 'black';
+  accentColor: 'magenta' | 'blue' | 'green' | 'yellow' | 'cyan';
+}
+
+export const ROLE_COLOR_THEMES: Record<string, RoleColorTheme> = {
+  pm: {
+    bgColor: 'magenta',
+    fgColor: 'white',
+    accentColor: 'magenta',
+  },
+  architect: {
+    bgColor: 'blue',
+    fgColor: 'white',
+    accentColor: 'blue',
+  },
+  developer: {
+    bgColor: 'green',
+    fgColor: 'black',
+    accentColor: 'green',
+  },
+  qa: {
+    bgColor: 'yellow',
+    fgColor: 'black',
+    accentColor: 'yellow',
+  },
+};
+
+export function getRoleTheme(role: ActorRole): RoleColorTheme {
+  return (
+    ROLE_COLOR_THEMES[role] ?? {
+      bgColor: 'cyan',
+      fgColor: 'black',
+      accentColor: 'cyan',
+    }
+  );
+}
+
+function fitAndPadLine(text: string, width: number): string {
+  const safeWidth = Math.max(10, width);
+  const oneLine = text.replace(/\s+/g, ' ');
+  if (oneLine.length > safeWidth) {
+    return `${oneLine.slice(0, safeWidth - 2)}..`;
+  }
+  return oneLine.padEnd(safeWidth, ' ');
+}
+
 export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   orchestrator,
   initialProject,
@@ -788,6 +836,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const harnesses = HarnessRegistry.listHarnesses();
   const activeRoleDisplayName = getRoleDisplayName(activeRole, language);
+  const activeTheme = getRoleTheme(activeRole);
   const activeModelCfg = orchestrator.storage.getRoleConfig(
     project.id,
     activeRole,
@@ -799,6 +848,49 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     project.repositories.length > 0
       ? `${project.repositories.length} (${project.repositories.join(', ')})`
       : '0';
+
+  const renderTopColorBanner = (barWidth: number, currentViewName: string) => {
+    const leftPart = ` ● ${activeRoleDisplayName.toUpperCase()} (/${activeRole}) │ [${t.activeBadge}: ${project.name}] │ dir: ${project.workspaceDir} │ ${t.reposLabel}: ${repoSummary} │ ${t.phaseLabel}: ${project.phase}`;
+    const rightPart = `lang: ${language.toUpperCase()} │ ${t.viewLabel}: ${currentViewName} `;
+    const gap = Math.max(1, barWidth - leftPart.length - rightPart.length);
+    const fullBannerLine = fitAndPadLine(
+      `${leftPart}${' '.repeat(gap)}${rightPart}`,
+      barWidth,
+    );
+
+    return (
+      <Box flexDirection="column" width="100%">
+        <Text
+          bold
+          backgroundColor={activeTheme.bgColor}
+          color={activeTheme.fgColor}
+        >
+          {fullBannerLine}
+        </Text>
+        <Box justifyContent="space-between" width="100%" marginTop={0}>
+          <Box>
+            {(['pm', 'architect', 'developer', 'qa'] as const).map((rKey) => {
+              const rTheme = getRoleTheme(rKey);
+              const isCurrent = activeRole === rKey;
+              const label = ` /${rKey} ${t.expertBoxTitles[rKey]} `;
+              return (
+                <Box key={rKey} marginRight={1}>
+                  <Text
+                    bold={isCurrent}
+                    backgroundColor={isCurrent ? rTheme.bgColor : undefined}
+                    color={isCurrent ? rTheme.fgColor : rTheme.accentColor}
+                  >
+                    {isCurrent ? `▶${label}` : `[${label.trim()}]`}
+                  </Text>
+                </Box>
+              );
+            })}
+          </Box>
+          <Text dimColor>({t.toggleViewHint})</Text>
+        </Box>
+      </Box>
+    );
+  };
 
   // Interactive New Project Creation Wizard Modal (/project)
   const renderProjectWizardModal = () => (
@@ -1053,6 +1145,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // RENDER MODE 1: OPENCODE-STYLE CLEAN FULLSCREEN VIEW (DEFAULT ON STARTUP)
   // ==========================================================================
   if (viewMode === 'simple') {
+    const simpleBarWidth = Math.max(40, dimensions.columns - 4);
     return (
       <Box
         flexDirection="column"
@@ -1062,24 +1155,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         paddingX={2}
         paddingY={1}
       >
-        {/* Top bar always showing the Active Project, Directory, Repositories & Phase */}
-        <Box justifyContent="space-between" width="100%">
-          <Text>
-            <Text bold color="green">
-              [{t.activeBadge}: {project.name}]
-            </Text>{' '}
-            <Text dimColor>
-              · dir: <Text color="white">{project.workspaceDir}</Text> ·{' '}
-              {t.reposLabel}: <Text color="yellow">{repoSummary}</Text> ·{' '}
-              {t.phaseLabel}: <Text color="cyan">{project.phase}</Text> · lang:{' '}
-              <Text color="yellow">{language.toUpperCase()}</Text>
-            </Text>
-          </Text>
-          <Text dimColor>
-            {t.viewLabel}: <Text color="green">{t.cleanViewName}</Text> (
-            {t.toggleViewHint})
-          </Text>
-        </Box>
+        {/* Top bar with solid color-coded background banner for the active agent */}
+        {renderTopColorBanner(simpleBarWidth, t.cleanViewName)}
 
         {/* Center Area: OpenCode-style centered banner + latest conversation + input box */}
         <Box
@@ -1089,10 +1166,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           flexGrow={1}
           width="100%"
         >
-          {/* Centered ASCII Banner */}
+          {/* Centered ASCII Banner (always fixed grayscale) */}
           <Box flexDirection="column" alignItems="center" marginBottom={1}>
             {ASCII_LOGO.map((line, i) => (
-              <Text key={i} bold color="cyan">
+              <Text
+                key={i}
+                bold
+                color={i < 2 ? 'white' : 'gray'}
+                dimColor={i >= 4}
+              >
                 {line}
               </Text>
             ))}
@@ -1102,12 +1184,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 <Text color="green" bold>
                   {project.name}
                 </Text>{' '}
-                ·{' '}
-                <Text color="white" bold>
-                  {activeRoleDisplayName}
-                </Text>{' '}
-                ({activeModelCfg.modelId}) · {t.archVersionShort} v
-                {project.approvedArchitectureVersion}
+                · {activeRoleDisplayName.toUpperCase()} ({activeModelCfg.modelId}) ·{' '}
+                {t.archVersionShort} v{project.approvedArchitectureVersion}
               </Text>
             </Box>
           </Box>
@@ -1226,7 +1304,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             flexDirection="column"
             width={Math.min(92, dimensions.columns - 8)}
             borderStyle="round"
-            borderColor={isSlashMenuOpen ? 'magenta' : 'cyan'}
+            borderColor={
+              isSlashMenuOpen ? 'magenta' : activeTheme.accentColor
+            }
             paddingX={2}
             paddingY={0}
           >
@@ -1235,14 +1315,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 <Text bold color="green">
                   [{project.name}]
                 </Text>{' '}
-                <Text bold color="cyan">
+                <Text bold color={activeTheme.accentColor}>
                   ❯{' '}
                 </Text>
                 <Text>{inputValue}</Text>
-                <Text color="cyan">█</Text>
+                <Text color={activeTheme.accentColor}>█</Text>
               </Text>
               <Text dimColor>
-                [{project.name} · {activeRole}]
+                {project.name} · {activeRoleDisplayName}
               </Text>
             </Box>
             <Box justifyContent="space-between" marginTop={0}>
@@ -1264,6 +1344,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // ==========================================================================
   // RENDER MODE 2: MULTIPANEL COMMAND CENTER VIEW (TOGGLED VIA CTRL+TAB)
   // ==========================================================================
+  const multipanelBarWidth = Math.max(40, dimensions.columns - 4);
+  const expertBoxInnerWidth = Math.max(
+    18,
+    Math.floor((dimensions.columns - 4) / 4) - 2,
+  );
+
   return (
     <Box
       flexDirection="column"
@@ -1272,24 +1358,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       justifyContent="space-between"
       paddingX={1}
       borderStyle="round"
-      borderColor="cyan"
+      borderColor={activeTheme.accentColor}
     >
-      {/* Header Bar with Active Project, Directory, Repositories & Phase */}
-      <Box justifyContent="space-between">
-        <Text bold color="cyan">
-          {t.multipanelHeaderTitle}
-        </Text>
-        <Text>
-          <Text bold color="green">
-            [{t.activeBadge}: {project.name}]
-          </Text>{' '}
-          | {t.reposLabel}: <Text bold color="yellow">{repoSummary}</Text> |{' '}
-          {t.phaseLabel}: <Text bold color="green">{project.phase}</Text> |{' '}
-          {t.archVersionShort}:{' '}
-          <Text bold>v{project.approvedArchitectureVersion}</Text> | Lang:{' '}
-          <Text bold color="yellow">{language.toUpperCase()}</Text>
-        </Text>
-      </Box>
+      {/* Top Banner with Solid Background Color of the Active Agent */}
+      {renderTopColorBanner(multipanelBarWidth, t.multipanelViewName)}
 
       {projectWizardStep !== 'CLOSED' && (
         <Box marginTop={1} justifyContent="center">
@@ -1321,7 +1393,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         </Box>
       )}
 
-      {/* Top Row: 4 Expert Chat Summary Boxes loaded from SQLite */}
+      {/* Top Row: 4 Expert Chat Summary Boxes loaded from SQLite.
+          Inactive boxes have transparent backgrounds; the active agent box
+          is filled with its characteristic background color! */}
       <Box flexDirection="row" width="100%" marginTop={1}>
         {(['pm', 'architect', 'developer', 'qa'] as const).map((roleKey) => {
           const summary = expertSummaries.find(
@@ -1339,46 +1413,121 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             recentExchanges: [],
             updatedAt: '',
           };
+          const roleTheme = getRoleTheme(roleKey);
           const boxTitle = t.expertBoxTitles[roleKey];
           const isSelected = activeRole === roleKey;
+          const statsBadge = `(${summary.totalMessages}m·${summary.activeContextTokens}t${
+            summary.savedTokensByCompaction > 0
+              ? `·-${summary.savedTokensByCompaction}t`
+              : ''
+          })`;
+
+          if (isSelected) {
+            const headerGap = Math.max(
+              1,
+              expertBoxInnerWidth - (` ▶ ${boxTitle}`.length + statsBadge.length + 1),
+            );
+            const line1 = fitAndPadLine(
+              ` ▶ ${boxTitle}${' '.repeat(headerGap)}${statsBadge} `,
+              expertBoxInnerWidth,
+            );
+            const line2 =
+              summary.totalMessages === 0
+                ? fitAndPadLine(` ${t.expertBoxNoChatsYet}`, expertBoxInnerWidth)
+                : fitAndPadLine(
+                    ` ${t.expertBoxSummaryLabel} ${summary.summaryText}`,
+                    expertBoxInnerWidth,
+                  );
+            const ex1 = summary.recentExchanges.slice(-2)[0];
+            const ex2 = summary.recentExchanges.slice(-2)[1];
+            const line3 = ex1
+              ? fitAndPadLine(
+                  ` • [${ex1.fromRole === 'product_owner' ? 'PO' : ex1.fromRole}]: ${ex1.snippet}`,
+                  expertBoxInnerWidth,
+                )
+              : fitAndPadLine(' ', expertBoxInnerWidth);
+            const line4 = ex2
+              ? fitAndPadLine(
+                  ` • [${ex2.fromRole === 'product_owner' ? 'PO' : ex2.fromRole}]: ${ex2.snippet}`,
+                  expertBoxInnerWidth,
+                )
+              : fitAndPadLine(' ', expertBoxInnerWidth);
+
+            return (
+              <Box
+                key={roleKey}
+                flexDirection="column"
+                width="25%"
+                borderStyle="round"
+                borderColor={roleTheme.accentColor}
+                paddingX={0}
+              >
+                <Text
+                  bold
+                  backgroundColor={roleTheme.bgColor}
+                  color={roleTheme.fgColor}
+                >
+                  {line1}
+                </Text>
+                <Text
+                  bold
+                  backgroundColor={roleTheme.bgColor}
+                  color={roleTheme.fgColor}
+                >
+                  {line2}
+                </Text>
+                <Text
+                  backgroundColor={roleTheme.bgColor}
+                  color={roleTheme.fgColor}
+                >
+                  {line3}
+                </Text>
+                <Text
+                  backgroundColor={roleTheme.bgColor}
+                  color={roleTheme.fgColor}
+                >
+                  {line4}
+                </Text>
+              </Box>
+            );
+          }
+
           return (
             <Box
               key={roleKey}
               flexDirection="column"
               width="25%"
-              borderStyle={isSelected ? 'double' : 'round'}
-              borderColor={isSelected ? 'green' : 'cyan'}
+              borderStyle="round"
+              borderColor={roleTheme.accentColor}
               paddingX={1}
             >
               <Box justifyContent="space-between">
-                <Text bold color={isSelected ? 'green' : 'yellow'}>
-                  {isSelected ? '▶ ' : ''}
+                <Text bold color={roleTheme.accentColor}>
                   {boxTitle}
                 </Text>
-                <Text dimColor>
-                  ({summary.totalMessages} msgs · {summary.activeContextTokens}t
-                  {summary.savedTokensByCompaction > 0
-                    ? ` · -${summary.savedTokensByCompaction}t`
-                    : ''}
-                  )
-                </Text>
+                <Text dimColor>{statsBadge}</Text>
               </Box>
               {summary.totalMessages === 0 ? (
-                <Text dimColor>{t.expertBoxNoChatsYet}</Text>
+                <Box flexDirection="column">
+                  <Text dimColor>{t.expertBoxNoChatsYet}</Text>
+                  <Text> </Text>
+                  <Text> </Text>
+                </Box>
               ) : (
                 <Box flexDirection="column" marginTop={0}>
-                  <Text color="cyan" bold>
+                  <Text color={roleTheme.accentColor} bold>
                     {t.expertBoxSummaryLabel}{' '}
                     <Text color="white" bold={false}>
-                      {summary.summaryText.slice(0, 68)}
+                      {summary.summaryText.slice(0, 52)}
                     </Text>
                   </Text>
                   {summary.recentExchanges.slice(-2).map((ex, i) => (
                     <Text key={i} dimColor>
                       • [{ex.fromRole === 'product_owner' ? 'PO' : ex.fromRole}]
-                      : {ex.snippet.slice(0, 52)}
+                      : {ex.snippet.slice(0, 42)}
                     </Text>
                   ))}
+                  {summary.recentExchanges.length < 2 && <Text> </Text>}
                 </Box>
               )}
             </Box>
@@ -1496,11 +1645,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         </Box>
       )}
 
-      {/* Bottom Input Box + Status Footer always displaying the active project */}
+      {/* Bottom Input Box + Status Footer always displaying the active project & agent color */}
       <Box
         flexDirection="column"
         borderStyle="single"
-        borderColor="cyan"
+        borderColor={activeTheme.accentColor}
         paddingX={1}
       >
         <Box justifyContent="space-between">
@@ -1508,11 +1657,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text bold color="green">
               [{project.name}]
             </Text>{' '}
-            <Text bold color="cyan">
-              [{activeRole}] ❯{' '}
+            <Text dimColor>
+              {activeRoleDisplayName}
+            </Text>{' '}
+            <Text bold color={activeTheme.accentColor}>
+              ❯{' '}
             </Text>
             <Text>{inputValue}</Text>
-            <Text color="cyan">█</Text>
+            <Text color={activeTheme.accentColor}>█</Text>
           </Text>
           <Text dimColor>
             dir: {project.workspaceDir} · {t.returnToCleanViewHint}
