@@ -1,4 +1,6 @@
-import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ActorRole,
   LlmProviderType,
@@ -7,6 +9,10 @@ import {
   WorkflowPhase,
 } from '../core/contracts.js';
 import { NotebookRagEngine } from './notebook-rag.js';
+import { DEFAULT_FREE_PROVIDERS, LLMRouter } from './llm-router.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface ModelCatalogEntry {
   provider: LlmProviderType;
@@ -20,203 +26,236 @@ export interface ModelCatalogEntry {
   defaultTemperature: number;
 }
 
+function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
+  const candidates = [
+    path.resolve(process.cwd(), 'data', 'models.json'),
+    path.resolve(__dirname, '..', '..', 'data', 'models.json'),
+    path.resolve(__dirname, '..', 'data', 'models.json'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      try {
+        const raw = fs.readFileSync(p, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed as ModelCatalogEntry[];
+        }
+      } catch {
+        // Fallback to built-in list below
+      }
+    }
+  }
+  return [
+    // Anthropic
+    {
+      provider: 'anthropic',
+      vendor: 'ANTHROPIC',
+      providerLabel: 'Anthropic',
+      modelId: 'claude-sonnet-4-20250514',
+      displayName: 'Claude Sonnet 4',
+      isFree: false,
+      contextWindow: '200K',
+      recommendedFor: 'Architecture & Deep Code',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'anthropic',
+      vendor: 'ANTHROPIC',
+      providerLabel: 'Anthropic',
+      modelId: 'claude-3-7-sonnet',
+      displayName: 'Claude 3.7 Sonnet',
+      isFree: false,
+      contextWindow: '200K',
+      recommendedFor: 'Extended Thinking & Specs',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'anthropic',
+      vendor: 'ANTHROPIC',
+      providerLabel: 'Anthropic',
+      modelId: 'claude-3-5-sonnet',
+      displayName: 'Claude 3.5 Sonnet',
+      isFree: false,
+      contextWindow: '200K',
+      recommendedFor: 'Fast Implementation',
+      defaultTemperature: 0.2,
+    },
+    {
+      provider: 'freellm',
+      vendor: 'ANTHROPIC',
+      providerLabel: 'Anthropic',
+      modelId: 'claude-haiku-5-5',
+      displayName: 'Claude Haiku 5.5',
+      isFree: true,
+      contextWindow: '200K',
+      recommendedFor: 'Fast High-Quality Reasoning',
+      defaultTemperature: 0.2,
+    },
+    // OpenAI
+    {
+      provider: 'openai',
+      vendor: 'OPENAI',
+      providerLabel: 'OpenAI',
+      modelId: 'gpt-4.1',
+      displayName: 'GPT-4.1',
+      isFree: false,
+      contextWindow: '1M',
+      recommendedFor: 'Full-Repo Engineering',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'openai',
+      vendor: 'OPENAI',
+      providerLabel: 'OpenAI',
+      modelId: 'gpt-4o',
+      displayName: 'GPT-4o',
+      isFree: false,
+      contextWindow: '128K',
+      recommendedFor: 'General & QA Verification',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'openai',
+      vendor: 'OPENAI',
+      providerLabel: 'OpenAI',
+      modelId: 'o3-mini',
+      displayName: 'OpenAI o3-mini',
+      isFree: false,
+      contextWindow: '200K',
+      recommendedFor: 'Strict QA & Edge Cases',
+      defaultTemperature: 0.0,
+    },
+    {
+      provider: 'freellm',
+      vendor: 'OPENAI',
+      providerLabel: 'OpenAI',
+      modelId: 'gpt-5.4-mini',
+      displayName: 'GPT-5.4 Mini',
+      isFree: true,
+      contextWindow: '128K',
+      recommendedFor: 'Strict QA & Fast Processing',
+      defaultTemperature: 0.0,
+    },
+    {
+      provider: 'openai',
+      vendor: 'OPENAI',
+      providerLabel: 'OpenAI',
+      modelId: 'o1',
+      displayName: 'OpenAI o1',
+      isFree: false,
+      contextWindow: '200K',
+      recommendedFor: 'Formal Verification & ADRs',
+      defaultTemperature: 0.0,
+    },
+    // Google Gemini
+    {
+      provider: 'gemini',
+      vendor: 'GEMINI',
+      providerLabel: 'Google Gemini',
+      modelId: 'gemini-2.5-pro',
+      displayName: 'Gemini 2.5 Pro',
+      isFree: false,
+      contextWindow: '1M',
+      recommendedFor: 'PM Consolidation & Deep Context',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'freellm',
+      vendor: 'GEMINI',
+      providerLabel: 'Google Gemini',
+      modelId: 'gemini-3.8-flash',
+      displayName: 'Gemini 3.8 Flash',
+      isFree: true,
+      contextWindow: '1M',
+      recommendedFor: 'Fast Multi-Agent Inquiries',
+      defaultTemperature: 0.2,
+    },
+    {
+      provider: 'freellm',
+      vendor: 'GEMINI',
+      providerLabel: 'Google Gemini',
+      modelId: 'gemini-3.5-flash-lite',
+      displayName: 'Gemini 3.5 Flash Lite',
+      isFree: true,
+      contextWindow: '1M',
+      recommendedFor: 'High-Throughput Lightweight Tasks',
+      defaultTemperature: 0.2,
+    },
+    {
+      provider: 'freellm',
+      vendor: 'GEMINI',
+      providerLabel: 'Google Gemini',
+      modelId: 'gemini-4-argon',
+      displayName: 'Gemini 4 Argon',
+      isFree: true,
+      contextWindow: '1M',
+      recommendedFor: 'Advanced Multi-Turn Reasoning',
+      defaultTemperature: 0.1,
+    },
+    // Meta & Open-Weights
+    {
+      provider: 'freellm',
+      vendor: 'META',
+      providerLabel: 'Meta',
+      modelId: 'glm-5.3-flash-free',
+      displayName: 'GLM 5.3 Flash',
+      isFree: true,
+      contextWindow: '128K',
+      recommendedFor: 'Open-Weights High-Speed Coding',
+      defaultTemperature: 0.2,
+    },
+    {
+      provider: 'freellm',
+      vendor: 'META',
+      providerLabel: 'Meta',
+      modelId: 'deepseek-v4.1-flash-free',
+      displayName: 'DeepSeek V4.1 Flash',
+      isFree: true,
+      contextWindow: '128K',
+      recommendedFor: 'Open Reasoning & Math/Logic',
+      defaultTemperature: 0.2,
+    },
+    {
+      provider: 'freellm',
+      vendor: 'META',
+      providerLabel: 'Meta',
+      modelId: 'beam-free',
+      displayName: 'Beam Free',
+      isFree: true,
+      contextWindow: '128K',
+      recommendedFor: 'Ultra-Fast Sub-Second Turnaround',
+      defaultTemperature: 0.2,
+    },
+    {
+      provider: 'freellm',
+      vendor: 'META',
+      providerLabel: 'Meta',
+      modelId: 'flint-40b-free',
+      displayName: 'Flint 40B Free',
+      isFree: true,
+      contextWindow: '128K',
+      recommendedFor: 'Free Open-Weights General Tasks',
+      defaultTemperature: 0.2,
+    },
+    {
+      provider: 'ollama',
+      vendor: 'META',
+      providerLabel: 'Meta',
+      modelId: 'llama-3.3-70b',
+      displayName: 'Llama 3.3 70B',
+      isFree: true,
+      contextWindow: '128K',
+      recommendedFor: 'Local Air-Gapped Architecture',
+      defaultTemperature: 0.2,
+    },
+  ];
+}
+
 /**
- * OpenCode-inspired Model Catalog for per-agent model selection (/models).
+ * Model Catalog loaded from data/models.json or SQLite database.
  * Grouped by vendor (Anthropic, OpenAI, Gemini, and Meta).
  */
-export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = [
-  // Anthropic
-  {
-    provider: 'anthropic',
-    vendor: 'ANTHROPIC',
-    providerLabel: 'Anthropic',
-    modelId: 'claude-sonnet-4-20250514',
-    displayName: 'Claude Sonnet 4',
-    isFree: false,
-    contextWindow: '200K',
-    recommendedFor: 'Architecture & Deep Code',
-    defaultTemperature: 0.1,
-  },
-  {
-    provider: 'anthropic',
-    vendor: 'ANTHROPIC',
-    providerLabel: 'Anthropic',
-    modelId: 'claude-3-7-sonnet',
-    displayName: 'Claude 3.7 Sonnet',
-    isFree: false,
-    contextWindow: '200K',
-    recommendedFor: 'Extended Thinking & Specs',
-    defaultTemperature: 0.1,
-  },
-  {
-    provider: 'anthropic',
-    vendor: 'ANTHROPIC',
-    providerLabel: 'Anthropic',
-    modelId: 'claude-3-5-sonnet',
-    displayName: 'Claude 3.5 Sonnet',
-    isFree: false,
-    contextWindow: '200K',
-    recommendedFor: 'Fast Implementation',
-    defaultTemperature: 0.2,
-  },
-  {
-    provider: 'opencode',
-    vendor: 'ANTHROPIC',
-    providerLabel: 'Anthropic',
-    modelId: 'claude-haiku-5-5',
-    displayName: 'Claude Haiku 5.5',
-    isFree: true,
-    contextWindow: '200K',
-    recommendedFor: 'Fast High-Quality Reasoning',
-    defaultTemperature: 0.2,
-  },
-  // OpenAI
-  {
-    provider: 'openai',
-    vendor: 'OPENAI',
-    providerLabel: 'OpenAI',
-    modelId: 'gpt-4.1',
-    displayName: 'GPT-4.1',
-    isFree: false,
-    contextWindow: '1M',
-    recommendedFor: 'Full-Repo Engineering',
-    defaultTemperature: 0.1,
-  },
-  {
-    provider: 'openai',
-    vendor: 'OPENAI',
-    providerLabel: 'OpenAI',
-    modelId: 'gpt-4o',
-    displayName: 'GPT-4o',
-    isFree: false,
-    contextWindow: '128K',
-    recommendedFor: 'General & QA Verification',
-    defaultTemperature: 0.1,
-  },
-  {
-    provider: 'openai',
-    vendor: 'OPENAI',
-    providerLabel: 'OpenAI',
-    modelId: 'o3-mini',
-    displayName: 'OpenAI o3-mini',
-    isFree: false,
-    contextWindow: '200K',
-    recommendedFor: 'Strict QA & Edge Cases',
-    defaultTemperature: 0.0,
-  },
-  {
-    provider: 'opencode',
-    vendor: 'OPENAI',
-    providerLabel: 'OpenAI',
-    modelId: 'gpt-5.4-mini',
-    displayName: 'GPT-5.4 Mini',
-    isFree: true,
-    contextWindow: '128K',
-    recommendedFor: 'Strict QA & Fast Processing',
-    defaultTemperature: 0.0,
-  },
-  {
-    provider: 'openai',
-    vendor: 'OPENAI',
-    providerLabel: 'OpenAI',
-    modelId: 'o1',
-    displayName: 'OpenAI o1',
-    isFree: false,
-    contextWindow: '200K',
-    recommendedFor: 'Formal Verification & ADRs',
-    defaultTemperature: 0.0,
-  },
-  // Google Gemini
-  {
-    provider: 'gemini',
-    vendor: 'GEMINI',
-    providerLabel: 'Google Gemini',
-    modelId: 'gemini-2.5-pro',
-    displayName: 'Gemini 2.5 Pro',
-    isFree: false,
-    contextWindow: '1M',
-    recommendedFor: 'PM Consolidation & Deep Context',
-    defaultTemperature: 0.1,
-  },
-  {
-    provider: 'opencode',
-    vendor: 'GEMINI',
-    providerLabel: 'Google Gemini',
-    modelId: 'gemini-3.8-flash',
-    displayName: 'Gemini 3.8 Flash',
-    isFree: true,
-    contextWindow: '1M',
-    recommendedFor: 'Fast Multi-Agent Inquiries',
-    defaultTemperature: 0.2,
-  },
-  {
-    provider: 'opencode',
-    vendor: 'GEMINI',
-    providerLabel: 'Google Gemini',
-    modelId: 'gemini-3.5-flash-lite',
-    displayName: 'Gemini 3.5 Flash Lite',
-    isFree: true,
-    contextWindow: '1M',
-    recommendedFor: 'High-Throughput Lightweight Tasks',
-    defaultTemperature: 0.2,
-  },
-  {
-    provider: 'opencode',
-    vendor: 'GEMINI',
-    providerLabel: 'Google Gemini',
-    modelId: 'gemini-4-argon',
-    displayName: 'Gemini 4 Argon',
-    isFree: true,
-    contextWindow: '1M',
-    recommendedFor: 'Advanced Multi-Turn Reasoning',
-    defaultTemperature: 0.1,
-  },
-  // Meta & Open-Weights (Free via OpenCode / Local)
-  {
-    provider: 'opencode',
-    vendor: 'META',
-    providerLabel: 'Meta',
-    modelId: 'glm-5.3-flash-free',
-    displayName: 'GLM 5.3 Flash',
-    isFree: true,
-    contextWindow: '128K',
-    recommendedFor: 'Open-Weights High-Speed Coding',
-    defaultTemperature: 0.2,
-  },
-  {
-    provider: 'opencode',
-    vendor: 'META',
-    providerLabel: 'Meta',
-    modelId: 'deepseek-v4.1-flash-free',
-    displayName: 'DeepSeek V4.1 Flash',
-    isFree: true,
-    contextWindow: '128K',
-    recommendedFor: 'Open Reasoning & Math/Logic',
-    defaultTemperature: 0.2,
-  },
-  {
-    provider: 'opencode',
-    vendor: 'META',
-    providerLabel: 'Meta',
-    modelId: 'beam-free',
-    displayName: 'Beam Free',
-    isFree: true,
-    contextWindow: '128K',
-    recommendedFor: 'Ultra-Fast Sub-Second Turnaround',
-    defaultTemperature: 0.2,
-  },
-  {
-    provider: 'ollama',
-    vendor: 'META',
-    providerLabel: 'Meta',
-    modelId: 'llama-3.3-70b',
-    displayName: 'Llama 3.3 70B',
-    isFree: true,
-    contextWindow: '128K',
-    recommendedFor: 'Local Air-Gapped Architecture',
-    defaultTemperature: 0.2,
-  },
-];
+export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = loadModelsCatalogFromJson();
 
 /**
  * Resolves the canonical vendor company name (ANTHROPIC, OPENAI, GEMINI, META)
@@ -337,6 +376,16 @@ export interface AgentTurnOutput {
  * models for Architect, Developer, QA, and custom specialists.
  */
 export class LlmGateway {
+  private freeRouter: LLMRouter;
+
+  constructor() {
+    this.freeRouter = new LLMRouter({
+      providers: DEFAULT_FREE_PROVIDERS,
+      strategy: 'auto:smart',
+      fallbackEnabled: true,
+      requestTimeoutMs: 35000,
+    });
+  }
   async generateAgentTurn(
     input: AgentTurnInput,
     onStreamToken?: (chunk: string) => void,
@@ -386,12 +435,44 @@ export class LlmGateway {
       );
     }
 
-    // OpenCode-powered zero-auth Free Models execution (gemini-3.8-flash, glm-5.3-flash, etc.)
-    if (provider === 'opencode' || this.isOpenCodeAvailableForModel(modelId)) {
+    // Native FreeLLM router execution with smart multi-provider failover
+    // Runs zero-key public inference (Pollinations, OpenRouter Free, Local Ollama)
+    // without relying on external opencode binary or subscriptions.
+    if (provider === 'freellm' || provider === 'opencode' || this.isFreeModel(modelId)) {
       try {
-        return await this.callOpenCodeRunner(modelId, input, onStreamToken);
-      } catch (err) {
-        // Fall back to deterministic specialist if OpenCode fails or is unavailable
+        const ragBlock = input.ragCitations
+          .map((c) => `${NotebookRagEngine.formatCitationTag(c)}\n${c.snippet}`)
+          .join('\n\n');
+
+        const systemContent = [
+          `System: You are acting as the ${input.role.toUpperCase()} specialist in PO CLI.`,
+          input.systemPrompt,
+          input.normativeArtifactsSummary
+            ? `\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}`
+            : '',
+          ragBlock ? `\n[RAG NOTEBOOK SOURCES]\n${ragBlock}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+        const result = await this.freeRouter.completion({
+          model: modelId,
+          messages: [
+            { role: 'system', content: systemContent },
+            { role: 'user', content: input.userPrompt },
+          ],
+          temperature,
+          onStreamChunk: onStreamToken,
+        });
+
+        return {
+          replyText: result.text,
+          toolCalls: [],
+          providerUsed: result.providerId,
+          modelUsed: result.modelUsed,
+        };
+      } catch (routerErr) {
+        // Fallback to deterministic specialist engine
         return this.runDeterministicSpecialist(input, onStreamToken);
       }
     }
@@ -545,8 +626,8 @@ export class LlmGateway {
     };
   }
 
-  private isOpenCodeAvailableForModel(modelId: string): boolean {
-    const knownOpenCodeModels = [
+  private isFreeModel(modelId: string): boolean {
+    const knownFreeModels = [
       'gemini-3.8-flash',
       'gemini-3.5-flash-lite',
       'gemini-4-argon',
@@ -558,98 +639,10 @@ export class LlmGateway {
       'gpt-5.4-mini',
       'claude-haiku-5-5',
     ];
-    return knownOpenCodeModels.includes(modelId);
-  }
-
-  private async callOpenCodeRunner(
-    modelId: string,
-    input: AgentTurnInput,
-    onStreamToken?: (chunk: string) => void,
-  ): Promise<AgentTurnOutput> {
-    const openCodeModelSpec = modelId.startsWith('opencode/')
-      ? modelId
-      : `opencode/${modelId}`;
-
-    const ragBlock = input.ragCitations
-      .map((c) => `${NotebookRagEngine.formatCitationTag(c)}\n${c.snippet}`)
-      .join('\n\n');
-
-    const promptMessage = [
-      `System: You are acting as the ${input.role.toUpperCase()} specialist in PO CLI.`,
-      input.systemPrompt,
-      input.normativeArtifactsSummary
-        ? `\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}`
-        : '',
-      ragBlock ? `\n[RAG NOTEBOOK SOURCES]\n${ragBlock}` : '',
-      `\nUser request:\n${input.userPrompt}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    return new Promise((resolve, reject) => {
-      const child = spawn(
-        'opencode',
-        ['run', '--format', 'json', '--model', openCodeModelSpec, promptMessage],
-        {
-          stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: 45000,
-        },
-      );
-
-      let accumulatedText = '';
-      let errorOutput = '';
-
-      child.stdout.on('data', (chunk: Buffer) => {
-        const textChunk = chunk.toString();
-        const lines = textChunk.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const parsed = JSON.parse(trimmed) as {
-              type?: string;
-              part?: { type?: string; text?: string };
-            };
-            if (parsed.type === 'text' && parsed.part?.text) {
-              const delta = parsed.part.text;
-              accumulatedText += delta;
-              if (onStreamToken) onStreamToken(delta);
-            }
-          } catch {
-            // Non-JSON raw stdout line fallback
-            if (!trimmed.startsWith('{')) {
-              accumulatedText += `${trimmed}\n`;
-              if (onStreamToken) onStreamToken(`${trimmed}\n`);
-            }
-          }
-        }
-      });
-
-      child.stderr.on('data', (chunk: Buffer) => {
-        errorOutput += chunk.toString();
-      });
-
-      child.on('error', (err) => {
-        reject(err);
-      });
-
-      child.on('close', (code) => {
-        if (code === 0 && accumulatedText.trim().length > 0) {
-          resolve({
-            replyText: accumulatedText.trim(),
-            toolCalls: [],
-            providerUsed: 'opencode',
-            modelUsed: modelId,
-          });
-        } else {
-          reject(
-            new Error(
-              `OpenCode exit ${code}: ${errorOutput.trim() || 'No text output produced'}`,
-            ),
-          );
-        }
-      });
-    });
+    return (
+      knownFreeModels.includes(modelId) ||
+      AVAILABLE_MODELS_CATALOG.some((m) => m.modelId === modelId && m.isFree)
+    );
   }
 
   private async runDeterministicSpecialist(

@@ -846,4 +846,91 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       'gemini-2.5-pro',
     );
   });
+
+  it('LLMRouter: executes smart bandit routing, tracks quota/cooldown, and fails over on errors', async () => {
+    const { LLMRouter } = await import('../src/runtime/llm-router.js');
+
+    const router = new LLMRouter({
+      providers: [
+        {
+          id: 'primary-mock-fail',
+          name: 'Primary Failing Mock Provider',
+          endpoint: 'https://127.0.0.1:59999/v1/fail',
+          defaultModel: 'fail-model',
+          limits: { rpm: 10, rpd: 100 },
+          intelligenceScore: 0.95,
+          speedScore: 0.9,
+        },
+        {
+          id: 'secondary-mock-pass',
+          name: 'Secondary Working Mock Provider',
+          endpoint: 'https://127.0.0.1:59998/v1/pass',
+          defaultModel: 'pass-model',
+          limits: { rpm: 20, rpd: 200 },
+          intelligenceScore: 0.85,
+          speedScore: 0.7,
+        },
+      ],
+      strategy: 'auto:smart',
+      fallbackEnabled: true,
+    });
+
+    // Verify initial candidate chain ordering (highest score first)
+    const initialChain = router.selectCandidateChain();
+    expect(initialChain.map((p) => p.id)).toEqual([
+      'primary-mock-fail',
+      'secondary-mock-pass',
+    ]);
+
+    // Initial quota check passes
+    expect(router.canUseProvider('primary-mock-fail')).toBe(true);
+    expect(router.canUseProvider('secondary-mock-pass')).toBe(true);
+
+    // Mock global fetch to simulate failure on primary and success on secondary
+    const origFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const urlStr = String(input);
+        if (urlStr.includes('59999')) {
+          // Simulate 429 rate limit error
+          return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (urlStr.includes('59998')) {
+          return new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: 'Architecture approved with 0 vulnerabilities.',
+                  },
+                },
+              ],
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return origFetch(input, init);
+      }) as typeof fetch;
+
+      // Execute completion: router should catch 429 on primary, bench it into cooldown, and failover to secondary
+      const result = await router.completion({
+        messages: [{ role: 'user', content: 'Generate architecture specification' }],
+      });
+
+      expect(result.providerId).toBe('secondary-mock-pass');
+      expect(result.text).toContain('Architecture approved with 0 vulnerabilities.');
+
+      // Primary provider should now be on cooldown / failing state
+      expect(router.canUseProvider('primary-mock-fail')).toBe(false);
+
+      // Re-evaluating candidate chain demotes the failing provider
+      const updatedChain = router.selectCandidateChain();
+      expect(updatedChain[0].id).toBe('secondary-mock-pass');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
 });

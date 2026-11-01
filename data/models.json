@@ -1,0 +1,200 @@
+[
+  {
+    "provider": "anthropic",
+    "vendor": "ANTHROPIC",
+    "providerLabel": "Anthropic",
+    "modelId": "claude-sonnet-4-20250514",
+    "displayName": "Claude Sonnet 4",
+    "isFree": false,
+    "contextWindow": "200K",
+    "recommendedFor": "Architecture & Deep Code",
+    "defaultTemperature": 0.1
+  },
+  {
+    "provider": "anthropic",
+    "vendor": "ANTHROPIC",
+    "providerLabel": "Anthropic",
+    "modelId": "claude-3-7-sonnet",
+    "displayName": "Claude 3.7 Sonnet",
+    "isFree": false,
+    "contextWindow": "200K",
+    "recommendedFor": "Extended Thinking & Specs",
+    "defaultTemperature": 0.1
+  },
+  {
+    "provider": "anthropic",
+    "vendor": "ANTHROPIC",
+    "providerLabel": "Anthropic",
+    "modelId": "claude-3-5-sonnet",
+    "displayName": "Claude 3.5 Sonnet",
+    "isFree": false,
+    "contextWindow": "200K",
+    "recommendedFor": "Fast Implementation",
+    "defaultTemperature": 0.2
+  },
+  {
+    "provider": "freellm",
+    "vendor": "ANTHROPIC",
+    "providerLabel": "Anthropic",
+    "modelId": "claude-haiku-5-5",
+    "displayName": "Claude Haiku 5.5",
+    "isFree": true,
+    "contextWindow": "200K",
+    "recommendedFor": "Fast High-Quality Reasoning",
+    "defaultTemperature": 0.2
+  },
+  {
+    "provider": "openai",
+    "vendor": "OPENAI",
+    "providerLabel": "OpenAI",
+    "modelId": "gpt-4.1",
+    "displayName": "GPT-4.1",
+    "isFree": false,
+    "contextWindow": "1M",
+    "recommendedFor": "Full-Repo Engineering",
+    "defaultTemperature": 0.1
+  },
+  {
+    "provider": "openai",
+    "vendor": "OPENAI",
+    "providerLabel": "OpenAI",
+    "modelId": "gpt-4o",
+    "displayName": "GPT-4o",
+    "isFree": false,
+    "contextWindow": "128K",
+    "recommendedFor": "General & QA Verification",
+    "defaultTemperature": 0.1
+  },
+  {
+    "provider": "openai",
+    "vendor": "OPENAI",
+    "providerLabel": "OpenAI",
+    "modelId": "o3-mini",
+    "displayName": "OpenAI o3-mini",
+    "isFree": false,
+    "contextWindow": "200K",
+    "recommendedFor": "Strict QA & Edge Cases",
+    "defaultTemperature": 0.0
+  },
+  {
+    "provider": "freellm",
+    "vendor": "OPENAI",
+    "providerLabel": "OpenAI",
+    "modelId": "gpt-5.4-mini",
+    "displayName": "GPT-5.4 Mini",
+    "isFree": true,
+    "contextWindow": "128K",
+    "recommendedFor": "Strict QA & Fast Processing",
+    "defaultTemperature": 0.0
+  },
+  {
+    "provider": "openai",
+    "vendor": "OPENAI",
+    "providerLabel": "OpenAI",
+    "modelId": "o1",
+    "displayName": "OpenAI o1",
+    "isFree": false,
+    "contextWindow": "200K",
+    "recommendedFor": "Formal Verification & ADRs",
+    "defaultTemperature": 0.0
+  },
+  {
+    "provider": "gemini",
+    "vendor": "GEMINI",
+    "providerLabel": "Google Gemini",
+    "modelId": "gemini-2.5-pro",
+    "displayName": "Gemini 2.5 Pro",
+    "isFree": false,
+    "contextWindow": "1M",
+    "recommendedFor": "PM Consolidation & Deep Context",
+    "defaultTemperature": 0.1
+  },
+  {
+    "provider": "freellm",
+    "vendor": "GEMINI",
+    "providerLabel": "Google Gemini",
+    "modelId": "gemini-3.8-flash",
+    "displayName": "Gemini 3.8 Flash",
+    "isFree": true,
+    "contextWindow": "1M",
+    "recommendedFor": "Fast Multi-Agent Inquiries",
+    "defaultTemperature": 0.2
+  },
+  {
+    "provider": "freellm",
+    "vendor": "GEMINI",
+    "providerLabel": "Google Gemini",
+    "modelId": "gemini-3.5-flash-lite",
+    "displayName": "Gemini 3.5 Flash Lite",
+    "isFree": true,
+    "contextWindow": "1M",
+    "recommendedFor": "High-Throughput Lightweight Tasks",
+    "defaultTemperature": 0.2
+  },
+  {
+    "provider": "freellm",
+    "vendor": "GEMINI",
+    "providerLabel": "Google Gemini",
+    "modelId": "gemini-4-argon",
+    "displayName": "Gemini 4 Argon",
+    "isFree": true,
+    "contextWindow": "1M",
+    "recommendedFor": "Advanced Multi-Turn Reasoning",
+    "defaultTemperature": 0.1
+  },
+  {
+    "provider": "freellm",
+    "vendor": "META",
+    "providerLabel": "Meta",
+    "modelId": "glm-5.3-flash-free",
+    "displayName": "GLM 5.3 Flash",
+    "isFree": true,
+    "contextWindow": "128K",
+    "recommendedFor": "Open-Weights High-Speed Coding",
+    "defaultTemperature": 0.2
+  },
+  {
+    "provider": "freellm",
+    "vendor": "META",
+    "providerLabel": "Meta",
+    "modelId": "deepseek-v4.1-flash-free",
+    "displayName": "DeepSeek V4.1 Flash",
+    "isFree": true,
+    "contextWindow": "128K",
+    "recommendedFor": "Open Reasoning & Math/Logic",
+    "defaultTemperature": 0.2
+  },
+  {
+    "provider": "freellm",
+    "vendor": "META",
+    "providerLabel": "Meta",
+    "modelId": "beam-free",
+    "displayName": "Beam Free",
+    "isFree": true,
+    "contextWindow": "128K",
+    "recommendedFor": "Ultra-Fast Sub-Second Turnaround",
+    "defaultTemperature": 0.2
+  },
+  {
+    "provider": "freellm",
+    "vendor": "META",
+    "providerLabel": "Meta",
+    "modelId": "flint-40b-free",
+    "displayName": "Flint 40B Free",
+    "isFree": true,
+    "contextWindow": "128K",
+    "recommendedFor": "Free Open-Weights General Tasks",
+    "defaultTemperature": 0.2
+  },
+  {
+    "provider": "ollama",
+    "vendor": "META",
+    "providerLabel": "Meta",
+    "modelId": "llama-3.3-70b",
+    "displayName": "Llama 3.3 70B",
+    "isFree": true,
+    "contextWindow": "128K",
+    "recommendedFor": "Local Air-Gapped Architecture",
+    "defaultTemperature": 0.2
+  }
+]

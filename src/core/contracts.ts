@@ -228,6 +228,7 @@ export const LlmProviderTypeSchema = z.enum([
   'gemini',
   'ollama',
   'opencode',
+  'freellm',
 ]);
 export type LlmProviderType = z.infer<typeof LlmProviderTypeSchema>;
 

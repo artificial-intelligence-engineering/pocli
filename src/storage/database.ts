@@ -2,6 +2,10 @@ import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   ActorRole,
   ApprovalRecord,
@@ -28,6 +32,18 @@ import {
   SupportedLanguage,
 } from '../core/i18n.js';
 import { AuthorityGuard } from '../core/workflow.js';
+
+export interface StoredModelCatalogEntry {
+  provider: LlmProviderType;
+  vendor: string;
+  providerLabel: string;
+  modelId: string;
+  displayName: string;
+  isFree: boolean;
+  contextWindow: string;
+  recommendedFor: string;
+  defaultTemperature: number;
+}
 
 export interface StoredMessage {
   id: string;
@@ -366,6 +382,19 @@ export class PoCliDatabase {
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS models_catalog (
+        model_id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        vendor TEXT NOT NULL,
+        provider_label TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        is_free INTEGER NOT NULL DEFAULT 0,
+        context_window TEXT NOT NULL DEFAULT '128K',
+        recommended_for TEXT NOT NULL DEFAULT '',
+        default_temperature REAL NOT NULL DEFAULT 0.2,
+        updated_at TEXT NOT NULL
+      );
+
       CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
         memory_id UNINDEXED,
         project_id UNINDEXED,
@@ -407,6 +436,137 @@ export class PoCliDatabase {
     if (!colNames.has('compacted_into_id')) {
       this.db.exec(`ALTER TABLE messages ADD COLUMN compacted_into_id TEXT;`);
     }
+
+    // Seed or synchronize models_catalog table from data/models.json or defaults
+    this.syncModelsCatalogFromJson();
+  }
+
+  // ==========================================================================
+  // MODELS CATALOG STORAGE & JSON SYNC
+  // ==========================================================================
+
+  public syncModelsCatalogFromJson(customJsonPath?: string): StoredModelCatalogEntry[] {
+    const candidates = [
+      customJsonPath,
+      path.resolve(process.cwd(), 'data', 'models.json'),
+      path.resolve(this.defaultWorkDir, 'models.json'),
+      path.resolve(__dirname, '..', '..', 'data', 'models.json'),
+      path.resolve(__dirname, '..', 'data', 'models.json'),
+    ].filter(Boolean) as string[];
+
+    let jsonModels: StoredModelCatalogEntry[] = [];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        try {
+          const raw = fs.readFileSync(p, 'utf8');
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            jsonModels = parsed;
+            break;
+          }
+        } catch {
+          // Continue to next candidate
+        }
+      }
+    }
+
+    if (jsonModels.length > 0) {
+      const now = new Date().toISOString();
+      const insert = this.db.prepare(`
+        INSERT INTO models_catalog (
+          model_id, provider, vendor, provider_label, display_name,
+          is_free, context_window, recommended_for, default_temperature, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(model_id) DO UPDATE SET
+          provider = excluded.provider,
+          vendor = excluded.vendor,
+          provider_label = excluded.provider_label,
+          display_name = excluded.display_name,
+          is_free = excluded.is_free,
+          context_window = excluded.context_window,
+          recommended_for = excluded.recommended_for,
+          default_temperature = excluded.default_temperature,
+          updated_at = excluded.updated_at
+      `);
+
+      for (const m of jsonModels) {
+        insert.run(
+          m.modelId,
+          m.provider,
+          m.vendor,
+          m.providerLabel,
+          m.displayName,
+          m.isFree ? 1 : 0,
+          m.contextWindow ?? '128K',
+          m.recommendedFor ?? '',
+          m.defaultTemperature ?? 0.2,
+          now,
+        );
+      }
+    }
+
+    return this.listModelsCatalog();
+  }
+
+  public listModelsCatalog(): StoredModelCatalogEntry[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM models_catalog ORDER BY is_free DESC, vendor ASC, model_id ASC`)
+      .all() as Array<{
+      model_id: string;
+      provider: string;
+      vendor: string;
+      provider_label: string;
+      display_name: string;
+      is_free: number;
+      context_window: string;
+      recommended_for: string;
+      default_temperature: number;
+    }>;
+
+    return rows.map((r) => ({
+      modelId: r.model_id,
+      provider: r.provider as LlmProviderType,
+      vendor: r.vendor,
+      providerLabel: r.provider_label,
+      displayName: r.display_name,
+      isFree: r.is_free === 1,
+      contextWindow: r.context_window,
+      recommendedFor: r.recommended_for,
+      defaultTemperature: r.default_temperature,
+    }));
+  }
+
+  public upsertModelCatalogEntry(entry: StoredModelCatalogEntry): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO models_catalog (
+          model_id, provider, vendor, provider_label, display_name,
+          is_free, context_window, recommended_for, default_temperature, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(model_id) DO UPDATE SET
+          provider = excluded.provider,
+          vendor = excluded.vendor,
+          provider_label = excluded.provider_label,
+          display_name = excluded.display_name,
+          is_free = excluded.is_free,
+          context_window = excluded.context_window,
+          recommended_for = excluded.recommended_for,
+          default_temperature = excluded.default_temperature,
+          updated_at = excluded.updated_at`,
+      )
+      .run(
+        entry.modelId,
+        entry.provider,
+        entry.vendor,
+        entry.providerLabel,
+        entry.displayName,
+        entry.isFree ? 1 : 0,
+        entry.contextWindow,
+        entry.recommendedFor,
+        entry.defaultTemperature,
+        now,
+      );
   }
 
   // ==========================================================================
