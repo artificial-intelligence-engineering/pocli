@@ -2303,9 +2303,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // RENDER MODE 2: OPENCODE CHAT VIEW (EXACT STRUCTURE MATCHING SCREENSHOT)
   // ==========================================================================
   if (viewMode === 'chat') {
+    const chatBarWidth = Math.max(40, dimensions.columns - 2);
     const sidebarWidth = Math.max(26, Math.min(34, Math.floor(dimensions.columns * 0.25)));
     const chatAreaWidth = Math.max(30, dimensions.columns - sidebarWidth - 4);
-    const contentHeight = Math.max(10, safeViewportHeight - 3);
+    const contentHeight = Math.max(8, safeViewportHeight - 4);
 
     return (
       <Box
@@ -2316,15 +2317,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         paddingX={1}
         paddingY={0}
       >
+        {/* Top Banner with Solid Background Color of the Active Agent */}
+        {renderTopColorBanner(chatBarWidth)}
+
         {/* Top Header Bar matching OpenCode:
             New session               :. Información del proyecto -> */}
         <Box width="100%" justifyContent="space-between" height={1}>
           <Text color="gray">New session</Text>
           <Box>
-            <Text backgroundColor="blue" color="white" bold>
+            <Text backgroundColor={activeTheme.bgColor} color={activeTheme.fgColor} bold>
               {' '}:.{' '}
             </Text>
-            <Text backgroundColor="blue" color="white">
+            <Text backgroundColor={activeTheme.bgColor} color={activeTheme.fgColor}>
               {' '}{language === 'es' ? 'Información del proyecto' : 'Project Information'}  →{' '}
             </Text>
           </Box>
