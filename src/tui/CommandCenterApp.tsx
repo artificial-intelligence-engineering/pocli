@@ -122,6 +122,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [viewMode, setViewMode] = useState<'startup' | 'chat' | 'multipanel'>('startup');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  const [isExitConfirmOpen, setIsExitConfirmOpen] = useState<boolean>(false);
   const [dbModalOutput, setDbModalOutput] = useState<string>('');
 
   // Active project & repository / artifact / SQLite summary state
@@ -288,6 +289,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsEditingWorkDir(false);
     setIsProjectsModalOpen(false);
     setIsModelsModalOpen(false);
+    setIsExitConfirmOpen(false);
     setModelsFilterQuery('');
     setDbModalOutput('');
     setProjectWizardStep('CLOSED');
@@ -449,7 +451,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     !isProjectsModalOpen &&
     !isModelsModalOpen &&
     !isHelpOpen &&
-    !isSettingsOpen;
+    !isSettingsOpen &&
+    !isExitConfirmOpen;
   const slashToken = inputValue.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
   const filteredSlashCommands = isSlashMenuOpen
     ? t.slashCommands
@@ -982,10 +985,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
 
-      // Interactive Help or DB modal: click closes modal
-      if (isHelpOpen || dbModalOutput.length > 0) {
+      // Interactive Help, DB, or Exit Confirm modal: click closes modal
+      if (isHelpOpen || dbModalOutput.length > 0 || isExitConfirmOpen) {
         setIsHelpOpen(false);
         setDbModalOutput('');
+        setIsExitConfirmOpen(false);
         return;
       }
 
@@ -1347,6 +1351,25 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // 5. Handle Exit Confirmation modal when open
+    if (isExitConfirmOpen) {
+      if (key.escape || input === 'n' || input === 'N') {
+        setIsExitConfirmOpen(false);
+        return;
+      }
+      if (
+        key.return ||
+        input === 'y' ||
+        input === 'Y' ||
+        input === 's' ||
+        input === 'S'
+      ) {
+        exit();
+        return;
+      }
+      return;
+    }
+
     // OpenCode Ctrl+O shortcut to open the Per-Agent Model Picker (/models)
     if (key.ctrl && input === 'o') {
       openModelsModal(activeRole);
@@ -1359,12 +1382,24 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // ESC key navigation: clears input, goes to previous screen, or asks to exit on startup screen
     if (key.escape) {
       if (inputValue.length > 0) {
         setInputValue('');
         return;
       }
-      exit();
+      if (viewMode === 'multipanel') {
+        setViewMode('chat');
+        return;
+      }
+      if (viewMode === 'chat') {
+        setViewMode('startup');
+        return;
+      }
+      if (viewMode === 'startup') {
+        setIsExitConfirmOpen(true);
+        return;
+      }
       return;
     }
 
@@ -2017,6 +2052,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     isSettingsOpen ||
     isProjectsModalOpen ||
     isModelsModalOpen ||
+    isExitConfirmOpen ||
     dbModalOutput.length > 0 ||
     projectWizardStep !== 'CLOSED';
 
@@ -2037,6 +2073,35 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         <Text dimColor>Press Esc, Enter, or q to close</Text>
       </Box>
       <Text>{dbModalOutput}</Text>
+    </Box>
+  );
+
+  const renderExitConfirmModal = () => (
+    <Box
+      flexDirection="column"
+      width={Math.min(64, dimensions.columns - 8)}
+      borderStyle="round"
+      borderColor="yellow"
+      paddingX={2}
+      paddingY={1}
+      alignItems="center"
+    >
+      <Box justifyContent="center" marginBottom={1}>
+        <Text bold color="yellow">
+          {language === 'es'
+            ? '¿Realmente desea salir de PO CLI?'
+            : 'Are you sure you want to exit PO CLI?'}
+        </Text>
+      </Box>
+      <Box justifyContent="center">
+        <Text color="red" bold>
+          [ {language === 'es' ? 'Sí' : 'Yes'} (y / Enter) ]
+        </Text>
+        <Text>{'   '}</Text>
+        <Text color="green">
+          [ {language === 'es' ? 'No' : 'No'} (n / Esc) ]
+        </Text>
+      </Box>
     </Box>
   );
 
@@ -2205,6 +2270,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {dbModalOutput.length > 0 && renderDbModal()}
             {isHelpOpen && renderHelpModal()}
             {isSettingsOpen && renderSettingsModal()}
+            {isExitConfirmOpen && renderExitConfirmModal()}
           </Box>
         ) : (
           <Box
@@ -2338,6 +2404,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {dbModalOutput.length > 0 && renderDbModal()}
             {isHelpOpen && renderHelpModal()}
             {isSettingsOpen && renderSettingsModal()}
+            {isExitConfirmOpen && renderExitConfirmModal()}
           </Box>
         ) : (
           <Box flexDirection="row" width="100%" height={contentHeight}>
@@ -2638,6 +2705,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {dbModalOutput.length > 0 && renderDbModal()}
           {isHelpOpen && renderHelpModal()}
           {isSettingsOpen && renderSettingsModal()}
+          {isExitConfirmOpen && renderExitConfirmModal()}
         </Box>
       ) : (
         <>
