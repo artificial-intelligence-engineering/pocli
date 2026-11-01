@@ -26,6 +26,7 @@ export interface ProviderConfig {
   apiKey?: string;
   defaultModel: string;
   supportedModels?: string[];
+  modelMapping?: Record<string, string>;
   limits?: ProviderQuotaLimits;
   intelligenceScore?: number; // 0.0 - 1.0 (used in auto:smart)
   speedScore?: number;        // 0.0 - 1.0 (used in auto:fast)
@@ -74,6 +75,15 @@ interface WindowTracker {
 const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 
+export function cleanModelOutput(rawText: string): string {
+  let cleaned = rawText;
+  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  cleaned = cleaned
+    .replace(/<\|channel\|?>thought[\s\S]*?(?:<\|channel\|?>call|<\|channel\|?>|$)/gi, '')
+    .trim();
+  return cleaned || rawText;
+}
+
 export class LLMRouter {
   private providers: Map<string, ProviderConfig> = new Map();
   private trackers: Map<string, WindowTracker> = new Map();
@@ -84,7 +94,7 @@ export class LLMRouter {
   constructor(config: RouterConfig) {
     this.strategy = config.strategy ?? 'auto:smart';
     this.fallbackEnabled = config.fallbackEnabled ?? true;
-    this.requestTimeoutMs = config.requestTimeoutMs ?? 30000;
+    this.requestTimeoutMs = config.requestTimeoutMs ?? 45000;
 
     for (const p of config.providers) {
       this.providers.set(p.id, p);
@@ -216,6 +226,26 @@ export class LLMRouter {
   }
 
   /**
+   * Resolves the actual model name to send to a specific provider.
+   * Prevents HTTP 404/invalid model errors when the user requests an arbitrary catalog model.
+   */
+  public resolveModelForProvider(provider: ProviderConfig, requestedModel?: string): string {
+    if (!requestedModel) {
+      return provider.defaultModel;
+    }
+    if (provider.supportedModels && provider.supportedModels.includes(requestedModel)) {
+      return requestedModel;
+    }
+    if (provider.defaultModel === requestedModel) {
+      return requestedModel;
+    }
+    if (provider.modelMapping && provider.modelMapping[requestedModel]) {
+      return provider.modelMapping[requestedModel];
+    }
+    return provider.defaultModel;
+  }
+
+  /**
    * Sorts candidate providers by routing strategy score and health availability.
    */
   public selectCandidateChain(
@@ -226,12 +256,13 @@ export class LLMRouter {
     const now = Date.now();
     const allProviders = Array.from(this.providers.values());
 
-    // Filter providers that support the requested model (or any provider if no model specified)
+    // Filter providers that explicitly support the requested model or have a mapping for it
     const matching = targetModel
       ? allProviders.filter(
           (p) =>
             p.defaultModel === targetModel ||
-            (p.supportedModels && p.supportedModels.includes(targetModel)),
+            (p.supportedModels && p.supportedModels.includes(targetModel)) ||
+            (p.modelMapping && Boolean(p.modelMapping[targetModel])),
         )
       : allProviders;
 
@@ -264,7 +295,7 @@ export class LLMRouter {
 
     for (const provider of chain) {
       const startTime = Date.now();
-      const modelToUse = payload.model ?? provider.defaultModel;
+      const modelToUse = this.resolveModelForProvider(provider, payload.model);
 
       try {
         const text = await this.executeProviderRequest(
@@ -282,16 +313,24 @@ export class LLMRouter {
         return {
           text,
           providerId: provider.id,
-          modelUsed: modelToUse,
+          modelUsed: payload.model ?? modelToUse,
           latencyMs,
         };
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        const isRateLimit = errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
-        const isServerErr = errMsg.includes('500') || errMsg.includes('502') || errMsg.includes('503');
+        const isRateLimit =
+          errMsg.includes('429') ||
+          errMsg.includes('402') ||
+          errMsg.toLowerCase().includes('rate limit') ||
+          errMsg.toLowerCase().includes('free limit reached');
+        const isServerErr =
+          errMsg.includes('500') ||
+          errMsg.includes('502') ||
+          errMsg.includes('503') ||
+          errMsg.includes('504');
 
-        // Apply backoff/cooldown (30s for 429, 15s for 5xx)
-        const cooldownMs = isRateLimit ? 30000 : isServerErr ? 15000 : 5000;
+        // Apply backoff/cooldown (45s for 402/429 rate limits, 15s for 5xx, 10s for other failures)
+        const cooldownMs = isRateLimit ? 45000 : isServerErr ? 15000 : 10000;
         this.recordFailure(provider.id, cooldownMs);
         errors.push({ providerId: provider.id, error: errMsg });
 
@@ -351,12 +390,17 @@ export class LLMRouter {
 
       const data = (await response.json()) as {
         choices?: Array<{
-          message?: { content?: string };
+          message?: { content?: string; reasoning?: string };
           text?: string;
         }>;
       };
 
-      const reply = data.choices?.[0]?.message?.content ?? data.choices?.[0]?.text ?? '';
+      const rawReply =
+        data.choices?.[0]?.message?.content ??
+        data.choices?.[0]?.text ??
+        data.choices?.[0]?.message?.reasoning ??
+        '';
+      const reply = cleanModelOutput(rawReply);
       if (!reply) {
         throw new Error('Received empty completion response from provider');
       }
@@ -388,41 +432,108 @@ export class LLMRouter {
 }
 
 /**
- * Pre-configured default providers for out-of-the-box operation:
- * 1. Pollinations: zero-key free reasoning & general model
- * 2. OpenRouter Free: auto router for public free models
- * 3. Ollama: local inference on localhost:11434
+ * Builds the runtime default providers for free / keyless operation.
+ * Automatically injects free-tier providers if their environment keys exist (Groq, Gemini, OpenRouter),
+ * and provides zero-key public inference (Pollinations, AI Horde, local Ollama) out of the box.
  */
-export const DEFAULT_FREE_PROVIDERS: ProviderConfig[] = [
-  {
-    id: 'pollinations',
-    name: 'Pollinations AI (Zero-Key Free)',
-    endpoint: 'https://text.pollinations.ai/openai/chat/completions',
-    defaultModel: 'openai',
-    supportedModels: ['openai', 'openai-fast', 'gpt-oss-20b'],
-    limits: { rpm: 30, rpd: 2000 },
-    intelligenceScore: 0.85,
-    speedScore: 0.9,
-  },
-  {
-    id: 'openrouter-free',
-    name: 'OpenRouter Free Tier',
-    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    defaultModel: 'openrouter/free',
-    supportedModels: ['openrouter/free', 'google/gemma-2-9b-it:free', 'meta-llama/llama-3.2-3b-instruct:free'],
-    limits: { rpm: 20, rpd: 200 },
-    intelligenceScore: 0.8,
-    speedScore: 0.75,
-  },
-  {
+export function buildDefaultFreeProviders(): ProviderConfig[] {
+  const providers: ProviderConfig[] = [
+    {
+      id: 'pollinations',
+      name: 'Pollinations AI (Zero-Key)',
+      endpoint: 'https://text.pollinations.ai/openai/chat/completions',
+      defaultModel: 'openai',
+      supportedModels: ['openai', 'openai-fast', 'gpt-oss-20b'],
+      limits: { rpm: 2, rpd: 2000 },
+      intelligenceScore: 0.85,
+      speedScore: 0.85,
+    },
+  ];
+
+  if (process.env.GROQ_API_KEY) {
+    providers.push({
+      id: 'groq-free',
+      name: 'Groq Free Tier',
+      endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+      apiKey: process.env.GROQ_API_KEY,
+      defaultModel: 'llama-3.3-70b-versatile',
+      supportedModels: [
+        'llama-3.3-70b-versatile',
+        'llama-3.1-8b-instant',
+        'gemma2-9b-it',
+        'mixtral-8x7b-32768',
+      ],
+      limits: { rpm: 30, rpd: 14400 },
+      intelligenceScore: 0.95,
+      speedScore: 0.99,
+    });
+  }
+
+  if (process.env.GEMINI_API_KEY) {
+    providers.push({
+      id: 'gemini-free',
+      name: 'Google Gemini Free',
+      endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      apiKey: process.env.GEMINI_API_KEY,
+      defaultModel: 'gemini-2.0-flash',
+      supportedModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-pro'],
+      limits: { rpm: 15, rpd: 1500 },
+      intelligenceScore: 0.92,
+      speedScore: 0.92,
+    });
+  }
+
+  if (process.env.OPENROUTER_API_KEY) {
+    providers.push({
+      id: 'openrouter-free',
+      name: 'OpenRouter Free Tier',
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      apiKey: process.env.OPENROUTER_API_KEY,
+      defaultModel: 'openrouter/free',
+      supportedModels: [
+        'openrouter/free',
+        'google/gemma-2-9b-it:free',
+        'meta-llama/llama-3.2-3b-instruct:free',
+        'qwen/qwen-2.5-coder-32b-instruct:free',
+      ],
+      limits: { rpm: 20, rpd: 200 },
+      intelligenceScore: 0.85,
+      speedScore: 0.8,
+    });
+  }
+
+  // AI Horde community cluster (Zero-Key)
+  providers.push({
+    id: 'aihorde',
+    name: 'AI Horde Community (Zero-Key)',
+    endpoint: 'https://oai.aihorde.net/v1/chat/completions',
+    apiKey: '0000000000',
+    defaultModel: 'koboldcpp/gemma-4-E4B-it',
+    supportedModels: [
+      'koboldcpp/gemma-4-E4B-it',
+      'koboldcpp/L3-8B-Stheno-v3.2',
+      'koboldcpp/Anubis-Mini-8B-v1',
+    ],
+    limits: { rpm: 10, rpd: 1000 },
+    intelligenceScore: 0.75,
+    speedScore: 0.5,
+  });
+
+  // Local Ollama instance
+  providers.push({
     id: 'ollama-local',
     name: 'Ollama Local Ingestion',
-    endpoint: 'http://localhost:11434/v1/chat/completions',
+    endpoint: (process.env.OLLAMA_HOST ?? 'http://localhost:11434') + '/v1/chat/completions',
     defaultModel: 'llama3.2',
     supportedModels: ['llama3.2', 'deepseek-r1', 'qwen2.5-coder'],
     isLocal: true,
+    limits: { rpm: 120, rpd: 10000 },
     intelligenceScore: 0.8,
     speedScore: 0.95,
-  },
-];
+  });
+
+  return providers;
+}
+
+export const DEFAULT_FREE_PROVIDERS: ProviderConfig[] = buildDefaultFreeProviders();
 

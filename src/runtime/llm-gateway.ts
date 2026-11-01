@@ -383,7 +383,7 @@ export class LlmGateway {
       providers: DEFAULT_FREE_PROVIDERS,
       strategy: 'auto:smart',
       fallbackEnabled: true,
-      requestTimeoutMs: 35000,
+      requestTimeoutMs: 45000,
     });
   }
   async generateAgentTurn(
