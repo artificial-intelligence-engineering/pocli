@@ -147,6 +147,7 @@ export class PoCliOrchestrator extends EventEmitter {
         modalityUsed: turnResult.modalityUsed,
         modelUsed: turnResult.modelUsed,
         citations: citations.map((c) => NotebookRagEngine.formatCitationTag(c)),
+        toolCalls: turnResult.toolCalls,
       },
     });
 

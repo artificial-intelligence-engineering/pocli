@@ -235,6 +235,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     },
     slashCommands: [
       {
+        command: '/agents',
+        description: 'Switch active agent (Architect, Developer, QA, PM)',
+      },
+      {
         command: '/project',
         description: 'Create a new project (prompts for name & filesystem directory)',
         phaseHint: 'Phase 1',
@@ -472,6 +476,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       security_auditor: 'Auditor de Seguridad DevSecOps',
     },
     slashCommands: [
+      {
+        command: '/agents',
+        description: 'Cambiar de agente activo (Architect, Developer, QA, PM)',
+      },
       {
         command: '/project',
         description: 'Crear nuevo proyecto (pregunta nombre y directorio en filesystem)',

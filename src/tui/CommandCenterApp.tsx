@@ -118,8 +118,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   });
   const safeViewportHeight = Math.max(18, dimensions.rows - 1);
 
-  // View mode: 'simple' (OpenCode-like centered clean view) vs 'multipanel' (Full Command Center)
-  const [viewMode, setViewMode] = useState<'simple' | 'multipanel'>('simple');
+  // View mode: 'startup' (OpenCode-like centered logo + prompt), 'chat' (2-column chat + info sidebar), 'multipanel'
+  const [viewMode, setViewMode] = useState<'startup' | 'chat' | 'multipanel'>('startup');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [dbModalOutput, setDbModalOutput] = useState<string>('');
@@ -258,7 +258,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         seq === '\x1b[1;5I' ||    // VTE / GNOME Terminal Ctrl+Tab
         seq === '\x1b[Z'          // Shift+Tab / Backtab fallback in standard Linux terminals
       ) {
-        setViewMode((prev) => (prev === 'simple' ? 'multipanel' : 'simple'));
+        setViewMode((prev) => (prev === 'multipanel' ? 'chat' : 'multipanel'));
       }
     };
     emitter.on(eventName, onRawData);
@@ -404,6 +404,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     });
     setProject(created);
     refreshState(created.id);
+    setViewMode('chat');
     setStatusBanner(
       t.projectCreatedMsg(
         created.name,
@@ -418,6 +419,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       const switched = orchestrator.storage.switchActiveProject(nameOrId);
       setProject(switched);
       refreshState(switched.id);
+
+      // Find the last agent who interacted in this project to restore their conversation
+      const allMsgs = orchestrator.storage.listMessages(switched.id);
+      if (allMsgs.length > 0) {
+        const last = allMsgs[allMsgs.length - 1];
+        const role =
+          last.fromRole === 'product_owner' ? last.toRole : last.fromRole;
+        if (
+          role &&
+          role !== 'product_owner' &&
+          ['architect', 'developer', 'qa', 'pm'].includes(role)
+        ) {
+          setActiveRole(role as ActorRole);
+        }
+      }
+      setViewMode('chat');
       setStatusBanner(
         t.projectSwitchedMsg(switched.name, switched.workspaceDir),
       );
@@ -548,7 +565,27 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/view') {
-        setViewMode((prev) => (prev === 'simple' ? 'multipanel' : 'simple'));
+        setViewMode((prev) => (prev === 'multipanel' ? 'chat' : 'multipanel'));
+        return;
+      }
+      if (cmdToken === '/agents' || cmdToken === '/agent') {
+        const rolesOrder: ActorRole[] = ['architect', 'developer', 'qa', 'pm'];
+        const target = parts[1]?.toLowerCase();
+        if (target && rolesOrder.includes(target as ActorRole)) {
+          setActiveRole(target as ActorRole);
+          setStatusBanner(
+            t.activeInterlocutorMsg(
+              getRoleDisplayName(target as ActorRole, language),
+            ),
+          );
+          return;
+        }
+        const currIdx = rolesOrder.indexOf(activeRole);
+        const nextRole = rolesOrder[(currIdx + 1) % rolesOrder.length];
+        setActiveRole(nextRole);
+        setStatusBanner(
+          t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
+        );
         return;
       }
       if (cmdToken === '/clear') {
@@ -831,6 +868,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // Normal conversation message sent to the currently active professional
     setInputValue('');
+    if (viewMode === 'startup') {
+      setViewMode('chat');
+    }
     await sendChatMessage(activeRole, trimmed);
   };
 
@@ -919,7 +959,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
       // Scroll through conversation history with the active agent
       const allMsgs = orchestrator.storage.listMessages(project.id, activeRole);
-      const winSize = viewMode === 'simple' ? 3 : 4;
+      const winSize = viewMode === 'multipanel' ? 4 : 3;
       const maxOffset = Math.max(0, allMsgs.length - winSize);
       setMessageScrollOffset((prev) =>
         isUp ? Math.min(maxOffset, prev + 1) : Math.max(0, prev - 1),
@@ -1313,9 +1353,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // OpenCode Ctrl+P shortcut to open commands popover
+    // OpenCode Ctrl+P shortcut to toggle slash command popover menu
     if (key.ctrl && input === 'p') {
-      setIsHelpOpen((prev) => !prev);
+      setInputValue((prev) => (prev.startsWith('/') ? '' : '/'));
       return;
     }
 
@@ -1328,7 +1368,19 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // Toggle between OpenCode simple view and Multipanel Command Center on Tab/Ctrl+Tab
+    // Shift+Tab cycles active agent (matches OpenCode "shift+tab agents" footer)
+    if (key.tab && key.shift) {
+      const rolesOrder: ActorRole[] = ['architect', 'developer', 'qa', 'pm'];
+      const currIdx = rolesOrder.indexOf(activeRole);
+      const nextRole = rolesOrder[(currIdx + 1) % rolesOrder.length];
+      setActiveRole(nextRole);
+      setStatusBanner(
+        t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
+      );
+      return;
+    }
+
+    // Toggle between OpenCode chat view and Multipanel Command Center on Tab/Ctrl+Tab
     if (key.tab) {
       if (
         isSlashMenuOpen &&
@@ -1343,7 +1395,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         }
         return;
       }
-      setViewMode((prev) => (prev === 'simple' ? 'multipanel' : 'simple'));
+      setViewMode((prev) => (prev === 'multipanel' ? 'chat' : 'multipanel'));
       return;
     }
 
@@ -1988,14 +2040,269 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     </Box>
   );
 
+  const renderSlashPopoverMenu = (menuWidth?: number | string) => {
+    if (!isSlashMenuOpen) return null;
+    const windowSize = 8;
+    const start = Math.max(
+      0,
+      Math.min(
+        selectedSlashIdx - Math.floor(windowSize / 2),
+        Math.max(0, filteredSlashCommands.length - windowSize),
+      ),
+    );
+    const visible = filteredSlashCommands.slice(start, start + windowSize);
+
+    return (
+      <Box
+        flexDirection="column"
+        width={menuWidth ?? '100%'}
+        borderStyle="round"
+        borderColor="blue"
+        paddingX={0}
+        paddingY={0}
+        marginBottom={0}
+      >
+        {filteredSlashCommands.length === 0 ? (
+          <Box paddingX={1}>
+            <Text dimColor>
+              {t.noCommandMatches} "{inputValue}"
+            </Text>
+          </Box>
+        ) : (
+          visible.map((item, localIdx) => {
+            const realIdx = start + localIdx;
+            const isSelected = realIdx === selectedSlashIdx;
+            const padLen =
+              typeof menuWidth === 'number'
+                ? Math.max(20, menuWidth - 4)
+                : Math.max(30, dimensions.columns - 36);
+            const rowContent = `${item.command.padEnd(16, ' ')}${item.description}`.padEnd(
+              padLen,
+              ' ',
+            );
+            return (
+              <Box
+                key={item.command}
+                width="100%"
+                paddingX={1}
+                flexDirection="row"
+              >
+                {isSelected ? (
+                  <Text color="white" backgroundColor="blue" bold>
+                    {rowContent}
+                  </Text>
+                ) : (
+                  <>
+                    <Text color="cyan">
+                      {item.command.padEnd(16, ' ')}
+                    </Text>
+                    <Text dimColor>{item.description}</Text>
+                  </>
+                )}
+              </Box>
+            );
+          })
+        )}
+      </Box>
+    );
+  };
+
+  const renderFormattedContent = (
+    text: string,
+    isLineSelected: boolean,
+  ) => {
+    if (!text.includes('```')) {
+      return (
+        <Text
+          color="white"
+          backgroundColor={isLineSelected ? 'yellow' : undefined}
+        >
+          {text}
+        </Text>
+      );
+    }
+    const parts = text.split(/(```[\s\S]*?```)/g);
+    return (
+      <Box flexDirection="column">
+        {parts.map((part, pIdx) => {
+          if (part.startsWith('```') && part.endsWith('```')) {
+            const lines = part.slice(3, -3).trim().split('\n');
+            const firstLine = lines[0]?.trim().toLowerCase();
+            const isBash =
+              firstLine === 'bash' ||
+              firstLine === 'sh' ||
+              firstLine === 'shell' ||
+              firstLine === 'zsh';
+            const codeLines = isBash ? lines.slice(1) : lines;
+            return (
+              <Box
+                key={pIdx}
+                borderStyle="round"
+                borderColor="gray"
+                paddingX={1}
+                flexDirection="column"
+                marginY={1}
+              >
+                {codeLines.map((line, lIdx) => (
+                  <Text
+                    key={lIdx}
+                    color={line.startsWith('$') ? 'cyan' : 'white'}
+                    dimColor={!line.startsWith('$')}
+                  >
+                    {line}
+                  </Text>
+                ))}
+              </Box>
+            );
+          }
+          if (!part.trim()) return null;
+          return (
+            <Text
+              key={pIdx}
+              color="white"
+              backgroundColor={isLineSelected ? 'yellow' : undefined}
+            >
+              {part}
+            </Text>
+          );
+        })}
+      </Box>
+    );
+  };
+
   // Keep root Box height strictly < stdout.rows (rows - 1) so Ink never hits
   // its `outputHeight >= stdout.rows` branch in ink.js:121 which executes a
   // full `ansiEscapes.clearTerminal` (\x1b[2J\x1b[3J\x1b[H) on every keystroke.
 
   // ==========================================================================
-  // RENDER MODE 1: OPENCODE CHAT VIEW (EXACT STRUCTURE MATCHING SCREENSHOT)
+  // RENDER MODE 1: OPENCODE STARTUP SCREEN (CENTERED LOGO + COMPACT PROMPT)
   // ==========================================================================
-  if (viewMode === 'simple') {
+  if (viewMode === 'startup') {
+    const promptBoxWidth = Math.min(74, Math.max(54, dimensions.columns - 8));
+
+    return (
+      <Box
+        flexDirection="column"
+        width={dimensions.columns}
+        height={safeViewportHeight}
+        justifyContent="space-between"
+        paddingX={1}
+        paddingY={0}
+      >
+        <Box height={1} />
+
+        {anyModalOpen ? (
+          <Box
+            flexDirection="column"
+            alignItems="center"
+            justifyContent="center"
+            flexGrow={1}
+            width="100%"
+          >
+            {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
+            {isProjectsModalOpen && renderProjectsListModal()}
+            {isModelsModalOpen && renderModelsModal()}
+            {dbModalOutput.length > 0 && renderDbModal()}
+            {isHelpOpen && renderHelpModal()}
+            {isSettingsOpen && renderSettingsModal()}
+          </Box>
+        ) : (
+          <Box
+            flexDirection="column"
+            alignItems="center"
+            justifyContent="center"
+            flexGrow={1}
+            width="100%"
+          >
+            <Box flexDirection="column" alignItems="center">
+              {ASCII_LOGO.map((line, idx) => (
+                <Text key={idx} color="cyan" bold>
+                  {line}
+                </Text>
+              ))}
+            </Box>
+
+            <Box marginTop={1} marginBottom={2}>
+              <Text color="cyan">
+                /projects {language === 'es' ? 'para seleccionar proyecto' : 'to switch project'}  ·  /help {language === 'es' ? 'ayuda' : 'help'}
+              </Text>
+            </Box>
+
+            {isSlashMenuOpen && (
+              <Box width={promptBoxWidth} marginBottom={0}>
+                {renderSlashPopoverMenu(promptBoxWidth)}
+              </Box>
+            )}
+
+            <Box
+              flexDirection="column"
+              width={promptBoxWidth}
+              borderStyle="round"
+              borderColor={isSlashMenuOpen ? 'blue' : 'cyan'}
+              paddingX={1}
+              paddingY={0}
+            >
+              <Box flexDirection="row">
+                <Text color="cyan" bold>
+                  │{' '}
+                </Text>
+                {inputValue.length === 0 ? (
+                  <Text dimColor>
+                    {language === 'es'
+                      ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
+                      : 'Ask anything... "/projects to switch project"'}
+                  </Text>
+                ) : (
+                  <>
+                    <Text color="white">{inputValue}</Text>
+                    <Text color="cyan">█</Text>
+                  </>
+                )}
+              </Box>
+              <Box height={1} />
+              <Box flexDirection="row">
+                <Text color="cyan" bold>
+                  │{' '}
+                </Text>
+                <Text bold color="cyan">
+                  {activeRoleDisplayName}
+                </Text>
+                <Text dimColor> · </Text>
+                <Text color="white">{activeModelEntry.displayName}</Text>
+                <Text dimColor>
+                  {' '}{activeModelEntry.isFree ? 'Default' : 'Pro'} / {activeModelEntry.vendor}
+                </Text>
+              </Box>
+            </Box>
+          </Box>
+        )}
+
+        {/* Bottom Footer Bar matching OpenCode screenshot:
+            ~/HACK/dev/ai.github.io.git:master     shift+tab agents   ctrl+p commands              1.0.0 */}
+        <Box width="100%" justifyContent="space-between" height={1}>
+          <Box flexDirection="row">
+            <Text color="gray">
+              {shortWorkdir}:{gitBranch}
+            </Text>
+          </Box>
+          <Box flexDirection="row">
+            <Text color="gray">shift+tab </Text>
+            <Text color="white">agents   </Text>
+            <Text color="gray">ctrl+p </Text>
+            <Text color="white">commands</Text>
+          </Box>
+          <Box flexDirection="row">
+            <Text color="gray">1.0.0</Text>
+          </Box>
+        </Box>
+      </Box>
+    );
+  }
+
+  // ==========================================================================
+  // RENDER MODE 2: OPENCODE CHAT VIEW (EXACT STRUCTURE MATCHING SCREENSHOT)
+  // ==========================================================================
+  if (viewMode === 'chat') {
     const sidebarWidth = Math.max(26, Math.min(34, Math.floor(dimensions.columns * 0.25)));
     const chatAreaWidth = Math.max(30, dimensions.columns - sidebarWidth - 4);
     const contentHeight = Math.max(10, safeViewportHeight - 3);
@@ -2108,11 +2415,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                           // Assistant message + optional tool/RAG step
                           (() => {
                             let citations: string[] = [];
+                            let toolCalls: any[] = [];
                             try {
                               const meta = JSON.parse(m.metadataJson || '{}') as {
                                 citations?: string[];
+                                toolCalls?: any[];
                               };
                               if (Array.isArray(meta.citations)) citations = meta.citations;
+                              if (Array.isArray(meta.toolCalls)) toolCalls = meta.toolCalls;
                             } catch {
                               // ignore
                             }
@@ -2139,13 +2449,26 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                                     </Box>
                                   </>
                                 )}
+                                {toolCalls.map((tc, tcIdx) => (
+                                  <Box key={tcIdx} flexDirection="column" marginY={0}>
+                                    <Box flexDirection="row" paddingLeft={1}>
+                                      <Text dimColor>
+                                        → Tool call: {tc.name}
+                                      </Text>
+                                    </Box>
+                                    <Box
+                                      borderStyle="round"
+                                      borderColor="gray"
+                                      paddingX={1}
+                                      flexDirection="column"
+                                      marginY={0}
+                                    >
+                                      <Text color="cyan">$ {tc.name} {JSON.stringify(tc.arguments ?? {})}</Text>
+                                    </Box>
+                                  </Box>
+                                ))}
                                 <Box flexDirection="column" marginTop={0} paddingLeft={1}>
-                                  <Text
-                                    color="white"
-                                    backgroundColor={isLineSelected ? 'yellow' : undefined}
-                                  >
-                                    {m.content}
-                                  </Text>
+                                  {renderFormattedContent(m.content, isLineSelected)}
                                 </Box>
                               </Box>
                             );
@@ -2165,66 +2488,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               </Box>
 
               {/* Slash Command Popover Menu when user types "/" */}
-              {isSlashMenuOpen && (
-                <Box
-                  flexDirection="column"
-                  width="100%"
-                  borderStyle="round"
-                  borderColor="magenta"
-                  paddingX={2}
-                  marginBottom={1}
-                >
-                  <Text bold color="magenta">
-                    {t.availableCommandsHeader}
-                  </Text>
-                  {filteredSlashCommands.length === 0 ? (
-                    <Text dimColor>
-                      {t.noCommandMatches} "{inputValue}"
-                    </Text>
-                  ) : (
-                    (() => {
-                      const windowSize = 6;
-                      const start = Math.max(
-                        0,
-                        Math.min(
-                          selectedSlashIdx - Math.floor(windowSize / 2),
-                          Math.max(0, filteredSlashCommands.length - windowSize),
-                        ),
-                      );
-                      const visible = filteredSlashCommands.slice(
-                        start,
-                        start + windowSize,
-                      );
-                      return visible.map((item, localIdx) => {
-                        const realIdx = start + localIdx;
-                        const isSelected = realIdx === selectedSlashIdx;
-                        return (
-                          <Box key={item.command} justifyContent="space-between">
-                            <Text
-                              color={isSelected ? 'cyan' : 'white'}
-                              bold={isSelected}
-                            >
-                              {isSelected ? '❯ ' : '  '}
-                              {item.command.padEnd(14, ' ')}
-                              <Text
-                                dimColor={!isSelected}
-                                color={isSelected ? 'white' : undefined}
-                              >
-                                {item.description}
-                              </Text>
-                            </Text>
-                            {item.phaseHint && (
-                              <Text color="yellow" dimColor={!isSelected}>
-                                [{item.phaseHint}]
-                              </Text>
-                            )}
-                          </Box>
-                        );
-                      });
-                    })()
-                  )}
-                </Box>
-              )}
+              {isSlashMenuOpen && renderSlashPopoverMenu('100%')}
 
               {/* Bottom Prompt / Input Box matching OpenCode screenshot:
                   │ [input text]█
@@ -2233,7 +2497,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               <Box
                 flexDirection="column"
                 borderStyle="round"
-                borderColor={isSlashMenuOpen ? 'magenta' : 'cyan'}
+                borderColor={isSlashMenuOpen ? 'blue' : 'cyan'}
                 paddingX={1}
                 paddingY={0}
                 marginTop={0}
@@ -2622,28 +2886,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           </Box>
 
           {/* Slash Menu Popover inside Multipanel mode */}
-          {isSlashMenuOpen && (
-            <Box
-              flexDirection="column"
-              borderStyle="round"
-              borderColor="magenta"
-              paddingX={1}
-            >
-              {filteredSlashCommands.slice(0, 6).map((item, idx) => {
-                const isSelected = idx === selectedSlashIdx;
-                return (
-                  <Text
-                    key={item.command}
-                    color={isSelected ? 'cyan' : 'white'}
-                    bold={isSelected}
-                  >
-                    {isSelected ? '❯ ' : '  '}
-                    {item.command.padEnd(14, ' ')} — {item.description}
-                  </Text>
-                );
-              })}
-            </Box>
-          )}
+          {isSlashMenuOpen && renderSlashPopoverMenu('100%')}
 
           {/* Bottom Input Box + Status Footer always displaying the active project & agent color */}
           <Box
