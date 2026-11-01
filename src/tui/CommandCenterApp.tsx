@@ -80,6 +80,52 @@ export function getRoleTheme(role: ActorRole): RoleColorTheme {
   );
 }
 
+export interface AvailableAgentInfo {
+  role: ActorRole;
+  title: string;
+  description: { es: string; en: string };
+  icon: string;
+}
+
+export const AVAILABLE_AGENTS: AvailableAgentInfo[] = [
+  {
+    role: 'architect',
+    title: 'Software Architect',
+    description: {
+      es: 'Diseño de arquitectura, especificaciones (ARCH-001/SPEC-001) y contratos',
+      en: 'Architecture design, specifications (ARCH-001/SPEC-001) and contracts',
+    },
+    icon: '🏛',
+  },
+  {
+    role: 'developer',
+    title: 'Senior Developer',
+    description: {
+      es: 'Implementación sobre especificaciones aprobadas dentro de sandbox Linux',
+      en: 'Software implementation on approved specs inside isolated Linux sandbox',
+    },
+    icon: '💻',
+  },
+  {
+    role: 'qa',
+    title: 'Independent QA Engineer',
+    description: {
+      es: 'Validación independiente, ejecución de tests y control de calidad',
+      en: 'Independent validation, automated test execution and quality verdicts',
+    },
+    icon: '🧪',
+  },
+  {
+    role: 'pm',
+    title: 'Project Manager (PM)',
+    description: {
+      es: 'Coordinación del equipo, consultas paralelas/secuenciales y reportes',
+      en: 'Team coordination, parallel/sequential cross-agent inquiries & status',
+    },
+    icon: '📋',
+  },
+];
+
 function fitAndPadLine(text: string, width: number): string {
   const safeWidth = Math.max(10, width);
   const oneLine = text.replace(/\s+/g, ' ');
@@ -146,6 +192,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [isProjectsModalOpen, setIsProjectsModalOpen] =
     useState<boolean>(false);
   const [selectedProjectIdx, setSelectedProjectIdx] = useState<number>(0);
+
+  // Interactive Active Agent Selector Modal (/agents)
+  const [isAgentsModalOpen, setIsAgentsModalOpen] = useState<boolean>(false);
+  const [selectedAgentIdx, setSelectedAgentIdx] = useState<number>(0);
 
   // Interactive OpenCode-style Per-Agent Model Picker Modal (/models)
   const [isModelsModalOpen, setIsModelsModalOpen] = useState<boolean>(false);
@@ -288,6 +338,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsSettingsOpen(false);
     setIsEditingWorkDir(false);
     setIsProjectsModalOpen(false);
+    setIsAgentsModalOpen(false);
     setIsModelsModalOpen(false);
     setIsExitConfirmOpen(false);
     setModelsFilterQuery('');
@@ -449,6 +500,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     inputValue.startsWith('/') &&
     projectWizardStep === 'CLOSED' &&
     !isProjectsModalOpen &&
+    !isAgentsModalOpen &&
     !isModelsModalOpen &&
     !isHelpOpen &&
     !isSettingsOpen &&
@@ -572,23 +624,25 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/agents' || cmdToken === '/agent') {
-        const rolesOrder: ActorRole[] = ['architect', 'developer', 'qa', 'pm'];
         const target = parts[1]?.toLowerCase();
-        if (target && rolesOrder.includes(target as ActorRole)) {
-          setActiveRole(target as ActorRole);
+        const found = AVAILABLE_AGENTS.find(
+          (a) => a.role === target || a.title.toLowerCase().includes(target ?? ''),
+        );
+        if (target && found) {
+          closeAllModals();
+          setActiveRole(found.role);
+          setViewMode('chat');
           setStatusBanner(
             t.activeInterlocutorMsg(
-              getRoleDisplayName(target as ActorRole, language),
+              getRoleDisplayName(found.role, language),
             ),
           );
           return;
         }
-        const currIdx = rolesOrder.indexOf(activeRole);
-        const nextRole = rolesOrder[(currIdx + 1) % rolesOrder.length];
-        setActiveRole(nextRole);
-        setStatusBanner(
-          t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
-        );
+        closeAllModals();
+        const currIdx = AVAILABLE_AGENTS.findIndex((a) => a.role === activeRole);
+        setSelectedAgentIdx(currIdx >= 0 ? currIdx : 0);
+        setIsAgentsModalOpen(true);
         return;
       }
       if (cmdToken === '/clear') {
@@ -943,6 +997,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         );
         return;
       }
+      if (isAgentsModalOpen && AVAILABLE_AGENTS.length > 0) {
+        setSelectedAgentIdx((prev) =>
+          isUp
+            ? prev > 0
+              ? prev - 1
+              : AVAILABLE_AGENTS.length - 1
+            : prev < AVAILABLE_AGENTS.length - 1
+              ? prev + 1
+              : 0,
+        );
+        return;
+      }
       if (isSettingsOpen && !isEditingWorkDir) {
         setSettingsRowIdx((prev) => (prev === 0 ? 1 : 0));
         return;
@@ -1009,6 +1075,21 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         if (chosen) {
           setIsProjectsModalOpen(false);
           switchProjectTo(chosen.id);
+        }
+        return;
+      }
+
+      // Interactive Agents modal: click selects chosen agent and enters chat
+      if (isAgentsModalOpen && AVAILABLE_AGENTS.length > 0) {
+        const chosen =
+          AVAILABLE_AGENTS[selectedAgentIdx] ?? AVAILABLE_AGENTS[0];
+        if (chosen) {
+          setIsAgentsModalOpen(false);
+          setActiveRole(chosen.role);
+          setViewMode('chat');
+          setStatusBanner(
+            t.activeInterlocutorMsg(getRoleDisplayName(chosen.role, language)),
+          );
         }
         return;
       }
@@ -1209,6 +1290,53 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // 2b. Handle Interactive Agent Selector Modal (/agents or Shift+Tab)
+    if (isAgentsModalOpen) {
+      if (key.escape || input === 'q') {
+        setIsAgentsModalOpen(false);
+        return;
+      }
+      if (key.upArrow) {
+        setSelectedAgentIdx((prev) =>
+          prev > 0 ? prev - 1 : AVAILABLE_AGENTS.length - 1,
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setSelectedAgentIdx((prev) =>
+          prev < AVAILABLE_AGENTS.length - 1 ? prev + 1 : 0,
+        );
+        return;
+      }
+      if (input === '1' || input === '2' || input === '3' || input === '4') {
+        const numIdx = parseInt(input, 10) - 1;
+        const chosen = AVAILABLE_AGENTS[numIdx];
+        if (chosen) {
+          setIsAgentsModalOpen(false);
+          setActiveRole(chosen.role);
+          setViewMode('chat');
+          setStatusBanner(
+            t.activeInterlocutorMsg(getRoleDisplayName(chosen.role, language)),
+          );
+          return;
+        }
+      }
+      if (key.return && AVAILABLE_AGENTS.length > 0) {
+        const chosen =
+          AVAILABLE_AGENTS[selectedAgentIdx] ?? AVAILABLE_AGENTS[0];
+        if (chosen) {
+          setIsAgentsModalOpen(false);
+          setActiveRole(chosen.role);
+          setViewMode('chat');
+          setStatusBanner(
+            t.activeInterlocutorMsg(getRoleDisplayName(chosen.role, language)),
+          );
+        }
+        return;
+      }
+      return;
+    }
+
     // 2b. Handle OpenCode-style Per-Agent Model Picker Modal (/models or Ctrl+O)
     if (isModelsModalOpen) {
       if (key.escape) {
@@ -1403,15 +1531,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // Shift+Tab cycles active agent (matches OpenCode "shift+tab agents" footer)
+    // Shift+Tab opens the /agents selection dialog (matches OpenCode "shift+tab agents" footer)
     if (key.tab && key.shift) {
-      const rolesOrder: ActorRole[] = ['architect', 'developer', 'qa', 'pm'];
-      const currIdx = rolesOrder.indexOf(activeRole);
-      const nextRole = rolesOrder[(currIdx + 1) % rolesOrder.length];
-      setActiveRole(nextRole);
-      setStatusBanner(
-        t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
-      );
+      closeAllModals();
+      const currIdx = AVAILABLE_AGENTS.findIndex((a) => a.role === activeRole);
+      setSelectedAgentIdx(currIdx >= 0 ? currIdx : 0);
+      setIsAgentsModalOpen(true);
       return;
     }
 
@@ -1683,6 +1808,75 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               </Text>
             </Box>
             <Text dimColor>    dir: {proj.workspaceDir}</Text>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+
+  // Interactive Active Agent Selector Modal (/agents)
+  const renderAgentsModal = () => (
+    <Box
+      flexDirection="column"
+      width={Math.min(84, dimensions.columns - 6)}
+      borderStyle="round"
+      borderColor="cyan"
+      paddingX={2}
+      paddingY={1}
+      marginBottom={1}
+    >
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Text bold color="cyan">
+          👥 {language === 'es' ? 'Seleccionar Agente Interlocutor' : 'Select Active Interlocutor Agent'}
+        </Text>
+        <Text dimColor>
+          {language === 'es'
+            ? '↑/↓ o 1-4 para seleccionar · Enter confirmar · Esc volver'
+            : '↑/↓ or 1-4 to select · Enter confirm · Esc back'}
+        </Text>
+      </Box>
+
+      {AVAILABLE_AGENTS.map((item, idx) => {
+        const isSelected = idx === selectedAgentIdx;
+        const isCurrentActive = item.role === activeRole;
+        const roleTheme = getRoleTheme(item.role);
+        const roleCfg = orchestrator.storage.getRoleConfig(project.id, item.role);
+        const modelLabel = `${roleCfg.provider}/${roleCfg.modelId}`;
+
+        return (
+          <Box
+            key={item.role}
+            flexDirection="column"
+            borderStyle={isSelected ? 'single' : undefined}
+            borderColor={isSelected ? roleTheme.accentColor : undefined}
+            paddingX={1}
+            paddingY={0}
+            marginY={0}
+          >
+            <Box justifyContent="space-between">
+              <Box flexDirection="row">
+                <Text
+                  bold
+                  color={isSelected ? roleTheme.accentColor : 'white'}
+                >
+                  {isSelected ? '❯ ' : '  '}
+                  {item.icon} {item.title}{' '}
+                </Text>
+                {isCurrentActive && (
+                  <Text color="green" bold>
+                    [{language === 'es' ? 'Activo' : 'Active'}]
+                  </Text>
+                )}
+              </Box>
+              <Text dimColor>
+                {modelLabel}
+              </Text>
+            </Box>
+            <Box paddingLeft={4}>
+              <Text dimColor={!isSelected} color={isSelected ? 'white' : undefined}>
+                {item.description[language === 'es' ? 'es' : 'en']}
+              </Text>
+            </Box>
           </Box>
         );
       })}
@@ -2051,6 +2245,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     isHelpOpen ||
     isSettingsOpen ||
     isProjectsModalOpen ||
+    isAgentsModalOpen ||
     isModelsModalOpen ||
     isExitConfirmOpen ||
     dbModalOutput.length > 0 ||
@@ -2266,6 +2461,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           >
             {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
             {isProjectsModalOpen && renderProjectsListModal()}
+            {isAgentsModalOpen && renderAgentsModal()}
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
             {isHelpOpen && renderHelpModal()}
@@ -2405,6 +2601,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           >
             {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
             {isProjectsModalOpen && renderProjectsListModal()}
+            {isAgentsModalOpen && renderAgentsModal()}
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
             {isHelpOpen && renderHelpModal()}
@@ -2706,6 +2903,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         >
           {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
           {isProjectsModalOpen && renderProjectsListModal()}
+          {isAgentsModalOpen && renderAgentsModal()}
           {isModelsModalOpen && renderModelsModal()}
           {dbModalOutput.length > 0 && renderDbModal()}
           {isHelpOpen && renderHelpModal()}
