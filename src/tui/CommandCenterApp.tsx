@@ -294,7 +294,21 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       );
       setSelectedModelIdx(foundIdx >= 0 ? foundIdx : 0);
     } else {
-      setSelectedModelIdx(0);
+      const cfgs = orchestrator.storage.listRoleConfigs(project.id);
+      const first = cfgs[0];
+      const allSame =
+        first &&
+        cfgs.every(
+          (c) => c.provider === first.provider && c.modelId === first.modelId,
+        );
+      if (allSame && first) {
+        const foundIdx = AVAILABLE_MODELS_CATALOG.findIndex(
+          (m) => m.provider === first.provider && m.modelId === first.modelId,
+        );
+        setSelectedModelIdx(foundIdx >= 0 ? foundIdx : 0);
+      } else {
+        setSelectedModelIdx(0);
+      }
     }
     setIsModelsModalOpen(true);
   };
@@ -893,14 +907,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
 
-      // Interactive Models modal: click applies selected model
+      // Interactive Models modal: click applies selected model to current target
       if (isModelsModalOpen && filteredModels.length > 0) {
         const chosen =
           filteredModels[selectedModelIdx] ?? filteredModels[0];
         if (chosen) {
           applyModelSelection(modelsTargetRole, chosen);
-          setIsModelsModalOpen(false);
-          setModelsFilterQuery('');
         }
         return;
       }
@@ -1066,15 +1078,33 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             (currIdx + delta + targetOptions.length) % targetOptions.length
           ];
         setModelsTargetRole(nextTarget);
-        if (nextTarget !== 'all' && !modelsFilterQuery) {
-          const cfg = orchestrator.storage.getRoleConfig(
-            project.id,
-            nextTarget,
-          );
-          const foundIdx = AVAILABLE_MODELS_CATALOG.findIndex(
-            (m) => m.provider === cfg.provider && m.modelId === cfg.modelId,
-          );
-          if (foundIdx >= 0) setSelectedModelIdx(foundIdx);
+        if (!modelsFilterQuery) {
+          if (nextTarget !== 'all') {
+            const cfg = orchestrator.storage.getRoleConfig(
+              project.id,
+              nextTarget,
+            );
+            const foundIdx = AVAILABLE_MODELS_CATALOG.findIndex(
+              (m) => m.provider === cfg.provider && m.modelId === cfg.modelId,
+            );
+            if (foundIdx >= 0) setSelectedModelIdx(foundIdx);
+          } else {
+            const cfgs = orchestrator.storage.listRoleConfigs(project.id);
+            const first = cfgs[0];
+            const allSame =
+              first &&
+              cfgs.every(
+                (c) =>
+                  c.provider === first.provider && c.modelId === first.modelId,
+              );
+            if (allSame && first) {
+              const foundIdx = AVAILABLE_MODELS_CATALOG.findIndex(
+                (m) =>
+                  m.provider === first.provider && m.modelId === first.modelId,
+              );
+              if (foundIdx >= 0) setSelectedModelIdx(foundIdx);
+            }
+          }
         }
         return;
       }
@@ -1096,8 +1126,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           filteredModels[selectedModelIdx] ?? filteredModels[0];
         if (chosen) {
           applyModelSelection(modelsTargetRole, chosen);
-          setIsModelsModalOpen(false);
-          setModelsFilterQuery('');
         }
         return;
       }
@@ -1529,6 +1557,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       'qa',
       'all',
     ] as const;
+    const roleShortLiterals: Record<string, string> = {
+      pm: 'PM',
+      architect: 'ARQ',
+      developer: 'DEV',
+      qa: 'QA',
+      all: 'ALL',
+    };
     const targetTheme =
       modelsTargetRole === 'all'
         ? {
@@ -1540,14 +1575,19 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // Larger, strictly fixed modal dimensions so moving left/right/up/down or
     // typing in the filter never changes the dialog width or height.
-    const modalWidth = Math.max(76, Math.min(128, dimensions.columns - 6));
-    const innerWidth = Math.max(68, modalWidth - 6);
-    const tabWidth = Math.max(12, Math.floor((innerWidth - 4) / 5));
+    const modalWidth = Math.max(82, Math.min(128, dimensions.columns - 6));
+    const tabWidth = 14;
+    const centerInBox = (label: string, width: number): string => {
+      if (label.length >= width) return label.slice(0, width);
+      const leftPad = Math.floor((width - label.length) / 2);
+      const rightPad = width - label.length - leftPad;
+      return `${' '.repeat(leftPad)}${label}${' '.repeat(rightPad)}`;
+    };
     const windowSize = Math.max(
       6,
-      Math.min(12, Math.max(22, dimensions.rows - 1) - 19),
+      Math.min(12, Math.max(22, dimensions.rows - 1) - 16),
     );
-    const modalHeight = windowSize + 15;
+    const modalHeight = windowSize + 12;
 
     const startIdx = Math.max(
       0,
@@ -1562,14 +1602,36 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       modelsTargetRole === 'all'
         ? undefined
         : roleConfigs.find((rc) => rc.role === modelsTargetRole);
+
+    const firstRoleCfg = roleConfigs[0];
+    const allAgentsShareSameModel =
+      Boolean(firstRoleCfg) &&
+      (['pm', 'architect', 'developer', 'qa'] as const).every((rKey) => {
+        const rc = roleConfigs.find((c) => c.role === rKey);
+        return (
+          rc?.provider === firstRoleCfg?.provider &&
+          rc?.modelId === firstRoleCfg?.modelId
+        );
+      });
+
     const selectedTargetSummary =
       modelsTargetRole === 'all'
-        ? `${t.modelsAllAgentsLabel} — ${roleConfigs
-            .map((rc) => `${rc.role.toUpperCase()}: ${rc.modelId}`)
-            .join(' · ')}`
-        : `${getRoleDisplayName(modelsTargetRole, language)} — [${
-            selectedTargetCfg?.provider ?? 'anthropic'
-          }] ${selectedTargetCfg?.modelId ?? 'default'}`;
+        ? allAgentsShareSameModel && firstRoleCfg
+          ? `ALL (${t.modelsAllAgentsLabel}) — [${firstRoleCfg.provider}] ${firstRoleCfg.modelId}`
+          : `ALL — ${(
+              ['pm', 'architect', 'developer', 'qa'] as const
+            )
+              .map((rKey) => {
+                const rc = roleConfigs.find((c) => c.role === rKey);
+                return `${roleShortLiterals[rKey]}:${rc?.modelId ?? 'default'}`;
+              })
+              .join(' · ')}`
+        : `${roleShortLiterals[modelsTargetRole]} (${getRoleDisplayName(
+            modelsTargetRole,
+            language,
+          )}) — [${selectedTargetCfg?.provider ?? 'anthropic'}] ${
+            selectedTargetCfg?.modelId ?? 'default'
+          }`;
 
     return (
       <Box
@@ -1581,27 +1643,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         paddingX={2}
         paddingY={1}
       >
-        <Box justifyContent="space-between" height={1}>
-          <Text bold color={targetTheme.accentColor} wrap="truncate-end">
-            🤖 {t.modelsTitle}
-          </Text>
-          <Text dimColor wrap="truncate-end">
-            [{project.name}]
-          </Text>
-        </Box>
-        <Box height={1}>
-          <Text dimColor wrap="truncate-end">
-            {t.modelsSubtitle}
-          </Text>
-        </Box>
-
-        {/* Per-Agent Target Selector Bar: strictly fixed 1-line tabs + 1-line summary */}
-        <Box marginTop={1} flexDirection="column" height={3}>
+        {/* Per-Agent Target Selector Bar:
+            Line 1: Target Agent + active model for the selected target
+            Line 2: Only short color-coded literals PM, ARQ, DEV, QA, ALL */}
+        <Box flexDirection="column" height={3}>
           <Box justifyContent="space-between" height={1}>
             <Text bold color="white" wrap="truncate-end">
               {t.modelsTargetAgentLabel}
             </Text>
-            <Text color={targetTheme.accentColor} wrap="truncate-end">
+            <Text bold color={targetTheme.accentColor} wrap="truncate-end">
               {selectedTargetSummary}
             </Text>
           </Box>
@@ -1610,7 +1660,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             width="100%"
             height={1}
             marginTop={1}
-            justifyContent="space-between"
+            justifyContent="center"
           >
             {targetOptions.map((opt) => {
               const isSelectedTarget = modelsTargetRole === opt;
@@ -1622,32 +1672,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                       accentColor: 'cyan' as const,
                     }
                   : getRoleTheme(opt);
-              const cfg =
-                opt === 'all'
-                  ? undefined
-                  : roleConfigs.find((rc) => rc.role === opt);
-              const rawLabel =
-                opt === 'all'
-                  ? t.modelsAllAgentsLabel
-                  : `${t.expertBoxTitles[opt]} (${cfg?.modelId ?? 'default'})`;
-              const formattedTab = fitAndPadLine(
-                isSelectedTarget ? ` ▶ ${rawLabel}` : `   ${rawLabel}`,
+              const shortLabel = roleShortLiterals[opt];
+              const buttonText = centerInBox(
+                isSelectedTarget ? `▶ ${shortLabel} ◀` : shortLabel,
                 tabWidth,
               );
 
               return (
-                <Box key={opt} width={tabWidth} height={1}>
+                <Box key={opt} marginX={1} height={1}>
                   <Text
                     bold={isSelectedTarget}
-                    wrap="truncate-end"
-                    backgroundColor={
-                      isSelectedTarget ? optTheme.bgColor : undefined
-                    }
-                    color={
-                      isSelectedTarget ? optTheme.fgColor : optTheme.accentColor
-                    }
+                    backgroundColor={optTheme.bgColor}
+                    color={optTheme.fgColor}
                   >
-                    {formattedTab}
+                    {buttonText}
                   </Text>
                 </Box>
               );
@@ -1727,7 +1765,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                             backgroundColor={rTheme.bgColor}
                             color={rTheme.fgColor}
                           >
-                            {` ${rKey.toUpperCase()} `}
+                            {` ${roleShortLiterals[rKey]} `}
                           </Text>
                         </Box>
                       );
