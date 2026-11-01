@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Box, Text, useInput, useApp, useStdout, useStdin } from 'ink';
@@ -115,6 +116,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     columns: stdout?.columns ?? 120,
     rows: stdout?.rows ?? 36,
   });
+  const safeViewportHeight = Math.max(18, dimensions.rows - 1);
 
   // View mode: 'simple' (OpenCode-like centered clean view) vs 'multipanel' (Full Command Center)
   const [viewMode, setViewMode] = useState<'simple' | 'multipanel'>('simple');
@@ -1311,6 +1313,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // OpenCode Ctrl+P shortcut to open commands popover
+    if (key.ctrl && input === 'p') {
+      setIsHelpOpen((prev) => !prev);
+      return;
+    }
+
     if (key.escape) {
       if (inputValue.length > 0) {
         setInputValue('');
@@ -1397,6 +1405,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       roleConfigVersion,
     ],
   );
+  const activeModelEntry = useMemo(() => {
+    const match = AVAILABLE_MODELS_CATALOG.find(
+      (m) => m.modelId.toLowerCase() === activeModelCfg.modelId.toLowerCase(),
+    );
+    return {
+      displayName: match?.displayName ?? activeModelCfg.modelId,
+      isFree:
+        match?.isFree ??
+        (activeModelCfg.provider === 'ollama' ||
+          activeModelCfg.provider === 'freellm'),
+      vendor: getModelVendorLabel(
+        activeModelCfg.provider,
+        activeModelCfg.modelId,
+      ),
+    };
+  }, [activeModelCfg]);
   const messages = useMemo(
     () => orchestrator.storage.listMessages(project.id, activeRole),
     [orchestrator.storage, project.id, activeRole, expertSummaries],
@@ -1410,6 +1434,42 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
   const lastMessages = sliceWindowedMessages(3);
   const multipanelMessages = sliceWindowedMessages(4);
+  const openCodeMessages = useMemo(() => {
+    const maxVisible = Math.max(4, Math.floor((safeViewportHeight - 10) / 3));
+    if (messages.length <= maxVisible) return messages;
+    const maxOffset = Math.max(0, messages.length - maxVisible);
+    const clamped = Math.min(messageScrollOffset, maxOffset);
+    const endIdx = messages.length - clamped;
+    return messages.slice(Math.max(0, endIdx - maxVisible), endIdx);
+  }, [messages, safeViewportHeight, messageScrollOffset]);
+
+  const gitBranch = useMemo(() => {
+    try {
+      const res = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+        cwd: project.workspaceDir || process.cwd(),
+        encoding: 'utf8',
+        timeout: 1000,
+      });
+      return res.stdout.trim() || 'main';
+    } catch {
+      return 'main';
+    }
+  }, [project.workspaceDir]);
+
+  const shortWorkdir = useMemo(() => {
+    const target = project.workspaceDir || process.cwd();
+    const home = os.homedir();
+    return target.startsWith(home) ? `~${target.slice(home.length)}` : target;
+  }, [project.workspaceDir]);
+
+  const estimatedTokens = useMemo(() => {
+    let chars = 0;
+    for (const m of messages) {
+      chars += m.content.length;
+    }
+    chars += 12180;
+    return Math.round(chars / 4);
+  }, [messages]);
   const roleConfigs = useMemo(
     () => orchestrator.storage.listRoleConfigs(project.id),
     [orchestrator.storage, project.id, expertSummaries, roleConfigVersion],
@@ -1931,160 +1991,184 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // Keep root Box height strictly < stdout.rows (rows - 1) so Ink never hits
   // its `outputHeight >= stdout.rows` branch in ink.js:121 which executes a
   // full `ansiEscapes.clearTerminal` (\x1b[2J\x1b[3J\x1b[H) on every keystroke.
-  const safeViewportHeight = Math.max(18, dimensions.rows - 1);
 
   // ==========================================================================
-  // RENDER MODE 1: OPENCODE-STYLE CLEAN FULLSCREEN VIEW (DEFAULT ON STARTUP)
+  // RENDER MODE 1: OPENCODE CHAT VIEW (EXACT STRUCTURE MATCHING SCREENSHOT)
   // ==========================================================================
   if (viewMode === 'simple') {
-    const simpleBarWidth = Math.max(40, dimensions.columns - 4);
+    const sidebarWidth = Math.max(26, Math.min(34, Math.floor(dimensions.columns * 0.25)));
+    const chatAreaWidth = Math.max(30, dimensions.columns - sidebarWidth - 4);
+    const contentHeight = Math.max(10, safeViewportHeight - 3);
+
     return (
       <Box
         flexDirection="column"
         width={dimensions.columns}
         height={safeViewportHeight}
         justifyContent="space-between"
-        paddingX={2}
-        paddingY={1}
+        paddingX={1}
+        paddingY={0}
       >
-        {/* Top bar with solid color-coded background banner for the active agent */}
-        {renderTopColorBanner(simpleBarWidth)}
+        {/* Top Header Bar matching OpenCode:
+            New session               :. Información del proyecto -> */}
+        <Box width="100%" justifyContent="space-between" height={1}>
+          <Text color="gray">New session</Text>
+          <Box>
+            <Text backgroundColor="blue" color="white" bold>
+              {' '}:.{' '}
+            </Text>
+            <Text backgroundColor="blue" color="white">
+              {' '}{language === 'es' ? 'Información del proyecto' : 'Project Information'}  →{' '}
+            </Text>
+          </Box>
+        </Box>
 
-        {/* Center Area: When a modal is open, render ONLY the centered modal cleanly
-            without the PO CLI logo or any text/prompt boxes underneath. */}
-        <Box
-          flexDirection="column"
-          alignItems="center"
-          justifyContent="center"
-          flexGrow={1}
-          width="100%"
-        >
-          {anyModalOpen ? (
-            <>
-              {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
-              {isProjectsModalOpen && renderProjectsListModal()}
-              {isModelsModalOpen && renderModelsModal()}
-              {dbModalOutput.length > 0 && renderDbModal()}
-              {isHelpOpen && renderHelpModal()}
-              {isSettingsOpen && renderSettingsModal()}
-            </>
-          ) : (
-            <>
-              {/* Centered ASCII Banner (always fixed grayscale) */}
-              <Box flexDirection="column" alignItems="center" marginBottom={1}>
-                {ASCII_LOGO.map((line, i) => (
-                  <Text
-                    key={i}
-                    bold
-                    color={i < 2 ? 'white' : 'gray'}
-                    dimColor={i >= 4}
-                  >
-                    {line}
-                  </Text>
-                ))}
-                <Box marginTop={1}>
-                  <Text dimColor>
-                    {t.virtualEngineeringTeam} · {t.projectLabel}:{' '}
-                    <Text color="green" bold>
-                      {project.name}
-                    </Text>{' '}
-                    · {activeRoleDisplayName.toUpperCase()} ({activeModelCfg.modelId}) ·{' '}
-                    {t.archVersionShort} v{project.approvedArchitectureVersion}
-                  </Text>
-                </Box>
-              </Box>
-
-              {/* Recent conversation snippet if any */}
-              {(lastMessages.length > 0 || streamingText) && (
-                <Box
-                  flexDirection="column"
-                  width={Math.min(92, dimensions.columns - 8)}
-                  borderStyle="round"
-                  borderColor="gray"
-                  paddingX={2}
-                  paddingY={0}
-                  marginBottom={1}
-                >
-                  {lastMessages.map((m, mIdx) => {
-                    const authorLabel =
-                      m.fromRole === 'product_owner'
-                        ? getRoleDisplayName('product_owner', language)
-                        : activeRoleDisplayName;
-                    const contentText =
-                      m.content.length > 220
-                        ? `${m.content.slice(0, 220)}...`
-                        : m.content;
-
-                    // Approximate screen Y coordinate of conversation lines for mouse selection
-                    // Top banner = 1 row, margin/padding = 2 rows, ASCII logo = 7 rows, text = 2 rows
-                    const baseConversationRow = 12 + mIdx * 3;
-                    const minCol = 6;
-                    const maxCol = Math.min(92, dimensions.columns - 8) + minCol;
+        {/* Center Main Area:
+            If a modal is open, render modal centered.
+            Otherwise, render the two-column OpenCode Chat Layout:
+            [Left: Conversation + Tool Output + Prompt Box] | [Right: Project Info & Context Sidebar] */}
+        {anyModalOpen ? (
+          <Box
+            flexDirection="column"
+            alignItems="center"
+            justifyContent="center"
+            flexGrow={1}
+            width="100%"
+          >
+            {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
+            {isProjectsModalOpen && renderProjectsListModal()}
+            {isModelsModalOpen && renderModelsModal()}
+            {dbModalOutput.length > 0 && renderDbModal()}
+            {isHelpOpen && renderHelpModal()}
+            {isSettingsOpen && renderSettingsModal()}
+          </Box>
+        ) : (
+          <Box flexDirection="row" width="100%" height={contentHeight}>
+            {/* Left Column: Chat Area */}
+            <Box
+              flexDirection="column"
+              width={chatAreaWidth}
+              height="100%"
+              justifyContent="space-between"
+              paddingRight={2}
+            >
+              {/* Scrollable Conversation messages */}
+              <Box flexDirection="column" flexGrow={1} overflowY="hidden">
+                {openCodeMessages.length === 0 && !streamingText ? (
+                  <Box flexDirection="column" marginY={1}>
+                    <Text dimColor>
+                      {language === 'es'
+                        ? `→ Sesión iniciada con ${activeRoleDisplayName}. Escribe una consulta para comenzar.`
+                        : `→ Active session with ${activeRoleDisplayName}. Enter a prompt to start.`}
+                    </Text>
+                  </Box>
+                ) : (
+                  openCodeMessages.map((m, mIdx) => {
+                    const isUser = m.fromRole === 'product_owner';
+                    const baseRow = 4 + mIdx * 3;
+                    const minCol = 4;
+                    const maxCol = chatAreaWidth;
 
                     // Register rendered line coordinates for mouse click/drag selection
                     if (
                       !renderedConversationLinesRef.current.some(
-                        (l) => l.y === baseConversationRow + 1 && l.text === contentText,
+                        (l) => l.y === baseRow && l.text === m.content,
                       )
                     ) {
-                      renderedConversationLinesRef.current.push(
-                        {
-                          y: baseConversationRow,
-                          minX: minCol,
-                          maxX: maxCol,
-                          text: `${authorLabel}:`,
-                          fullContent: m.content,
-                        },
-                        {
-                          y: baseConversationRow + 1,
-                          minX: minCol,
-                          maxX: maxCol,
-                          text: contentText,
-                          fullContent: m.content,
-                        },
-                      );
+                      renderedConversationLinesRef.current.push({
+                        y: baseRow,
+                        minX: minCol,
+                        maxX: maxCol,
+                        text: m.content,
+                        fullContent: m.content,
+                      });
                     }
 
                     const isLineSelected =
                       selectionRange !== null &&
-                      ((selectionRange.startY <= baseConversationRow + 1 &&
-                        selectionRange.endY >= baseConversationRow + 1) ||
-                        (selectionRange.startY <= baseConversationRow &&
-                          selectionRange.endY >= baseConversationRow));
+                      selectionRange.startY <= baseRow &&
+                      selectionRange.endY >= baseRow;
 
                     return (
                       <Box key={m.id} flexDirection="column" marginY={0}>
-                        <Text
-                          bold
-                          color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
-                        >
-                          {authorLabel}:
-                        </Text>
-                        <Text
-                          backgroundColor={isLineSelected ? 'yellow' : undefined}
-                          color={isLineSelected ? 'black' : undefined}
-                        >
-                          {contentText}
-                        </Text>
+                        {isUser ? (
+                          // User message with left vertical cyan bar
+                          <Box flexDirection="row" marginY={1}>
+                            <Text color="cyan" bold>
+                              │{'  '}
+                            </Text>
+                            <Text
+                              color="cyan"
+                              backgroundColor={isLineSelected ? 'yellow' : undefined}
+                            >
+                              {m.content}
+                            </Text>
+                          </Box>
+                        ) : (
+                          // Assistant message + optional tool/RAG step
+                          (() => {
+                            let citations: string[] = [];
+                            try {
+                              const meta = JSON.parse(m.metadataJson || '{}') as {
+                                citations?: string[];
+                              };
+                              if (Array.isArray(meta.citations)) citations = meta.citations;
+                            } catch {
+                              // ignore
+                            }
+
+                            return (
+                              <Box flexDirection="column" marginY={1}>
+                                {citations.length > 0 && (
+                                  <>
+                                    <Box flexDirection="row" paddingLeft={1}>
+                                      <Text dimColor>
+                                        → Explored: {citations.length} reads
+                                      </Text>
+                                    </Box>
+                                    <Box
+                                      borderStyle="round"
+                                      borderColor="gray"
+                                      paddingX={1}
+                                      flexDirection="column"
+                                      marginY={0}
+                                    >
+                                      <Text dimColor>
+                                        $ Notebook Citations: {citations.slice(0, 3).join(' ')}
+                                      </Text>
+                                    </Box>
+                                  </>
+                                )}
+                                <Box flexDirection="column" marginTop={0} paddingLeft={1}>
+                                  <Text
+                                    color="white"
+                                    backgroundColor={isLineSelected ? 'yellow' : undefined}
+                                  >
+                                    {m.content}
+                                  </Text>
+                                </Box>
+                              </Box>
+                            );
+                          })()
+                        )}
                       </Box>
                     );
-                  })}
-                  {streamingText && (
-                    <Box flexDirection="column">
-                      <Text bold color="green">
-                        {activeRoleDisplayName} (streaming):
-                      </Text>
-                      <Text>{streamingText}</Text>
-                    </Box>
-                  )}
-                </Box>
-              )}
+                  })
+                )}
+
+                {/* Streaming response */}
+                {streamingText && (
+                  <Box flexDirection="column" marginY={1} paddingLeft={1}>
+                    <Text color="green">{streamingText}█</Text>
+                  </Box>
+                )}
+              </Box>
 
               {/* Slash Command Popover Menu when user types "/" */}
               {isSlashMenuOpen && (
                 <Box
                   flexDirection="column"
-                  width={Math.min(92, dimensions.columns - 8)}
+                  width="100%"
                   borderStyle="round"
                   borderColor="magenta"
                   paddingX={2}
@@ -2099,7 +2183,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     </Text>
                   ) : (
                     (() => {
-                      const windowSize = 8;
+                      const windowSize = 6;
                       const start = Math.max(
                         0,
                         Math.min(
@@ -2142,45 +2226,123 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 </Box>
               )}
 
-              {/* Centered OpenCode-style Prompt Box showing active project & active role */}
+              {/* Bottom Prompt / Input Box matching OpenCode screenshot:
+                  │ [input text]█
+                  │
+                  │ Build · Claude Sonnet 5.5 Default / OpenCode */}
               <Box
                 flexDirection="column"
-                width={Math.min(92, dimensions.columns - 8)}
                 borderStyle="round"
-                borderColor={
-                  isSlashMenuOpen ? 'magenta' : activeTheme.accentColor
-                }
-                paddingX={2}
+                borderColor={isSlashMenuOpen ? 'magenta' : 'cyan'}
+                paddingX={1}
                 paddingY={0}
+                marginTop={0}
               >
-                <Box justifyContent="space-between">
-                  <Text>
-                    <Text bold color="green">
-                      [{project.name}]
-                    </Text>{' '}
-                    <Text bold color={activeTheme.accentColor}>
-                      ❯{' '}
-                    </Text>
-                    <Text>{inputValue}</Text>
-                    <Text color={activeTheme.accentColor}>█</Text>
+                <Box flexDirection="row">
+                  <Text color="cyan" bold>
+                    │{' '}
                   </Text>
-                  <Text dimColor>
-                    {project.name} · {activeRoleDisplayName}
-                  </Text>
+                  <Text color="white">{inputValue}</Text>
+                  <Text color="cyan">█</Text>
                 </Box>
-                <Box justifyContent="space-between" marginTop={0}>
-                  <Text dimColor>{t.inputPlaceholderHint}</Text>
-                  <Text dimColor>Enter ↵</Text>
+                <Box height={1} />
+                <Box flexDirection="row">
+                  <Text color="cyan" bold>
+                    │{' '}
+                  </Text>
+                  <Text bold color="cyan">
+                    {activeRoleDisplayName}
+                  </Text>
+                  <Text dimColor> · </Text>
+                  <Text color="white">{activeModelEntry.displayName}</Text>
+                  <Text dimColor>
+                    {' '}{activeModelEntry.isFree ? 'Default' : 'Pro'} / {activeModelEntry.vendor}
+                  </Text>
                 </Box>
               </Box>
-            </>
-          )}
-        </Box>
+            </Box>
 
-        {/* Bottom Status Bar */}
-        <Box justifyContent="space-between" width="100%">
-          <Text color={busy ? 'yellow' : 'gray'}>{statusBanner}</Text>
-          <Text dimColor>{t.bottomShortcutsHint}</Text>
+            {/* Right Column: Project Info & Context Sidebar */}
+            <Box
+              flexDirection="column"
+              width={sidebarWidth}
+              paddingLeft={2}
+              borderStyle="single"
+              borderLeft
+              borderRight={false}
+              borderTop={false}
+              borderBottom={false}
+              borderColor="gray"
+            >
+              <Text bold color="cyan">
+                {language === 'es' ? 'Información del proyecto' : 'Project Information'}
+              </Text>
+              <Box height={1} />
+              <Text bold color="white">
+                Context
+              </Text>
+              <Text dimColor>
+                {estimatedTokens.toLocaleString()} tokens
+              </Text>
+              <Text dimColor>
+                {Math.max(1, Math.round((estimatedTokens / 200000) * 100))}% used
+              </Text>
+              <Text dimColor>
+                {activeModelEntry.isFree ? '$0.00 spent' : '$0.02 spent'}
+              </Text>
+
+              <Box height={1} />
+              <Text bold color="white">
+                {language === 'es' ? 'Proyecto' : 'Project'}
+              </Text>
+              <Text color="white">{project.name}</Text>
+              <Text dimColor>
+                v{project.approvedArchitectureVersion} ({project.phase.replace('PHASE_', '')})
+              </Text>
+
+              <Box height={1} />
+              <Text bold color="white">
+                {language === 'es' ? 'Especialista' : 'Specialist'}
+              </Text>
+              <Text color={activeTheme.accentColor}>
+                {activeRoleDisplayName}
+              </Text>
+              <Text dimColor>{activeModelEntry.displayName}</Text>
+
+              <Box height={1} />
+              <Text bold color="white">
+                {language === 'es' ? 'Artefactos' : 'Artifacts'}
+              </Text>
+              <Text dimColor>
+                {artifacts.length} {language === 'es' ? 'activos' : 'active'}
+              </Text>
+            </Box>
+          </Box>
+        )}
+
+        {/* Bottom Footer Bar matching OpenCode screenshot:
+            ■■■···· esc interrupt          12.2K (1%) · $0.02  ctrl+p commands     ~/HACK/dev/ai.github.io.git:master */}
+        <Box width="100%" justifyContent="space-between" height={1}>
+          <Box flexDirection="row">
+            <Text color={busy ? 'cyan' : 'gray'}>
+              {busy ? '■■■···· ' : '■······ '}
+            </Text>
+            <Text color="gray">esc interrupt</Text>
+          </Box>
+          <Box flexDirection="row">
+            <Text color="gray">
+              {(estimatedTokens / 1000).toFixed(1)}K ({Math.max(1, Math.round((estimatedTokens / 200000) * 100))}%) · {activeModelEntry.isFree ? '$0.00' : '$0.02'}{'  '}
+            </Text>
+            <Text bold color="white">
+              ctrl+p{' '}
+            </Text>
+            <Text color="gray">commands</Text>
+          </Box>
+          <Box flexDirection="row">
+            <Text color="gray">
+              {shortWorkdir}:{gitBranch}
+            </Text>
+          </Box>
         </Box>
       </Box>
     );
