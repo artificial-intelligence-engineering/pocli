@@ -117,7 +117,8 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     noCommandMatches: 'No matches for',
     inputPlaceholderHint:
       'Type your instruction or "/" for commands (/propose, /approve, /handoff, /implement, /validate, /settings)',
-    bottomShortcutsHint: '/ commands · Ctrl+Tab multipanel · Esc exit',
+    bottomShortcutsHint:
+      '/ commands · Mouse click/wheel · Ctrl+Tab multipanel · Esc exit',
     initialStatusBanner:
       'Type a message for the active professional or use "/" for commands. Press Ctrl+Tab to switch views.',
     settingsTitle: 'Application Settings (/settings)',
@@ -335,7 +336,8 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     noCommandMatches: 'Sin coincidencias para',
     inputPlaceholderHint:
       'Escribe tu instrucción o "/" para comandos (/propose, /approve, /handoff, /implement, /validate, /settings)',
-    bottomShortcutsHint: '/ comandos · Ctrl+Tab multipanel · Esc salir',
+    bottomShortcutsHint:
+      '/ comandos · Ratón clic/rueda · Ctrl+Tab multipanel · Esc salir',
     initialStatusBanner:
       'Escribe un mensaje para el profesional activo o usa "/" para comandos. Pulsa Ctrl+Tab para alternar vista.',
     settingsTitle: 'Configuración de la Aplicación (/settings)',

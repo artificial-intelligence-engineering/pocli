@@ -9,4 +9,5 @@ export * from './runtime/notebook-rag.js';
 export * from './runtime/process-runner.js';
 export * from './runtime/mcp-client.js';
 export * from './runtime/orchestrator.js';
+export * from './tui/mouse.js';
 export * from './tui/CommandCenterApp.js';

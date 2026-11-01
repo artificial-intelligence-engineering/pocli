@@ -8,8 +8,10 @@ import {
   executeDbCommandOrQuery,
   HarnessRegistry,
   I18N_DICTIONARY,
+  isMouseSequence,
   LinuxAgentProcessRunner,
   NotebookRagEngine,
+  parseMouseEvents,
   PoCliDatabase,
   PoCliOrchestrator,
 } from '../src/index.js';
@@ -743,5 +745,41 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       'tsv',
     );
     expect(tsvOut).toContain('name\tphase\nDbReplInspectionProject\tPHASE_2_ARCHITECT_ANALYSIS');
+  });
+
+  it('parses SGR (1006) terminal mouse clicks and scroll wheel sequences for Ink TUI without polluting text input', () => {
+    expect(isMouseSequence('normal text')).toBe(false);
+    expect(isMouseSequence('/architect')).toBe(false);
+    expect(isMouseSequence('\x1b[<0;42;8M')).toBe(true);
+    expect(isMouseSequence('[<64;20;10M')).toBe(true);
+
+    const clickAndWheel = parseMouseEvents(
+      '\x1b[<0;42;8M\x1b[<0;42;8m[<64;20;10M[<65;20;10M',
+    );
+    expect(clickAndWheel).toHaveLength(4);
+    expect(clickAndWheel[0]).toMatchObject({
+      button: 'left',
+      action: 'press',
+      x: 42,
+      y: 8,
+    });
+    expect(clickAndWheel[1]).toMatchObject({
+      button: 'left',
+      action: 'release',
+      x: 42,
+      y: 8,
+    });
+    expect(clickAndWheel[2]).toMatchObject({
+      button: 'wheel-up',
+      action: 'wheel',
+      x: 20,
+      y: 10,
+    });
+    expect(clickAndWheel[3]).toMatchObject({
+      button: 'wheel-down',
+      action: 'wheel',
+      x: 20,
+      y: 10,
+    });
   });
 });

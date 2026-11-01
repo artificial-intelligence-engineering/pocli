@@ -11,6 +11,13 @@ import { ExpertChatSummary } from '../storage/database.js';
 import { executeDbCommandOrQuery } from '../storage/db-repl.js';
 import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
+import {
+  DISABLE_MOUSE_TRACKING_SEQ,
+  ENABLE_MOUSE_TRACKING_SEQ,
+  isMouseSequence,
+  ParsedMouseEvent,
+  parseMouseEvents,
+} from './mouse.js';
 
 export interface CommandCenterProps {
   orchestrator: PoCliOrchestrator;
@@ -127,9 +134,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     useState<boolean>(false);
   const [selectedProjectIdx, setSelectedProjectIdx] = useState<number>(0);
 
-  // Prompt input & slash command menu state
+  // Prompt input, slash command menu & mouse scroll state
   const [inputValue, setInputValue] = useState<string>('');
   const [selectedSlashIdx, setSelectedSlashIdx] = useState<number>(0);
+  const [messageScrollOffset, setMessageScrollOffset] = useState<number>(0);
   const [busy, setBusy] = useState<boolean>(false);
   const [streamingText, setStreamingText] = useState<string>('');
   const [statusBanner, setStatusBanner] = useState<string>(t.initialStatusBanner);
@@ -147,7 +155,26 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   useEffect(() => {
     refreshState(project.id);
-  }, [project.id]);
+    setMessageScrollOffset(0);
+  }, [project.id, activeRole]);
+
+  // Enable SGR (1006) terminal mouse tracking on mount and restore on exit/unmount
+  useEffect(() => {
+    if (!stdout || !stdout.isTTY) return;
+    stdout.write(ENABLE_MOUSE_TRACKING_SEQ);
+    const restoreMouse = () => {
+      try {
+        stdout.write(DISABLE_MOUSE_TRACKING_SEQ);
+      } catch {
+        // Ignore write errors during process teardown
+      }
+    };
+    process.on('exit', restoreMouse);
+    return () => {
+      process.off('exit', restoreMouse);
+      restoreMouse();
+    };
+  }, [stdout]);
 
   // Track terminal resize so fullscreen layout always fills 100% of terminal viewport
   useEffect(() => {
@@ -632,6 +659,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           res.createdArtifacts.length,
         ),
       );
+      setMessageScrollOffset(0);
       refreshState();
     } catch (err) {
       setStatusBanner(`✖ Error: ${(err as Error).message}`);
@@ -640,7 +668,172 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     }
   };
 
+  const selectRoleByMouse = (role: ActorRole) => {
+    setActiveRole(role);
+    setMessageScrollOffset(0);
+    setStatusBanner(
+      t.activeInterlocutorMsg(getRoleDisplayName(role, language)),
+    );
+  };
+
+  const handleMouseEvent = (ev: ParsedMouseEvent) => {
+    // 1. Handle Mouse Wheel Scrolling
+    if (ev.action === 'wheel') {
+      const isUp = ev.button === 'wheel-up';
+      if (isProjectsModalOpen && allProjects.length > 0) {
+        setSelectedProjectIdx((prev) =>
+          isUp
+            ? prev > 0
+              ? prev - 1
+              : allProjects.length - 1
+            : prev < allProjects.length - 1
+              ? prev + 1
+              : 0,
+        );
+        return;
+      }
+      if (isSettingsOpen && !isEditingWorkDir) {
+        setSettingsRowIdx((prev) => (prev === 0 ? 1 : 0));
+        return;
+      }
+      if (isSlashMenuOpen && filteredSlashCommands.length > 0) {
+        setSelectedSlashIdx((prev) =>
+          isUp
+            ? prev > 0
+              ? prev - 1
+              : filteredSlashCommands.length - 1
+            : prev < filteredSlashCommands.length - 1
+              ? prev + 1
+              : 0,
+        );
+        return;
+      }
+
+      // Scroll through conversation history with the active agent
+      const allMsgs = orchestrator.storage.listMessages(project.id, activeRole);
+      const winSize = viewMode === 'simple' ? 3 : 4;
+      const maxOffset = Math.max(0, allMsgs.length - winSize);
+      setMessageScrollOffset((prev) =>
+        isUp ? Math.min(maxOffset, prev + 1) : Math.max(0, prev - 1),
+      );
+      return;
+    }
+
+    // 2. Handle Left Mouse Button Click
+    if (ev.button === 'left' && ev.action === 'press') {
+      const rolesOrder = ['pm', 'architect', 'developer', 'qa'] as const;
+
+      // Top Color Banner & Agent Tab Bar (rows 1..4)
+      if (ev.y >= 1 && ev.y <= 4) {
+        // Clicking on the right side of the top banner toggles Clean View <-> Multipanel View
+        if (ev.x >= dimensions.columns - 34) {
+          setViewMode((prev) => (prev === 'simple' ? 'multipanel' : 'simple'));
+          return;
+        }
+        // Check if click landed on one of the 4 agent tabs: [/pm ...] [/architect ...] [/developer ...] [/qa ...]
+        let cursorCol = 3;
+        for (const rKey of rolesOrder) {
+          const isCurrent = activeRole === rKey;
+          const label = ` /${rKey} ${t.expertBoxTitles[rKey]} `;
+          const renderedTab = isCurrent ? `▶${label}` : `[${label.trim()}]`;
+          const tabEnd = cursorCol + renderedTab.length;
+          if (ev.x >= cursorCol && ev.x <= tabEnd) {
+            selectRoleByMouse(rKey);
+            return;
+          }
+          cursorCol = tabEnd + 1;
+        }
+        // Clicking elsewhere on the top color banner cycles to the next agent
+        const currIdx = rolesOrder.indexOf(
+          activeRole as (typeof rolesOrder)[number],
+        );
+        const nextRole =
+          rolesOrder[(Math.max(0, currIdx) + 1) % rolesOrder.length];
+        selectRoleByMouse(nextRole);
+        return;
+      }
+
+      // Interactive Help or DB modal: click closes modal
+      if (isHelpOpen || dbModalOutput.length > 0) {
+        setIsHelpOpen(false);
+        setDbModalOutput('');
+        return;
+      }
+
+      // Interactive Projects modal: click switches to selected project
+      if (isProjectsModalOpen && allProjects.length > 0) {
+        const chosen = allProjects[selectedProjectIdx] ?? allProjects[0];
+        if (chosen) {
+          setIsProjectsModalOpen(false);
+          switchProjectTo(chosen.id);
+        }
+        return;
+      }
+
+      // Interactive Settings modal: click toggles language or opens workDir editor
+      if (isSettingsOpen && !isEditingWorkDir) {
+        if (settingsRowIdx === 0) {
+          const nextLang: SupportedLanguage = language === 'en' ? 'es' : 'en';
+          applyLanguageChange(nextLang);
+        } else {
+          setWorkDirDraft(workDir);
+          setIsEditingWorkDir(true);
+        }
+        return;
+      }
+
+      // Slash Command Popover: click executes selected slash command
+      if (isSlashMenuOpen && filteredSlashCommands.length > 0 && !busy) {
+        const chosen =
+          filteredSlashCommands[selectedSlashIdx] ?? filteredSlashCommands[0];
+        if (chosen) {
+          void executeCommandOrMessage(chosen.command);
+        }
+        return;
+      }
+
+      // Multipanel Control Panel: click on any of the 4 Expert Summary Boxes or Left Sidebar Team list
+      if (viewMode === 'multipanel') {
+        if (ev.y >= 5 && ev.y <= 13) {
+          const colIdx = Math.min(
+            3,
+            Math.max(
+              0,
+              Math.floor(((ev.x - 1) / Math.max(1, dimensions.columns)) * 4),
+            ),
+          );
+          selectRoleByMouse(rolesOrder[colIdx]);
+          return;
+        }
+
+        // Left Sidebar: 1. Virtual Engineering Team list
+        if (
+          ev.x <= Math.floor(dimensions.columns * 0.44) &&
+          ev.y >= 14 &&
+          ev.y <= 19
+        ) {
+          const teamList = HarnessRegistry.listHarnesses();
+          const rowIdx = ev.y - 15;
+          if (rowIdx >= 0 && rowIdx < teamList.length) {
+            selectRoleByMouse(teamList[rowIdx].role);
+            return;
+          }
+        }
+      }
+    }
+  };
+
   useInput((input, key) => {
+    // 0. Intercept SGR/X10 terminal mouse escape sequences so they trigger UI actions
+    //    and never leak raw sequences into text prompt inputs
+    if (isMouseSequence(input)) {
+      const mouseEvents = parseMouseEvents(input);
+      for (const ev of mouseEvents) {
+        handleMouseEvent(ev);
+      }
+      return;
+    }
+
     // 1. Handle New Project Creation Wizard (/project)
     if (projectWizardStep !== 'CLOSED') {
       if (key.escape) {
@@ -842,7 +1035,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     activeRole,
   );
   const messages = orchestrator.storage.listMessages(project.id, activeRole);
-  const lastMessages = messages.slice(-3);
+  const sliceWindowedMessages = (winSize: number) => {
+    if (messages.length <= winSize) return messages;
+    const maxOffset = Math.max(0, messages.length - winSize);
+    const clamped = Math.min(messageScrollOffset, maxOffset);
+    const endIdx = messages.length - clamped;
+    return messages.slice(Math.max(0, endIdx - winSize), endIdx);
+  };
+  const lastMessages = sliceWindowedMessages(3);
+  const multipanelMessages = sliceWindowedMessages(4);
   const roleConfigs = orchestrator.storage.listRoleConfigs(project.id);
   const repoSummary =
     project.repositories.length > 0
@@ -1603,7 +1804,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {messages.length === 0 ? (
             <Text dimColor>{t.noMessagesInChannel}</Text>
           ) : (
-            messages.slice(-4).map((m) => (
+            multipanelMessages.map((m) => (
               <Box key={m.id} flexDirection="column" marginTop={1}>
                 <Text
                   bold
