@@ -3,6 +3,7 @@ import React from 'react';
 import { render } from 'ink';
 import path from 'node:path';
 import fs from 'node:fs';
+import { resolveDefaultWorkDir } from './core/i18n.js';
 import { PoCliDatabase } from './storage/database.js';
 import { PoCliOrchestrator } from './runtime/orchestrator.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
@@ -28,12 +29,14 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const subcommand = args[0] ?? 'tui';
 
-  const dataDir = process.env.POCLI_DATA_DIR ?? path.resolve(process.cwd(), '.pocli-data');
+  // Central CLI folder defaults to $HOME/.pocli/ so pocli can run from anywhere
+  const dataDir = resolveDefaultWorkDir();
   fs.mkdirSync(dataDir, { recursive: true });
   const dbPath = path.join(dataDir, 'pocli.sqlite');
 
   const storage = new PoCliDatabase(dbPath);
   const orchestrator = new PoCliOrchestrator(storage);
+  const centralWorkDir = storage.getSettings().workDir;
 
   if (subcommand === 'tui') {
     let project = storage.getActiveProject();
@@ -41,7 +44,7 @@ async function main(): Promise<void> {
       project = orchestrator.createProject({
         name: 'Demo-Service-Linux',
         description: 'Processing service designed and validated with the PO CLI virtual engineering team',
-        workspaceDir: path.join(dataDir, 'workspaces', 'demo-service'),
+        workspaceDir: path.join(centralWorkDir, 'workspaces', 'demo-service'),
       });
     }
 
@@ -65,8 +68,8 @@ async function main(): Promise<void> {
 
   if (subcommand === 'demo') {
     console.log('=== PO CLI — Full 8-Phase Engineering Workflow Demonstration ===\n');
-    const workspaceDir = path.join(dataDir, 'workspaces', `walkthrough-${Date.now()}`);
-    const kbDir = path.join(dataDir, 'notebooks', 'clean-architecture');
+    const workspaceDir = path.join(centralWorkDir, 'workspaces', `walkthrough-${Date.now()}`);
+    const kbDir = path.join(centralWorkDir, 'notebooks', 'clean-architecture');
     fs.mkdirSync(kbDir, { recursive: true });
     fs.writeFileSync(
       path.join(kbDir, 'guidelines.md'),

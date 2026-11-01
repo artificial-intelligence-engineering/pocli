@@ -22,7 +22,11 @@ import {
   RoleModelConfig,
   WorkflowPhase,
 } from '../core/contracts.js';
-import { AppSettings, SupportedLanguage } from '../core/i18n.js';
+import {
+  AppSettings,
+  resolveDefaultWorkDir,
+  SupportedLanguage,
+} from '../core/i18n.js';
 import { AuthorityGuard } from '../core/workflow.js';
 
 export interface StoredMessage {
@@ -56,16 +60,53 @@ export interface ExpertChatSummary {
 
 export class PoCliDatabase {
   public readonly db: DatabaseSync;
+  public readonly defaultWorkDir: string;
 
   constructor(dbFilePath: string) {
     const dir = path.dirname(dbFilePath);
     if (dbFilePath !== ':memory:' && !fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
+    this.defaultWorkDir =
+      dbFilePath !== ':memory:'
+        ? path.resolve(dir)
+        : resolveDefaultWorkDir();
     this.db = new DatabaseSync(dbFilePath);
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.initSchema();
+    this.ensureWorkDirStructure(this.getSettings().workDir);
+  }
+
+  public ensureWorkDirStructure(workDir: string): void {
+    const resolved = path.resolve(workDir);
+    fs.mkdirSync(path.join(resolved, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(resolved, 'artifacts', 'scripts'), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(resolved, 'artifacts', 'outputs'), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(resolved, 'artifacts', 'projects'), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(resolved, 'workspaces'), { recursive: true });
+  }
+
+  private syncSettingsFiles(settings: AppSettings): void {
+    const payload = JSON.stringify(settings, null, 2);
+    const targetDirs = new Set<string>([
+      path.resolve(this.defaultWorkDir),
+      path.resolve(settings.workDir),
+    ]);
+    for (const dir of targetDirs) {
+      this.ensureWorkDirStructure(dir);
+      fs.writeFileSync(
+        path.join(dir, 'config', 'settings.json'),
+        payload,
+        'utf8',
+      );
+    }
   }
 
   private initSchema(): void {
@@ -288,13 +329,20 @@ export class PoCliDatabase {
     const langRow = this.db
       .prepare(`SELECT value FROM settings WHERE key = 'language'`)
       .get() as { value: string } | undefined;
+    const workDirRow = this.db
+      .prepare(`SELECT value FROM settings WHERE key = 'work_dir'`)
+      .get() as { value: string } | undefined;
     const activeProjRow = this.db
       .prepare(`SELECT value FROM settings WHERE key = 'active_project_id'`)
       .get() as { value: string } | undefined;
     const lang: SupportedLanguage =
       langRow?.value === 'es' ? 'es' : 'en';
+    const workDir = workDirRow?.value
+      ? path.resolve(workDirRow.value)
+      : this.defaultWorkDir;
     return {
       language: lang,
+      workDir,
       activeProjectId: activeProjRow?.value,
     };
   }
@@ -312,6 +360,19 @@ export class PoCliDatabase {
         )
         .run(partial.language, now);
     }
+    if (partial.workDir !== undefined && partial.workDir.trim().length > 0) {
+      const resolvedWorkDir = path.resolve(partial.workDir.trim());
+      this.ensureWorkDirStructure(resolvedWorkDir);
+      this.db
+        .prepare(
+          `INSERT INTO settings (key, value, updated_at)
+           VALUES ('work_dir', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = excluded.updated_at`,
+        )
+        .run(resolvedWorkDir, now);
+    }
     if (partial.activeProjectId !== undefined) {
       this.db
         .prepare(
@@ -323,7 +384,9 @@ export class PoCliDatabase {
         )
         .run(partial.activeProjectId, now);
     }
-    return this.getSettings();
+    const updated = this.getSettings();
+    this.syncSettingsFiles(updated);
+    return updated;
   }
 
   // ==========================================================================
@@ -865,12 +928,55 @@ export class PoCliDatabase {
     }
 
     const sha256 = crypto.createHash('sha256').update(params.content, 'utf8').digest('hex');
-    const relPath =
-      params.customRelPath ??
-      path.join('.pocli', 'artifacts', params.type.toLowerCase(), `${params.code}_v${nextVersion}.md`);
-    const absPath = path.join(project.workspaceDir, relPath);
-    fs.mkdirSync(path.dirname(absPath), { recursive: true });
-    fs.writeFileSync(absPath, params.content, 'utf8');
+    const currentWorkDir = this.getSettings().workDir;
+    this.ensureWorkDirStructure(currentWorkDir);
+
+    let absPath: string;
+    if (params.type === 'LLM_OUTPUT' || params.type === 'PM_REPORT') {
+      const centralRel =
+        params.customRelPath ??
+        path.join(
+          'outputs',
+          `${params.code}_v${nextVersion}.md`,
+        );
+      absPath = path.join(currentWorkDir, 'artifacts', centralRel);
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      fs.writeFileSync(absPath, params.content, 'utf8');
+
+      // Also mirror into the active project's .pocli/artifacts directory
+      const projectMirrorPath = path.join(
+        project.workspaceDir,
+        '.pocli',
+        'artifacts',
+        centralRel,
+      );
+      fs.mkdirSync(path.dirname(projectMirrorPath), { recursive: true });
+      fs.writeFileSync(projectMirrorPath, params.content, 'utf8');
+    } else {
+      const relPath =
+        params.customRelPath ??
+        path.join(
+          '.pocli',
+          'artifacts',
+          params.type.toLowerCase(),
+          `${params.code}_v${nextVersion}.md`,
+        );
+      absPath = path.join(project.workspaceDir, relPath);
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      fs.writeFileSync(absPath, params.content, 'utf8');
+
+      // Mirror all LLM-created artifacts into the central working directory ($HOME/.pocli/artifacts/projects/<project>/)
+      const sanitizedProjectName = project.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const centralMirrorPath = path.join(
+        currentWorkDir,
+        'artifacts',
+        'projects',
+        sanitizedProjectName,
+        relPath,
+      );
+      fs.mkdirSync(path.dirname(centralMirrorPath), { recursive: true });
+      fs.writeFileSync(centralMirrorPath, params.content, 'utf8');
+    }
 
     const id = `art_${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();

@@ -48,6 +48,7 @@ export const ArtifactTypeSchema = z.enum([
   'QA_REPORT',
   'DEFECT',
   'PM_REPORT',
+  'LLM_OUTPUT',
   'DOCUMENTATION',
 ]);
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>;

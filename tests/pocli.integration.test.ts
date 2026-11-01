@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   AuthorityGuard,
+  DEFAULT_POCLI_HOME_DIR,
   HarnessRegistry,
   I18N_DICTIONARY,
   LinuxAgentProcessRunner,
@@ -576,5 +577,65 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       'packages/worker-rust',
     ]);
     expect(storage.getActiveProject()?.name).toBe('EnterprisePlatform');
+  });
+
+  it('defaults central CLI folder to $HOME/.pocli/, allows changing working directory via /settings, and stores LLM Python scripts & PM spreadsheets there', async () => {
+    // 1. Default global CLI directory is $HOME/.pocli
+    expect(DEFAULT_POCLI_HOME_DIR).toBe(path.join(os.homedir(), '.pocli'));
+
+    // 2. Customize the Central Working & Artifacts Directory via /settings
+    const customCentralDir = path.join(tmpDir, 'custom-pocli-home');
+    const updatedSettings = storage.updateSettings({
+      workDir: customCentralDir,
+    });
+    expect(updatedSettings.workDir).toBe(customCentralDir);
+    expect(
+      fs.existsSync(path.join(customCentralDir, 'config', 'settings.json')),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(customCentralDir, 'artifacts', 'scripts')),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(customCentralDir, 'artifacts', 'outputs')),
+    ).toBe(true);
+
+    const project = orchestrator.createProject({
+      name: 'CentralizedArtifactsDemo',
+      description: 'Verifies LLM scripts and PM outputs in central working directory',
+      workspaceDir: path.join(customCentralDir, 'workspaces', 'demo'),
+    });
+
+    // 3. Request Project Manager (PM) to generate both a Python helper script and a CSV spreadsheet
+    const pmTurn = await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'pm',
+      message:
+        'Generate a python script to summarize project status and a csv spreadsheet with team metrics.',
+    });
+
+    expect(pmTurn.createdArtifacts.map((a) => a.code)).toContain('OUT-CSV-001');
+    expect(pmTurn.createdArtifacts.map((a) => a.code)).toContain('OUT-PY-001');
+
+    // Verify both files exist inside the configured central working directory (<workDir>/artifacts/...)
+    const expectedCsvPath = path.join(
+      customCentralDir,
+      'artifacts',
+      'outputs',
+      'pm_project_metrics.csv',
+    );
+    const expectedPyPath = path.join(
+      customCentralDir,
+      'artifacts',
+      'scripts',
+      'pocli_task_helper.py',
+    );
+    expect(fs.existsSync(expectedCsvPath)).toBe(true);
+    expect(fs.existsSync(expectedPyPath)).toBe(true);
+    expect(fs.readFileSync(expectedCsvPath, 'utf8')).toContain(
+      'project,phase,role,status,notes',
+    );
+    expect(fs.readFileSync(expectedPyPath, 'utf8')).toContain(
+      '#!/usr/bin/env python3',
+    );
   });
 });

@@ -916,6 +916,24 @@ export class PoCliOrchestrator extends EventEmitter {
             citations: (args.citations as string[]) ?? [],
           }),
         );
+      } else if (call.name === 'write_llm_artifact') {
+        const relFilePath = String(
+          args.relFilePath ?? 'outputs/llm_generated_output.txt',
+        );
+        created.push(
+          this.storage.saveArtifact({
+            projectId,
+            code: String(args.code ?? 'OUT-001'),
+            type: 'LLM_OUTPUT',
+            title: String(args.title ?? `LLM Output (${relFilePath})`),
+            content: String(args.content ?? ''),
+            authorRole: role,
+            status: 'APPROVED',
+            customRelPath: relFilePath,
+            tracesTo: (args.tracesTo as string[]) ?? [],
+            citations: (args.citations as string[]) ?? [],
+          }),
+        );
       } else if (call.name === 'consult_architect') {
         this.storage.createConsultation({
           projectId,

@@ -37,6 +37,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [language, setLanguage] = useState<SupportedLanguage>(
     initialSettings.language,
   );
+  const [workDir, setWorkDir] = useState<string>(initialSettings.workDir);
+  const [settingsRowIdx, setSettingsRowIdx] = useState<number>(0);
+  const [isEditingWorkDir, setIsEditingWorkDir] = useState<boolean>(false);
+  const [workDirDraft, setWorkDirDraft] = useState<string>(
+    initialSettings.workDir,
+  );
   const t = I18N_DICTIONARY[language];
 
   const [dimensions, setDimensions] = useState<{ columns: number; rows: number }>({
@@ -134,9 +140,19 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setStatusBanner(I18N_DICTIONARY[nextLang].settingsSavedMsg(nextLang));
   };
 
+  const applyWorkDirChange = (nextDir: string) => {
+    const trimmed = nextDir.trim();
+    if (!trimmed) return;
+    const updated = orchestrator.storage.updateSettings({ workDir: trimmed });
+    setWorkDir(updated.workDir);
+    setWorkDirDraft(updated.workDir);
+    setStatusBanner(t.workDirSavedMsg(updated.workDir));
+  };
+
   const closeAllModals = () => {
     setIsHelpOpen(false);
     setIsSettingsOpen(false);
+    setIsEditingWorkDir(false);
     setIsProjectsModalOpen(false);
     setProjectWizardStep('CLOSED');
   };
@@ -145,7 +161,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const cleanName = rawName.trim() || `Project-${Date.now()}`;
     const resolvedDir = path.resolve(
       process.cwd(),
-      rawDir.trim() || path.join(process.cwd(), 'projects', cleanName),
+      rawDir.trim() || path.join(workDir, 'workspaces', cleanName),
     );
     const created = orchestrator.createProject({
       name: cleanName,
@@ -184,9 +200,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     !isSettingsOpen;
   const slashToken = inputValue.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
   const filteredSlashCommands = isSlashMenuOpen
-    ? t.slashCommands.filter((cmd) =>
-        cmd.command.toLowerCase().startsWith(slashToken),
-      )
+    ? t.slashCommands
+        .filter((cmd) => cmd.command.toLowerCase().startsWith(slashToken))
+        .sort((a, b) => {
+          const aExact = a.command.toLowerCase() === slashToken ? 0 : 1;
+          const bExact = b.command.toLowerCase() === slashToken ? 0 : 1;
+          return aExact - bExact;
+        })
     : [];
 
   useEffect(() => {
@@ -203,7 +223,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       const cmdToken = parts[0].toLowerCase();
       setInputValue('');
 
-      if (cmdToken === '/exit' || cmdToken === '/quit') {
+      if (cmdToken === '/exit' || cmdToken === '/quit' || cmdToken === '/q') {
         exit();
         return;
       }
@@ -226,7 +246,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setPendingProjectName(parts[1] ?? '');
         if (parts[1]) {
           setProjectWizardStep('ASK_DIR');
-          setWizardInput(path.resolve(process.cwd(), 'projects', parts[1]));
+          setWizardInput(path.join(workDir, 'workspaces', parts[1]));
         } else {
           setProjectWizardStep('ASK_NAME');
           setWizardInput('');
@@ -268,6 +288,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         closeAllModals();
         const arg1 = parts[1]?.toLowerCase();
         const arg2 = parts[2]?.toLowerCase();
+        if (
+          (arg1 === 'dir' ||
+            arg1 === 'workdir' ||
+            arg1 === 'home' ||
+            arg1 === 'folder') &&
+          parts.length >= 3
+        ) {
+          applyWorkDirChange(parts.slice(2).join(' '));
+          return;
+        }
         const requestedLang = arg1 === 'lang' ? arg2 : arg1;
         if (requestedLang === 'en' || requestedLang === 'english') {
           applyLanguageChange('en');
@@ -281,6 +311,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           applyLanguageChange('es');
           return;
         }
+        setWorkDirDraft(workDir);
+        setSettingsRowIdx(0);
         setIsSettingsOpen(nextState);
         return;
       }
@@ -527,13 +559,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           if (!chosenName) return;
           setPendingProjectName(chosenName);
           setProjectWizardStep('ASK_DIR');
-          setWizardInput(path.resolve(process.cwd(), 'projects', chosenName));
+          setWizardInput(path.join(workDir, 'workspaces', chosenName));
           return;
         }
         if (projectWizardStep === 'ASK_DIR') {
           const chosenDir =
             wizardInput.trim() ||
-            path.resolve(process.cwd(), 'projects', pendingProjectName);
+            path.join(workDir, 'workspaces', pendingProjectName);
           setProjectWizardStep('CLOSED');
           setWizardInput('');
           createAndActivateProject(pendingProjectName, chosenDir);
@@ -590,14 +622,47 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // 4. Handle interactive Settings modal when open
     if (isSettingsOpen) {
+      if (isEditingWorkDir) {
+        if (key.escape) {
+          setIsEditingWorkDir(false);
+          setWorkDirDraft(workDir);
+          return;
+        }
+        if (key.return) {
+          setIsEditingWorkDir(false);
+          applyWorkDirChange(workDirDraft);
+          return;
+        }
+        if (key.backspace || key.delete) {
+          setWorkDirDraft((prev) => prev.slice(0, -1));
+          return;
+        }
+        if (!key.ctrl && !key.meta && input) {
+          setWorkDirDraft((prev) => prev + input);
+        }
+        return;
+      }
+
       if (key.escape || input === 'q') {
         setIsSettingsOpen(false);
         return;
       }
-      if (key.leftArrow || key.rightArrow || key.return || input === ' ') {
-        const nextLang: SupportedLanguage = language === 'en' ? 'es' : 'en';
-        applyLanguageChange(nextLang);
+      if (key.upArrow || key.downArrow) {
+        setSettingsRowIdx((prev) => (prev === 0 ? 1 : 0));
         return;
+      }
+      if (settingsRowIdx === 0) {
+        if (key.leftArrow || key.rightArrow || key.return || input === ' ') {
+          const nextLang: SupportedLanguage = language === 'en' ? 'es' : 'en';
+          applyLanguageChange(nextLang);
+          return;
+        }
+      } else if (settingsRowIdx === 1) {
+        if (key.return || input === 'e' || input === ' ') {
+          setWorkDirDraft(workDir);
+          setIsEditingWorkDir(true);
+          return;
+        }
       }
       return;
     }
@@ -831,7 +896,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const renderSettingsModal = () => (
     <Box
       flexDirection="column"
-      width={Math.min(82, dimensions.columns - 8)}
+      width={Math.min(92, dimensions.columns - 8)}
       borderStyle="double"
       borderColor="yellow"
       paddingX={2}
@@ -842,10 +907,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         ⚙ {t.settingsTitle}
       </Text>
       <Text dimColor>{t.settingsSubtitle}</Text>
+
+      {/* Row 0: Interface Language */}
       <Box marginTop={1} justifyContent="space-between">
         <Box flexDirection="column">
-          <Text bold color="white">
-            ❯ {t.settingLanguageLabel}
+          <Text
+            bold={settingsRowIdx === 0}
+            color={settingsRowIdx === 0 ? 'cyan' : 'white'}
+          >
+            {settingsRowIdx === 0 ? '❯ ' : '  '}
+            {t.settingLanguageLabel}
           </Text>
           <Text dimColor>  {t.settingLanguageDesc}</Text>
         </Box>
@@ -864,6 +935,41 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             [ Español (es) ]
           </Text>
         </Box>
+      </Box>
+
+      {/* Row 1: Central Working & Artifacts Directory (default $HOME/.pocli/) */}
+      <Box marginTop={1} flexDirection="column">
+        <Box justifyContent="space-between">
+          <Text
+            bold={settingsRowIdx === 1}
+            color={settingsRowIdx === 1 ? 'cyan' : 'white'}
+          >
+            {settingsRowIdx === 1 ? '❯ ' : '  '}
+            {t.settingWorkDirLabel}
+          </Text>
+          <Text bold color="green">
+            [{workDir}]
+          </Text>
+        </Box>
+        <Text dimColor>  {t.settingWorkDirDesc}</Text>
+        {isEditingWorkDir && (
+          <Box
+            flexDirection="column"
+            marginTop={1}
+            borderStyle="round"
+            borderColor="green"
+            paddingX={1}
+          >
+            <Text color="yellow">{t.settingWorkDirEditPrompt}</Text>
+            <Box>
+              <Text bold color="green">
+                ❯{' '}
+              </Text>
+              <Text color="white">{workDirDraft}</Text>
+              <Text color="green">█</Text>
+            </Box>
+          </Box>
+        )}
       </Box>
     </Box>
   );

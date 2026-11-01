@@ -42,6 +42,7 @@ const ROLE_ARTIFACT_WRITE_PERMISSIONS: Record<string, ArtifactType[]> = {
     'REQUIREMENT',
     'NON_FUNCTIONAL_REQUIREMENT',
     'USER_STORY',
+    'LLM_OUTPUT',
     'DOCUMENTATION',
   ],
   architect: [
@@ -51,22 +52,26 @@ const ROLE_ARTIFACT_WRITE_PERMISSIONS: Record<string, ArtifactType[]> = {
     'ARCHITECTURE',
     'ADR',
     'SPECIFICATION',
+    'LLM_OUTPUT',
     'DOCUMENTATION',
   ],
   developer: [
     'IMPLEMENTATION_PLAN',
     'SOURCE_CODE',
     'TEST_CASE',
+    'LLM_OUTPUT',
     'DOCUMENTATION',
   ],
   qa: [
     'TEST_CASE',
     'QA_REPORT',
     'DEFECT',
+    'LLM_OUTPUT',
     'DOCUMENTATION',
   ],
   pm: [
     'PM_REPORT',
+    'LLM_OUTPUT',
     'DOCUMENTATION',
   ],
 };

@@ -1,11 +1,22 @@
+import os from 'node:os';
+import path from 'node:path';
 import { z } from 'zod';
 import { ActorRole } from './contracts.js';
+
+export const DEFAULT_POCLI_HOME_DIR = path.join(os.homedir(), '.pocli');
+
+export function resolveDefaultWorkDir(): string {
+  return process.env.POCLI_DATA_DIR
+    ? path.resolve(process.env.POCLI_DATA_DIR)
+    : DEFAULT_POCLI_HOME_DIR;
+}
 
 export const SupportedLanguageSchema = z.enum(['en', 'es']);
 export type SupportedLanguage = z.infer<typeof SupportedLanguageSchema>;
 
 export const AppSettingsSchema = z.object({
   language: SupportedLanguageSchema.default('en'),
+  workDir: z.string().default(DEFAULT_POCLI_HOME_DIR),
   activeProjectId: z.string().optional(),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
@@ -35,7 +46,11 @@ export interface UiTranslations {
   settingsSubtitle: string;
   settingLanguageLabel: string;
   settingLanguageDesc: string;
+  settingWorkDirLabel: string;
+  settingWorkDirDesc: string;
+  settingWorkDirEditPrompt: string;
   settingsSavedMsg: (lang: SupportedLanguage) => string;
+  workDirSavedMsg: (dir: string) => string;
   helpTitle: string;
   helpSubtitle: string;
   helpOpenedMsg: string;
@@ -106,11 +121,18 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Type a message for the active professional or use "/" for commands. Press Ctrl+Tab to switch views.',
     settingsTitle: 'Application Settings (/settings)',
     settingsSubtitle:
-      'Use ←/→ or Enter to toggle values · Esc to close settings',
+      'Use ↑/↓ to select option · ←/→ or Enter to edit · Esc to close',
     settingLanguageLabel: 'Interface Language',
     settingLanguageDesc: 'Switch TUI display language between English and Spanish',
+    settingWorkDirLabel: 'Central Working & Artifacts Directory',
+    settingWorkDirDesc:
+      'Central folder (default $HOME/.pocli/) for CLI configs, LLM Python scripts, spreadsheets & PM outputs',
+    settingWorkDirEditPrompt:
+      'Enter new Central Working Directory path (Enter to save · Esc to cancel):',
     settingsSavedMsg: (lang) =>
       `✔ Settings updated: Interface language set to ${lang === 'en' ? 'English (en)' : 'Spanish (es)'}.`,
+    workDirSavedMsg: (dir) =>
+      `✔ Central Working & Artifacts Directory updated to: ${dir}`,
     helpTitle: 'Available Commands & Shortcuts (/help)',
     helpSubtitle: 'Press Esc, Enter, or q to close help',
     helpOpenedMsg: 'Showing all available slash commands (/help).',
@@ -256,7 +278,8 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       },
       {
         command: '/settings',
-        description: 'Open settings menu or change language (/settings lang en|es)',
+        description:
+          'Open settings or change language/working dir (/settings lang en|es · /settings dir <path>)',
       },
       {
         command: '/view',
@@ -272,7 +295,15 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       },
       {
         command: '/exit',
-        description: 'Exit Product Owner CLI',
+        description: 'Exit Product Owner CLI (aliases: /quit, /q)',
+      },
+      {
+        command: '/quit',
+        description: 'Exit Product Owner CLI (alias for /exit)',
+      },
+      {
+        command: '/q',
+        description: 'Quick exit Product Owner CLI (alias for /exit)',
       },
     ],
   },
@@ -296,11 +327,18 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Escribe un mensaje para el profesional activo o usa "/" para comandos. Pulsa Ctrl+Tab para alternar vista.',
     settingsTitle: 'Configuración de la Aplicación (/settings)',
     settingsSubtitle:
-      'Usa ←/→ o Enter para cambiar valores · Esc para cerrar configuración',
+      'Usa ↑/↓ para elegir opción · ←/→ o Enter para editar · Esc para cerrar',
     settingLanguageLabel: 'Idioma de la Interfaz',
     settingLanguageDesc: 'Alternar el idioma de la interfaz TUI entre Inglés y Español',
+    settingWorkDirLabel: 'Directorio Central de Trabajo y Artefactos',
+    settingWorkDirDesc:
+      'Carpeta central (por defecto $HOME/.pocli/) para configs del CLI, scripts Python, hojas de cálculo y outputs de PM',
+    settingWorkDirEditPrompt:
+      'Introduce la nueva ruta del Directorio Central de Trabajo (Enter guardar · Esc cancelar):',
     settingsSavedMsg: (lang) =>
       `✔ Configuración actualizada: Idioma establecido a ${lang === 'en' ? 'Inglés (en)' : 'Español (es)'}.`,
+    workDirSavedMsg: (dir) =>
+      `✔ Directorio Central de Trabajo y Artefactos actualizado a: ${dir}`,
     helpTitle: 'Comandos Disponibles y Atajos (/help)',
     helpSubtitle: 'Pulsa Esc, Enter o q para cerrar la ayuda',
     helpOpenedMsg: 'Mostrando todos los comandos disponibles (/help).',
@@ -446,7 +484,8 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       },
       {
         command: '/settings',
-        description: 'Abrir menú de ajustes o cambiar idioma (/settings lang en|es)',
+        description:
+          'Abrir ajustes o cambiar idioma/directorio de trabajo (/settings lang en|es · /settings dir <ruta>)',
       },
       {
         command: '/view',
@@ -462,7 +501,15 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       },
       {
         command: '/exit',
-        description: 'Salir de Product Owner CLI',
+        description: 'Salir de Product Owner CLI (alias: /quit, /q)',
+      },
+      {
+        command: '/quit',
+        description: 'Salir de Product Owner CLI (alias de /exit)',
+      },
+      {
+        command: '/q',
+        description: 'Salida rápida de Product Owner CLI (alias de /exit)',
       },
     ],
   },

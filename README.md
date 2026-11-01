@@ -83,6 +83,6 @@ npm run build
   * `/validate` — Execute independent QA validation tests and collect evidence.
   * `/accept` — Final project acceptance by the Product Owner.
   * `/notebooks` — Re-index and inspect linked RAG Notebooks.
-  * `/settings` — Open the interactive Settings modal or switch UI language (`/settings lang en` or `/settings lang es`).
+  * `/settings` — Open the interactive Settings modal or configure UI language (`/settings lang en|es`) and the **Central Working & Artifacts Directory** (`/settings dir <path>`, which defaults to `$HOME/.pocli/` and stores all CLI customizations, LLM-generated Python helper scripts in `artifacts/scripts/`, spreadsheets and Project Manager outputs in `artifacts/outputs/`, and mirrored project artifacts).
   * `/help` — Display all available commands and keyboard shortcuts.
-  * `/view`, `/clear`, `/exit`.
+  * `/view`, `/clear`, `/exit`, `/quit`, `/q`.
