@@ -9,8 +9,8 @@
  * clicks and scroll-wheel actions into structured coordinates and events.
  */
 
-export const ENABLE_MOUSE_TRACKING_SEQ = '\x1b[?1000h\x1b[?1006h';
-export const DISABLE_MOUSE_TRACKING_SEQ = '\x1b[?1000l\x1b[?1006l';
+export const ENABLE_MOUSE_TRACKING_SEQ = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
+export const DISABLE_MOUSE_TRACKING_SEQ = '\x1b[?1002l\x1b[?1000l\x1b[?1006l';
 
 export type MouseButton =
   | 'left'

@@ -100,6 +100,7 @@ export interface UiTranslations {
   noNotebooksLinked: string;
   directChannelHeader: (roleName: string) => string;
   noMessagesInChannel: string;
+  copiedToClipboardMsg: (charCount: number) => string;
   returnToCleanViewHint: string;
   expertBoxTitles: {
     pm: string;
@@ -213,6 +214,8 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     directChannelHeader: (roleName) =>
       `Direct Channel PO ↔ ${roleName.toUpperCase()}`,
     noMessagesInChannel: 'No messages in this channel yet.',
+    copiedToClipboardMsg: (charCount) =>
+      `✔ Copied ${charCount} character${charCount === 1 ? '' : 's'} to clipboard.`,
     returnToCleanViewHint: 'Press Ctrl+Tab to return to clean view',
     expertBoxTitles: {
       pm: 'Project Manager',
@@ -449,6 +452,8 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     directChannelHeader: (roleName) =>
       `Canal Directo PO ↔ ${roleName.toUpperCase()}`,
     noMessagesInChannel: 'No hay mensajes en este canal todavía.',
+    copiedToClipboardMsg: (charCount) =>
+      `✔ ${charCount} carácter(es) copiado(s) al portapapeles.`,
     returnToCleanViewHint: 'Pulsa Ctrl+Tab para volver a vista limpia',
     expertBoxTitles: {
       pm: 'Project Manager',

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { Box, Text, useInput, useApp, useStdout, useStdin } from 'ink';
 import { ActorRole, Artifact, Notebook, Project } from '../core/contracts.js';
 import {
@@ -159,6 +160,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [busy, setBusy] = useState<boolean>(false);
   const [streamingText, setStreamingText] = useState<string>('');
   const [statusBanner, setStatusBanner] = useState<string>(t.initialStatusBanner);
+
+  // Mouse text selection state for copying conversation lines to clipboard
+  const [dragAnchor, setDragAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [selectionRange, setSelectionRange] = useState<{
+    startY: number;
+    endY: number;
+    startX: number;
+    endX: number;
+  } | null>(null);
+  const renderedConversationLinesRef = useRef<
+    Array<{ y: number; minX: number; maxX: number; text: string; fullContent: string }>
+  >([]);
 
   const refreshState = (targetProjectId?: string) => {
     const pid = targetProjectId ?? project.id;
@@ -349,6 +362,32 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         `${m.provider}/${m.modelId}`.toLowerCase().includes(q),
     );
   }, [modelsFilterQuery]);
+
+  const copyTextToClipboard = (text: string) => {
+    if (!text) return;
+    try {
+      if (stdout && stdout.write) {
+        const b64 = Buffer.from(text, 'utf8').toString('base64');
+        stdout.write(`\x1b]52;c;${b64}\x07`);
+      }
+    } catch {
+      // Ignore terminal write errors
+    }
+    try {
+      spawnSync('wl-copy', { input: text, stdio: ['pipe', 'ignore', 'ignore'] });
+    } catch {
+      // wl-copy not installed or non-wayland session
+    }
+    try {
+      spawnSync('xclip', ['-selection', 'clipboard'], {
+        input: text,
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+    } catch {
+      // xclip not installed or non-X11 session
+    }
+    setStatusBanner(t.copiedToClipboardMsg(text.length));
+  };
 
   const createAndActivateProject = (rawName: string, rawDir: string) => {
     const cleanName = rawName.trim() || `Project-${Date.now()}`;
@@ -978,6 +1017,73 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           }
         }
       }
+
+      // 3. Conversation Text Selection / Click Tracking
+      // Check if click occurred on or near any rendered conversation lines
+      const clickedLine = renderedConversationLinesRef.current.find(
+        (l) => ev.y === l.y && ev.x >= l.minX && ev.x <= l.maxX,
+      );
+      if (clickedLine) {
+        setDragAnchor({ x: ev.x, y: ev.y });
+        setSelectionRange({
+          startY: ev.y,
+          endY: ev.y,
+          startX: ev.x,
+          endX: ev.x,
+        });
+        return;
+      }
+    }
+
+    // 4. Handle Mouse Drag Movement (Button 1 Held Down)
+    if (ev.action === 'move' && ev.button === 'left' && dragAnchor) {
+      setSelectionRange({
+        startY: Math.min(dragAnchor.y, ev.y),
+        endY: Math.max(dragAnchor.y, ev.y),
+        startX: dragAnchor.y <= ev.y ? dragAnchor.x : ev.x,
+        endX: dragAnchor.y <= ev.y ? ev.x : dragAnchor.x,
+      });
+      return;
+    }
+
+    // 5. Handle Mouse Button Release (Finalize Selection & Copy to Clipboard)
+    if (ev.action === 'release' && dragAnchor) {
+      const startY = Math.min(dragAnchor.y, ev.y);
+      const endY = Math.max(dragAnchor.y, ev.y);
+      const isSingleClick = startY === endY && Math.abs(dragAnchor.x - ev.x) <= 1;
+
+      const lines = renderedConversationLinesRef.current.filter(
+        (l) => l.y >= startY && l.y <= endY,
+      );
+
+      if (lines.length > 0) {
+        if (isSingleClick) {
+          // Single click: copy the full message line / content cleanly
+          const textToCopy = lines[0].fullContent || lines[0].text;
+          copyTextToClipboard(textToCopy);
+        } else {
+          // Drag selection: extract text within the dragged region
+          const selectedParts = lines.map((l) => {
+            const charOffset = Math.max(0, Math.min(l.text.length, dragAnchor.x - l.minX));
+            const endOffset = Math.max(0, Math.min(l.text.length, ev.x - l.minX));
+            const from = Math.min(charOffset, endOffset);
+            const to = Math.max(charOffset, endOffset);
+            if (from === to) return l.text;
+            return l.text.slice(from, to);
+          });
+          const textToCopy = selectedParts.join('\n').trim();
+          if (textToCopy) {
+            copyTextToClipboard(textToCopy);
+          }
+        }
+      }
+
+      setDragAnchor(null);
+      // Keep selection highlight briefly visible then clear
+      setTimeout(() => {
+        setSelectionRange(null);
+      }, 1800);
+      return;
     }
   };
 
@@ -1899,24 +2005,70 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   paddingY={0}
                   marginBottom={1}
                 >
-                  {lastMessages.map((m) => (
-                    <Box key={m.id} flexDirection="column" marginY={0}>
-                      <Text
-                        bold
-                        color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
-                      >
-                        {m.fromRole === 'product_owner'
-                          ? getRoleDisplayName('product_owner', language)
-                          : activeRoleDisplayName}
-                        :
-                      </Text>
-                      <Text>
-                        {m.content.length > 220
-                          ? `${m.content.slice(0, 220)}...`
-                          : m.content}
-                      </Text>
-                    </Box>
-                  ))}
+                  {lastMessages.map((m, mIdx) => {
+                    const authorLabel =
+                      m.fromRole === 'product_owner'
+                        ? getRoleDisplayName('product_owner', language)
+                        : activeRoleDisplayName;
+                    const contentText =
+                      m.content.length > 220
+                        ? `${m.content.slice(0, 220)}...`
+                        : m.content;
+
+                    // Approximate screen Y coordinate of conversation lines for mouse selection
+                    // Top banner = 1 row, margin/padding = 2 rows, ASCII logo = 7 rows, text = 2 rows
+                    const baseConversationRow = 12 + mIdx * 3;
+                    const minCol = 6;
+                    const maxCol = Math.min(92, dimensions.columns - 8) + minCol;
+
+                    // Register rendered line coordinates for mouse click/drag selection
+                    if (
+                      !renderedConversationLinesRef.current.some(
+                        (l) => l.y === baseConversationRow + 1 && l.text === contentText,
+                      )
+                    ) {
+                      renderedConversationLinesRef.current.push(
+                        {
+                          y: baseConversationRow,
+                          minX: minCol,
+                          maxX: maxCol,
+                          text: `${authorLabel}:`,
+                          fullContent: m.content,
+                        },
+                        {
+                          y: baseConversationRow + 1,
+                          minX: minCol,
+                          maxX: maxCol,
+                          text: contentText,
+                          fullContent: m.content,
+                        },
+                      );
+                    }
+
+                    const isLineSelected =
+                      selectionRange !== null &&
+                      ((selectionRange.startY <= baseConversationRow + 1 &&
+                        selectionRange.endY >= baseConversationRow + 1) ||
+                        (selectionRange.startY <= baseConversationRow &&
+                          selectionRange.endY >= baseConversationRow));
+
+                    return (
+                      <Box key={m.id} flexDirection="column" marginY={0}>
+                        <Text
+                          bold
+                          color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
+                        >
+                          {authorLabel}:
+                        </Text>
+                        <Text
+                          backgroundColor={isLineSelected ? 'yellow' : undefined}
+                          color={isLineSelected ? 'black' : undefined}
+                        >
+                          {contentText}
+                        </Text>
+                      </Box>
+                    );
+                  })}
                   {streamingText && (
                     <Box flexDirection="column">
                       <Text bold color="green">
@@ -2249,20 +2401,60 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               {messages.length === 0 ? (
                 <Text dimColor>{t.noMessagesInChannel}</Text>
               ) : (
-                multipanelMessages.map((m) => (
-                  <Box key={m.id} flexDirection="column" marginTop={1}>
-                    <Text
-                      bold
-                      color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
-                    >
-                      [{m.fromRole} → {m.toRole}]:
-                    </Text>
-                    <Text>
-                      {m.content.slice(0, 200)}
-                      {m.content.length > 200 ? '...' : ''}
-                    </Text>
-                  </Box>
-                ))
+                multipanelMessages.map((m, mIdx) => {
+                  const contentText =
+                    m.content.slice(0, 200) + (m.content.length > 200 ? '...' : '');
+                  const baseRow = 15 + mIdx * 3;
+                  const minCol = Math.floor(dimensions.columns * 0.44);
+                  const maxCol = dimensions.columns - 4;
+
+                  if (
+                    !renderedConversationLinesRef.current.some(
+                      (l) => l.y === baseRow + 1 && l.text === contentText,
+                    )
+                  ) {
+                    renderedConversationLinesRef.current.push(
+                      {
+                        y: baseRow,
+                        minX: minCol,
+                        maxX: maxCol,
+                        text: `[${m.fromRole} → ${m.toRole}]:`,
+                        fullContent: m.content,
+                      },
+                      {
+                        y: baseRow + 1,
+                        minX: minCol,
+                        maxX: maxCol,
+                        text: contentText,
+                        fullContent: m.content,
+                      },
+                    );
+                  }
+
+                  const isLineSelected =
+                    selectionRange !== null &&
+                    ((selectionRange.startY <= baseRow + 1 &&
+                      selectionRange.endY >= baseRow + 1) ||
+                      (selectionRange.startY <= baseRow &&
+                        selectionRange.endY >= baseRow));
+
+                  return (
+                    <Box key={m.id} flexDirection="column" marginTop={1}>
+                      <Text
+                        bold
+                        color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
+                      >
+                        [{m.fromRole} → {m.toRole}]:
+                      </Text>
+                      <Text
+                        backgroundColor={isLineSelected ? 'yellow' : undefined}
+                        color={isLineSelected ? 'black' : undefined}
+                      >
+                        {contentText}
+                      </Text>
+                    </Box>
+                  );
+                })
               )}
             </Box>
           </Box>
