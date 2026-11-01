@@ -875,27 +875,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     if (ev.button === 'left' && ev.action === 'press') {
       const rolesOrder = ['pm', 'architect', 'developer', 'qa'] as const;
 
-      // Top Color Banner & Agent Tab Bar (rows 1..4)
-      if (ev.y >= 1 && ev.y <= 4) {
-        // Clicking on the right side of the top banner toggles Clean View <-> Multipanel View
-        if (ev.x >= dimensions.columns - 34) {
-          setViewMode((prev) => (prev === 'simple' ? 'multipanel' : 'simple'));
-          return;
-        }
-        // Check if click landed on one of the 4 agent tabs: [/pm ...] [/architect ...] [/developer ...] [/qa ...]
-        let cursorCol = 3;
-        for (const rKey of rolesOrder) {
-          const isCurrent = activeRole === rKey;
-          const label = ` /${rKey} ${t.expertBoxTitles[rKey]} `;
-          const renderedTab = isCurrent ? `▶${label}` : `[${label.trim()}]`;
-          const tabEnd = cursorCol + renderedTab.length;
-          if (ev.x >= cursorCol && ev.x <= tabEnd) {
-            selectRoleByMouse(rKey);
-            return;
-          }
-          cursorCol = tabEnd + 1;
-        }
-        // Clicking elsewhere on the top color banner cycles to the next agent
+      // Top Color Banner (single line, rows 1..2): clicking cycles to the next agent
+      if (ev.y >= 1 && ev.y <= 2) {
         const currIdx = rolesOrder.indexOf(
           activeRole as (typeof rolesOrder)[number],
         );
@@ -1298,50 +1279,21 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     () => orchestrator.storage.listRoleConfigs(project.id),
     [orchestrator.storage, project.id, expertSummaries, roleConfigVersion],
   );
-  const repoSummary =
-    project.repositories.length > 0
-      ? `${project.repositories.length} (${project.repositories.join(', ')})`
-      : '0';
 
-  const renderTopColorBanner = (barWidth: number, currentViewName: string) => {
-    const leftPart = ` ● ${activeRoleDisplayName.toUpperCase()} (/${activeRole}) │ [${t.activeBadge}: ${project.name}] │ dir: ${project.workspaceDir} │ ${t.reposLabel}: ${repoSummary} │ ${t.phaseLabel}: ${project.phase}`;
-    const rightPart = `lang: ${language.toUpperCase()} │ ${t.viewLabel}: ${currentViewName} `;
-    const gap = Math.max(1, barWidth - leftPart.length - rightPart.length);
-    const fullBannerLine = fitAndPadLine(
-      `${leftPart}${' '.repeat(gap)}${rightPart}`,
-      barWidth,
-    );
+  const renderTopColorBanner = (barWidth: number) => {
+    const bannerText = ` ${project.name}  │  ${activeRoleDisplayName}  │  ${activeModelCfg.provider}/${activeModelCfg.modelId} `;
+    const fullBannerLine = fitAndPadLine(bannerText, barWidth);
 
     return (
-      <Box flexDirection="column" width="100%">
+      <Box width="100%" height={1}>
         <Text
           bold
+          wrap="truncate-end"
           backgroundColor={activeTheme.bgColor}
           color={activeTheme.fgColor}
         >
           {fullBannerLine}
         </Text>
-        <Box justifyContent="space-between" width="100%" marginTop={0}>
-          <Box>
-            {(['pm', 'architect', 'developer', 'qa'] as const).map((rKey) => {
-              const rTheme = getRoleTheme(rKey);
-              const isCurrent = activeRole === rKey;
-              const label = ` /${rKey} ${t.expertBoxTitles[rKey]} `;
-              return (
-                <Box key={rKey} marginRight={1}>
-                  <Text
-                    bold={isCurrent}
-                    backgroundColor={isCurrent ? rTheme.bgColor : undefined}
-                    color={isCurrent ? rTheme.fgColor : rTheme.accentColor}
-                  >
-                    {isCurrent ? `▶${label}` : `[${label.trim()}]`}
-                  </Text>
-                </Box>
-              );
-            })}
-          </Box>
-          <Text dimColor>({t.toggleViewHint})</Text>
-        </Box>
       </Box>
     );
   };
@@ -1838,7 +1790,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         paddingY={1}
       >
         {/* Top bar with solid color-coded background banner for the active agent */}
-        {renderTopColorBanner(simpleBarWidth, t.cleanViewName)}
+        {renderTopColorBanner(simpleBarWidth)}
 
         {/* Center Area: When a modal is open, render ONLY the centered modal cleanly
             without the PO CLI logo or any text/prompt boxes underneath. */}
@@ -2050,7 +2002,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       borderColor={activeTheme.accentColor}
     >
       {/* Top Banner with Solid Background Color of the Active Agent */}
-      {renderTopColorBanner(multipanelBarWidth, t.multipanelViewName)}
+      {renderTopColorBanner(multipanelBarWidth)}
 
       {anyModalOpen ? (
         <Box
