@@ -2,6 +2,7 @@ export * from './core/contracts.js';
 export * from './core/workflow.js';
 export * from './core/i18n.js';
 export * from './storage/database.js';
+export * from './storage/db-repl.js';
 export * from './runtime/harnesses.js';
 export * from './runtime/llm-gateway.js';
 export * from './runtime/notebook-rag.js';

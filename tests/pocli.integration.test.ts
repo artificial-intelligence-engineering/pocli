@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   AuthorityGuard,
   DEFAULT_POCLI_HOME_DIR,
+  executeDbCommandOrQuery,
   HarnessRegistry,
   I18N_DICTIONARY,
   LinuxAgentProcessRunner,
@@ -707,5 +708,40 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(assembled.formattedPromptContext).toContain(
       '[TIER 3 — ACTIVE RECENT CONVERSATION WINDOW',
     );
+  });
+
+  it('supports OpenCode-style pocli db REPL commands (.tables, .stats, .projects, .experts) and SQL queries in table, json, and tsv formats', () => {
+    orchestrator.createProject({
+      name: 'DbReplInspectionProject',
+      description: 'Project for verifying pocli db REPL and SQL queries',
+      workspaceDir: path.join(tmpDir, 'db-repl-workspace'),
+    });
+
+    const tablesOut = executeDbCommandOrQuery(storage, '.tables', 'table');
+    expect(tablesOut).toContain('projects');
+    expect(tablesOut).toContain('messages');
+    expect(tablesOut).toContain('context_compactions');
+    expect(tablesOut).toContain('expert_chat_summaries');
+
+    const statsOut = executeDbCommandOrQuery(storage, '.stats', 'table');
+    expect(statsOut).toContain('projects');
+    expect(statsOut).toContain('expert_chat_summaries');
+
+    const jsonRows = JSON.parse(
+      executeDbCommandOrQuery(
+        storage,
+        'SELECT name, phase FROM projects;',
+        'json',
+      ),
+    ) as Array<{ name: string; phase: string }>;
+    expect(jsonRows).toHaveLength(1);
+    expect(jsonRows[0].name).toBe('DbReplInspectionProject');
+
+    const tsvOut = executeDbCommandOrQuery(
+      storage,
+      'SELECT name, phase FROM projects;',
+      'tsv',
+    );
+    expect(tsvOut).toContain('name\tphase\nDbReplInspectionProject\tPHASE_2_ARCHITECT_ANALYSIS');
   });
 });

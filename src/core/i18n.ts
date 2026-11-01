@@ -285,6 +285,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
           'Pi-style context window compaction for active agent or all (/compact [all])',
       },
       {
+        command: '/db',
+        description:
+          'Inspect SQLite database or run query (/db [.stats|.tables|.experts|<sql>])',
+      },
+      {
         command: '/settings',
         description:
           'Open settings or change language/working dir (/settings lang en|es · /settings dir <path>)',
@@ -496,6 +501,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         command: '/compact',
         description:
           'Compactar context window (estilo Pi) del agente activo o todos (/compact [all])',
+      },
+      {
+        command: '/db',
+        description:
+          'Inspeccionar base de datos SQLite o ejecutar SQL (/db [.stats|.tables|<sql>])',
       },
       {
         command: '/settings',

@@ -8,6 +8,7 @@ import {
   SupportedLanguage,
 } from '../core/i18n.js';
 import { ExpertChatSummary } from '../storage/database.js';
+import { executeDbCommandOrQuery } from '../storage/db-repl.js';
 import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
 
@@ -54,6 +55,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [viewMode, setViewMode] = useState<'simple' | 'multipanel'>('simple');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  const [dbModalOutput, setDbModalOutput] = useState<string>('');
 
   // Active project & repository / artifact / SQLite summary state
   const [project, setProject] = useState<Project>(initialProject);
@@ -154,6 +156,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsSettingsOpen(false);
     setIsEditingWorkDir(false);
     setIsProjectsModalOpen(false);
+    setDbModalOutput('');
     setProjectWizardStep('CLOSED');
   };
 
@@ -532,6 +535,24 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         );
         return;
       }
+      if (cmdToken === '/db') {
+        closeAllModals();
+        const queryArg = parts.slice(1).join(' ').trim() || '.stats';
+        try {
+          const out = executeDbCommandOrQuery(
+            orchestrator.storage,
+            queryArg,
+            'table',
+          );
+          setDbModalOutput(out);
+          setStatusBanner(
+            `✔ SQLite query executed (${queryArg}). Also available in shell via: pocli db`,
+          );
+        } catch (err) {
+          setStatusBanner(`✖ SQL Error: ${(err as Error).message}`);
+        }
+        return;
+      }
 
       setStatusBanner(t.unknownCommandMsg(cmdToken));
       return;
@@ -637,10 +658,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // 3. Handle interactive Help modal when open
-    if (isHelpOpen) {
+    // 3. Handle interactive Help or DB modal when open
+    if (isHelpOpen || dbModalOutput.length > 0) {
       if (key.escape || key.return || input === 'q') {
         setIsHelpOpen(false);
+        setDbModalOutput('');
         return;
       }
       return;
@@ -1004,7 +1026,28 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     isHelpOpen ||
     isSettingsOpen ||
     isProjectsModalOpen ||
+    dbModalOutput.length > 0 ||
     projectWizardStep !== 'CLOSED';
+
+  const renderDbModal = () => (
+    <Box
+      flexDirection="column"
+      width={Math.min(96, dimensions.columns - 6)}
+      borderStyle="double"
+      borderColor="cyan"
+      paddingX={2}
+      paddingY={1}
+      marginBottom={1}
+    >
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Text bold color="cyan">
+          🗄 SQLite Database Inspector (/db · pocli db)
+        </Text>
+        <Text dimColor>Press Esc, Enter, or q to close</Text>
+      </Box>
+      <Text>{dbModalOutput}</Text>
+    </Box>
+  );
 
   // ==========================================================================
   // RENDER MODE 1: OPENCODE-STYLE CLEAN FULLSCREEN VIEW (DEFAULT ON STARTUP)
@@ -1072,6 +1115,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {/* Interactive Modals */}
           {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
           {isProjectsModalOpen && renderProjectsListModal()}
+          {dbModalOutput.length > 0 && renderDbModal()}
           {isHelpOpen && renderHelpModal()}
           {isSettingsOpen && renderSettingsModal()}
 
@@ -1256,6 +1300,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       {isProjectsModalOpen && (
         <Box marginTop={1} justifyContent="center">
           {renderProjectsListModal()}
+        </Box>
+      )}
+
+      {dbModalOutput.length > 0 && (
+        <Box marginTop={1} justifyContent="center">
+          {renderDbModal()}
         </Box>
       )}
 

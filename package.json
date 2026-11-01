@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "pocli": "tsx src/cli.ts",
     "start": "tsx src/cli.ts",
     "tui": "tsx src/cli.ts tui",
     "test": "vitest run",

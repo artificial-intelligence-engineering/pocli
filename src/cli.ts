@@ -5,6 +5,11 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { resolveDefaultWorkDir } from './core/i18n.js';
 import { PoCliDatabase } from './storage/database.js';
+import {
+  DbOutputFormat,
+  executeDbCommandOrQuery,
+  runInteractiveDbRepl,
+} from './storage/db-repl.js';
 import { PoCliOrchestrator } from './runtime/orchestrator.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
 
@@ -38,7 +43,61 @@ async function main(): Promise<void> {
   const orchestrator = new PoCliOrchestrator(storage);
   const centralWorkDir = storage.getSettings().workDir;
 
-  if (subcommand === 'tui') {
+  // OpenCode-style `pocli db` command:
+  //   - `pocli db` -> opens interactive SQLite REPL
+  //   - `pocli db path` -> prints active SQLite database path ($HOME/.pocli/pocli.sqlite)
+  //   - `pocli db "<sql-or-dot-cmd>" [--format table|json|tsv]` -> runs one-shot query
+  if (subcommand === 'db') {
+    const dbArgs = args.slice(1);
+    if (dbArgs[0] === 'path') {
+      console.log(dbPath);
+      storage.close();
+      return;
+    }
+
+    let format: DbOutputFormat = 'table';
+    const queryParts: string[] = [];
+    for (let i = 0; i < dbArgs.length; i++) {
+      const token = dbArgs[i];
+      if ((token === '--format' || token === '-f') && dbArgs[i + 1]) {
+        const fmt = dbArgs[i + 1].toLowerCase();
+        if (fmt === 'table' || fmt === 'json' || fmt === 'tsv') {
+          format = fmt;
+        }
+        i++;
+      } else if (token.startsWith('--format=')) {
+        const fmt = token.split('=')[1]?.toLowerCase();
+        if (fmt === 'table' || fmt === 'json' || fmt === 'tsv') {
+          format = fmt;
+        }
+      } else {
+        queryParts.push(token);
+      }
+    }
+
+    const inlineQuery = queryParts.join(' ').trim();
+    if (inlineQuery.length > 0) {
+      try {
+        const out = executeDbCommandOrQuery(storage, inlineQuery, format);
+        if (out) console.log(out);
+      } catch (err) {
+        console.error(`SQL Error: ${(err as Error).message}`);
+        storage.close();
+        process.exit(1);
+      }
+      storage.close();
+      return;
+    }
+
+    try {
+      await runInteractiveDbRepl(storage, dbPath);
+    } finally {
+      storage.close();
+    }
+    return;
+  }
+
+  if (subcommand === 'tui' || subcommand === 'pocli') {
     let project = storage.getActiveProject();
     if (!project) {
       project = orchestrator.createProject({
@@ -168,10 +227,13 @@ async function main(): Promise<void> {
 
   console.log(
     [
-      'Product Owner CLI (PO CLI) — Available commands:',
-      '  npm start / npm run tui Launch the fullscreen Command Center (Ink TUI)',
-      '  npx tsx src/cli.ts demo Run a full 8-phase workflow demonstration on Linux',
-      '  npm test                Run the integration test suite across all 7 phases',
+      'Product Owner CLI (pocli) — Available commands:',
+      '  pocli / npm run pocli               Launch the fullscreen Command Center (Ink TUI)',
+      '  pocli db                            Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)',
+      '  pocli db path                       Print the active SQLite database file path',
+      '  pocli db "<sql>" [--format json]    Execute a SQL query or dot-command (.tables, .stats)',
+      '  pocli demo                          Run a full 8-phase workflow demonstration on Linux',
+      '  npm test                            Run the integration test suite',
     ].join('\n'),
   );
   storage.close();
