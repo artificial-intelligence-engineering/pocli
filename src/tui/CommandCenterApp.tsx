@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import path from 'node:path';
 import { Box, Text, useInput, useApp, useStdout, useStdin } from 'ink';
 import { ActorRole, Artifact, Notebook, Project } from '../core/contracts.js';
@@ -87,7 +87,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 }) => {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const { stdin } = useStdin();
+  const stdinCtx = useStdin() as ReturnType<typeof useStdin> & {
+    internal_eventEmitter?: NodeJS.EventEmitter;
+  };
+  const { stdin, internal_eventEmitter } = stdinCtx;
 
   const initialSettings = orchestrator.storage.getSettings();
   const [language, setLanguage] = useState<SupportedLanguage>(
@@ -158,21 +161,41 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setMessageScrollOffset(0);
   }, [project.id, activeRole]);
 
-  // Enable SGR (1006) terminal mouse tracking on mount and restore on exit/unmount
+  // Enable SGR (1006) terminal mouse tracking + DEC Mode 2026 Synchronized Output
+  // on stdout to eliminate screen-erase flicker when Ink redraws full-screen frames.
   useEffect(() => {
     if (!stdout || !stdout.isTTY) return;
-    stdout.write(ENABLE_MOUSE_TRACKING_SEQ);
-    const restoreMouse = () => {
+    const origWrite = stdout.write.bind(stdout);
+    const syncedWrite = ((
+      chunk: Uint8Array | string,
+      encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
+      cb?: (err?: Error | null) => void,
+    ): boolean => {
+      if (
+        typeof chunk === 'string' &&
+        (chunk.includes('\x1b[2K') || chunk.includes('\x1b[2J'))
+      ) {
+        const atomicFrame = `\x1b[?2026h${chunk}\x1b[?2026l`;
+        return origWrite(atomicFrame, encodingOrCb as never, cb as never);
+      }
+      return origWrite(chunk, encodingOrCb as never, cb as never);
+    }) as typeof stdout.write;
+
+    stdout.write = syncedWrite;
+    origWrite(ENABLE_MOUSE_TRACKING_SEQ);
+
+    const restoreTerminal = () => {
       try {
-        stdout.write(DISABLE_MOUSE_TRACKING_SEQ);
+        stdout.write = origWrite;
+        origWrite(`${DISABLE_MOUSE_TRACKING_SEQ}\x1b[?2026l`);
       } catch {
         // Ignore write errors during process teardown
       }
     };
-    process.on('exit', restoreMouse);
+    process.on('exit', restoreTerminal);
     return () => {
-      process.off('exit', restoreMouse);
-      restoreMouse();
+      process.off('exit', restoreTerminal);
+      restoreTerminal();
     };
   }, [stdout]);
 
@@ -191,9 +214,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     };
   }, [stdout]);
 
-  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab sequences on Linux terminals
+  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab sequences via Ink's internal_eventEmitter
+  // (avoids attaching a competing 'data' listener on stdin that conflicts with Ink's 'readable' loop)
   useEffect(() => {
-    if (!stdin) return;
+    const emitter = internal_eventEmitter ?? stdin;
+    if (!emitter) return;
+    const eventName = internal_eventEmitter ? 'input' : 'data';
     const onRawData = (data: Buffer | string) => {
       const seq = typeof data === 'string' ? data : data.toString('utf8');
       if (
@@ -205,11 +231,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setViewMode((prev) => (prev === 'simple' ? 'multipanel' : 'simple'));
       }
     };
-    stdin.on('data', onRawData);
+    emitter.on(eventName, onRawData);
     return () => {
-      stdin.off('data', onRawData);
+      emitter.off(eventName, onRawData);
     };
-  }, [stdin]);
+  }, [stdin, internal_eventEmitter]);
 
   const applyLanguageChange = (nextLang: SupportedLanguage) => {
     orchestrator.storage.updateSettings({ language: nextLang });
@@ -286,10 +312,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           return aExact - bExact;
         })
     : [];
-
-  useEffect(() => {
-    setSelectedSlashIdx(0);
-  }, [inputValue]);
 
   const executeCommandOrMessage = async (rawText: string) => {
     const trimmed = rawText.trim();
@@ -1019,22 +1041,27 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     if (key.backspace || key.delete) {
       setInputValue((prev) => prev.slice(0, -1));
+      if (selectedSlashIdx !== 0) setSelectedSlashIdx(0);
       return;
     }
 
     if (!key.ctrl && !key.meta && input) {
       setInputValue((prev) => prev + input);
+      if (selectedSlashIdx !== 0) setSelectedSlashIdx(0);
     }
   });
 
-  const harnesses = HarnessRegistry.listHarnesses();
+  const harnesses = useMemo(() => HarnessRegistry.listHarnesses(), []);
   const activeRoleDisplayName = getRoleDisplayName(activeRole, language);
   const activeTheme = getRoleTheme(activeRole);
-  const activeModelCfg = orchestrator.storage.getRoleConfig(
-    project.id,
-    activeRole,
+  const activeModelCfg = useMemo(
+    () => orchestrator.storage.getRoleConfig(project.id, activeRole),
+    [orchestrator.storage, project.id, activeRole, expertSummaries],
   );
-  const messages = orchestrator.storage.listMessages(project.id, activeRole);
+  const messages = useMemo(
+    () => orchestrator.storage.listMessages(project.id, activeRole),
+    [orchestrator.storage, project.id, activeRole, expertSummaries],
+  );
   const sliceWindowedMessages = (winSize: number) => {
     if (messages.length <= winSize) return messages;
     const maxOffset = Math.max(0, messages.length - winSize);
@@ -1044,7 +1071,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
   const lastMessages = sliceWindowedMessages(3);
   const multipanelMessages = sliceWindowedMessages(4);
-  const roleConfigs = orchestrator.storage.listRoleConfigs(project.id);
+  const roleConfigs = useMemo(
+    () => orchestrator.storage.listRoleConfigs(project.id),
+    [orchestrator.storage, project.id, expertSummaries],
+  );
   const repoSummary =
     project.repositories.length > 0
       ? `${project.repositories.length} (${project.repositories.join(', ')})`
@@ -1342,6 +1372,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     </Box>
   );
 
+  // Keep root Box height strictly < stdout.rows (rows - 1) so Ink never hits
+  // its `outputHeight >= stdout.rows` branch in ink.js:121 which executes a
+  // full `ansiEscapes.clearTerminal` (\x1b[2J\x1b[3J\x1b[H) on every keystroke.
+  const safeViewportHeight = Math.max(18, dimensions.rows - 1);
+
   // ==========================================================================
   // RENDER MODE 1: OPENCODE-STYLE CLEAN FULLSCREEN VIEW (DEFAULT ON STARTUP)
   // ==========================================================================
@@ -1351,7 +1386,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       <Box
         flexDirection="column"
         width={dimensions.columns}
-        height={dimensions.rows}
+        height={safeViewportHeight}
         justifyContent="space-between"
         paddingX={2}
         paddingY={1}
@@ -1555,7 +1590,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     <Box
       flexDirection="column"
       width={dimensions.columns}
-      height={dimensions.rows}
+      height={safeViewportHeight}
       justifyContent="space-between"
       paddingX={1}
       borderStyle="round"
@@ -1595,9 +1630,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       )}
 
       {/* Top Row: 4 Expert Chat Summary Boxes loaded from SQLite.
-          Inactive boxes have transparent backgrounds; the active agent box
-          is filled with its characteristic background color! */}
-      <Box flexDirection="row" width="100%" marginTop={1}>
+          All 4 boxes have strictly fixed height (6 rows) and width (25%) with
+          single-line truncated records so selecting an agent never resizes boxes. */}
+      <Box flexDirection="row" width="100%" height={6} marginTop={1}>
         {(['pm', 'architect', 'developer', 'qa'] as const).map((roleKey) => {
           const summary = expertSummaries.find(
             (s) => s.expertRole === roleKey,
@@ -1623,114 +1658,80 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               : ''
           })`;
 
-          if (isSelected) {
-            const headerGap = Math.max(
-              1,
-              expertBoxInnerWidth - (` ▶ ${boxTitle}`.length + statsBadge.length + 1),
-            );
-            const line1 = fitAndPadLine(
-              ` ▶ ${boxTitle}${' '.repeat(headerGap)}${statsBadge} `,
-              expertBoxInnerWidth,
-            );
-            const line2 =
-              summary.totalMessages === 0
-                ? fitAndPadLine(` ${t.expertBoxNoChatsYet}`, expertBoxInnerWidth)
-                : fitAndPadLine(
-                    ` ${t.expertBoxSummaryLabel} ${summary.summaryText}`,
-                    expertBoxInnerWidth,
-                  );
-            const ex1 = summary.recentExchanges.slice(-2)[0];
-            const ex2 = summary.recentExchanges.slice(-2)[1];
-            const line3 = ex1
-              ? fitAndPadLine(
-                  ` • [${ex1.fromRole === 'product_owner' ? 'PO' : ex1.fromRole}]: ${ex1.snippet}`,
+          const titlePrefix = isSelected ? ` ▶ ${boxTitle}` : ` ${boxTitle}`;
+          const headerGap = Math.max(
+            1,
+            expertBoxInnerWidth - (titlePrefix.length + statsBadge.length + 1),
+          );
+          const line1 = fitAndPadLine(
+            `${titlePrefix}${' '.repeat(headerGap)}${statsBadge} `,
+            expertBoxInnerWidth,
+          );
+          const line2 =
+            summary.totalMessages === 0
+              ? fitAndPadLine(` ${t.expertBoxNoChatsYet}`, expertBoxInnerWidth)
+              : fitAndPadLine(
+                  ` ${t.expertBoxSummaryLabel} ${summary.summaryText}`,
                   expertBoxInnerWidth,
-                )
-              : fitAndPadLine(' ', expertBoxInnerWidth);
-            const line4 = ex2
-              ? fitAndPadLine(
-                  ` • [${ex2.fromRole === 'product_owner' ? 'PO' : ex2.fromRole}]: ${ex2.snippet}`,
-                  expertBoxInnerWidth,
-                )
-              : fitAndPadLine(' ', expertBoxInnerWidth);
-
-            return (
-              <Box
-                key={roleKey}
-                flexDirection="column"
-                width="25%"
-                borderStyle="round"
-                borderColor={roleTheme.accentColor}
-                paddingX={0}
-              >
-                <Text
-                  bold
-                  backgroundColor={roleTheme.bgColor}
-                  color={roleTheme.fgColor}
-                >
-                  {line1}
-                </Text>
-                <Text
-                  bold
-                  backgroundColor={roleTheme.bgColor}
-                  color={roleTheme.fgColor}
-                >
-                  {line2}
-                </Text>
-                <Text
-                  backgroundColor={roleTheme.bgColor}
-                  color={roleTheme.fgColor}
-                >
-                  {line3}
-                </Text>
-                <Text
-                  backgroundColor={roleTheme.bgColor}
-                  color={roleTheme.fgColor}
-                >
-                  {line4}
-                </Text>
-              </Box>
-            );
-          }
+                );
+          const ex1 = summary.recentExchanges.slice(-2)[0];
+          const ex2 = summary.recentExchanges.slice(-2)[1];
+          const line3 = ex1
+            ? fitAndPadLine(
+                ` • [${ex1.fromRole === 'product_owner' ? 'PO' : ex1.fromRole}]: ${ex1.snippet}`,
+                expertBoxInnerWidth,
+              )
+            : fitAndPadLine(' ', expertBoxInnerWidth);
+          const line4 = ex2
+            ? fitAndPadLine(
+                ` • [${ex2.fromRole === 'product_owner' ? 'PO' : ex2.fromRole}]: ${ex2.snippet}`,
+                expertBoxInnerWidth,
+              )
+            : fitAndPadLine(' ', expertBoxInnerWidth);
 
           return (
             <Box
               key={roleKey}
               flexDirection="column"
               width="25%"
+              height={6}
               borderStyle="round"
               borderColor={roleTheme.accentColor}
-              paddingX={1}
+              paddingX={0}
             >
-              <Box justifyContent="space-between">
-                <Text bold color={roleTheme.accentColor}>
-                  {boxTitle}
-                </Text>
-                <Text dimColor>{statsBadge}</Text>
-              </Box>
-              {summary.totalMessages === 0 ? (
-                <Box flexDirection="column">
-                  <Text dimColor>{t.expertBoxNoChatsYet}</Text>
-                  <Text> </Text>
-                  <Text> </Text>
-                </Box>
-              ) : (
-                <Box flexDirection="column" marginTop={0}>
-                  <Text color={roleTheme.accentColor} bold>
-                    {t.expertBoxSummaryLabel}{' '}
-                    <Text color="white" bold={false}>
-                      {summary.summaryText.slice(0, 52)}
-                    </Text>
-                  </Text>
-                  {summary.recentExchanges.slice(-2).map((ex, i) => (
-                    <Text key={i} dimColor>
-                      • [{ex.fromRole === 'product_owner' ? 'PO' : ex.fromRole}]
-                      : {ex.snippet.slice(0, 42)}
-                    </Text>
-                  ))}
-                  {summary.recentExchanges.length < 2 && <Text> </Text>}
-                </Box>
-              )}
+              <Text
+                bold
+                wrap="truncate-end"
+                backgroundColor={isSelected ? roleTheme.bgColor : undefined}
+                color={isSelected ? roleTheme.fgColor : roleTheme.accentColor}
+              >
+                {line1}
+              </Text>
+              <Text
+                bold={isSelected}
+                wrap="truncate-end"
+                backgroundColor={isSelected ? roleTheme.bgColor : undefined}
+                color={isSelected ? roleTheme.fgColor : 'white'}
+                dimColor={!isSelected && summary.totalMessages === 0}
+              >
+                {line2}
+              </Text>
+              <Text
+                wrap="truncate-end"
+                backgroundColor={isSelected ? roleTheme.bgColor : undefined}
+                color={isSelected ? roleTheme.fgColor : undefined}
+                dimColor={!isSelected}
+              >
+                {line3}
+              </Text>
+              <Text
+                wrap="truncate-end"
+                backgroundColor={isSelected ? roleTheme.bgColor : undefined}
+                color={isSelected ? roleTheme.fgColor : undefined}
+                dimColor={!isSelected}
+              >
+                {line4}
+              </Text>
             </Box>
           );
         })}
