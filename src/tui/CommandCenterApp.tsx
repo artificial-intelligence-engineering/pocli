@@ -2243,7 +2243,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // RENDER MODE 1: OPENCODE STARTUP SCREEN (CENTERED LOGO + COMPACT PROMPT)
   // ==========================================================================
   if (viewMode === 'startup') {
-    const promptBoxWidth = Math.min(74, Math.max(54, dimensions.columns - 8));
+    const promptBoxWidth = Math.min(86, Math.max(56, dimensions.columns - 8));
 
     return (
       <Box
@@ -2330,6 +2330,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 <Text color="cyan" bold>
                   │{' '}
                 </Text>
+                <Text dimColor>Current session: </Text>
+                <Text color="white" bold>
+                  {project.name}
+                </Text>
+                <Text dimColor> · </Text>
                 <Text bold color="cyan">
                   {activeRoleDisplayName}
                 </Text>
