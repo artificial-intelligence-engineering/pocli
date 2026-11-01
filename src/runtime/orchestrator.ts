@@ -17,7 +17,7 @@ import {
   RagCitation,
 } from '../core/contracts.js';
 import { AuthorityGuard } from '../core/workflow.js';
-import { PoCliDatabase } from '../storage/database.js';
+import { CompactionCheckpoint, PoCliDatabase } from '../storage/database.js';
 import { HarnessRegistry } from './harnesses.js';
 import { AgentToolCallRequest } from './llm-gateway.js';
 import { McpRegistry } from './mcp-client.js';
@@ -106,7 +106,11 @@ export class PoCliOrchestrator extends EventEmitter {
       topK: 4,
     });
 
-    const normativeSummary = this.buildNormativeContextString(project.id);
+    // Assemble Pi-style 3-Tier Context Window (Cacheable Normative Prefix + 4-Layer Memory & Compaction Checkpoint + Recent Uncompacted DAG Turns)
+    const contextWindow = this.storage.assembleAgentContextWindow(
+      project.id,
+      params.targetRole,
+    );
 
     // Execute turn inside isolated Linux process via JSON-RPC 2.0 over stdio
     const turnResult: WorkerExecutionResult = await this.processRunner.executeTurnInProcess(
@@ -117,7 +121,7 @@ export class PoCliOrchestrator extends EventEmitter {
         role: params.targetRole,
         systemPrompt: harness.systemPrompt,
         userPrompt: params.message,
-        normativeArtifactsSummary: normativeSummary,
+        normativeArtifactsSummary: contextWindow.formattedPromptContext,
         ragCitations: citations,
         modelConfig,
       },
@@ -132,8 +136,8 @@ export class PoCliOrchestrator extends EventEmitter {
       turnResult.toolCalls,
     );
 
-    // Record specialist's reply
-    this.storage.recordMessage({
+    // Record specialist's reply in the SQLite Session Tree (DAG)
+    const replyMsg = this.storage.recordMessage({
       projectId: project.id,
       fromRole: params.targetRole,
       toRole: 'product_owner',
@@ -145,6 +149,29 @@ export class PoCliOrchestrator extends EventEmitter {
         citations: citations.map((c) => NotebookRagEngine.formatCitationTag(c)),
       },
     });
+
+    // Update WORKING memory layer with latest active exchange for this role
+    this.storage.upsertMemory({
+      projectId: project.id,
+      layer: 'WORKING',
+      agentRole: params.targetRole,
+      key: `last_turn_${params.targetRole}`,
+      value: `PO: ${params.message.slice(0, 100)} | ${params.targetRole}: ${replyMsg.content.slice(0, 140)}`,
+    });
+
+    // Pi-style Auto-Compaction when uncompacted turns exceed threshold (8 messages)
+    const uncompactedCount = this.storage.listMessages(
+      project.id,
+      params.targetRole,
+      true,
+    ).length;
+    if (uncompactedCount >= 8) {
+      this.storage.compactAgentContextWindow({
+        projectId: project.id,
+        expertRole: params.targetRole,
+        keepRecentCount: 2,
+      });
+    }
 
     const updatedProject = this.storage.getProject(project.id)!;
     this.emit('agent:turnCompleted', {
@@ -800,6 +827,56 @@ export class PoCliOrchestrator extends EventEmitter {
     const notebook = this.storage.createNotebook(params);
     const indexResult = this.rag.indexNotebook(notebook.id);
     return { notebook, indexResult };
+  }
+
+  /**
+   * Executes Pi-style context window compaction for a specific agent role or across all 4 core experts.
+   */
+  compactContext(params: {
+    projectId: string;
+    targetRole?: ActorRole | 'all';
+    keepRecentCount?: number;
+  }): {
+    checkpoints: CompactionCheckpoint[];
+    totalCompactedMessages: number;
+    totalSavedTokens: number;
+  } {
+    const roles: ActorRole[] =
+      !params.targetRole || params.targetRole === 'all'
+        ? ['pm', 'architect', 'developer', 'qa']
+        : [params.targetRole];
+
+    const checkpoints: CompactionCheckpoint[] = [];
+    for (const role of roles) {
+      const cp = this.storage.compactAgentContextWindow({
+        projectId: params.projectId,
+        expertRole: role,
+        keepRecentCount: params.keepRecentCount ?? 1,
+      });
+      if (cp) checkpoints.push(cp);
+    }
+
+    const totalCompactedMessages = checkpoints.reduce(
+      (sum, c) => sum + c.compactedMessageCount,
+      0,
+    );
+    const totalSavedTokens = checkpoints.reduce(
+      (sum, c) => sum + Math.max(0, c.tokensBefore - c.tokensAfter),
+      0,
+    );
+
+    this.emit('context:compacted', {
+      projectId: params.projectId,
+      checkpoints,
+      totalCompactedMessages,
+      totalSavedTokens,
+    });
+
+    return {
+      checkpoints,
+      totalCompactedMessages,
+      totalSavedTokens,
+    };
   }
 
   // ==========================================================================

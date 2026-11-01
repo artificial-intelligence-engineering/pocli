@@ -638,4 +638,74 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       '#!/usr/bin/env python3',
     );
   });
+
+  it('implements Pi-inspired Context Window Compaction (/compact), Session Tree DAG parent_id lineage, and 3-tier prompt assembly in SQLite', async () => {
+    const project = orchestrator.createProject({
+      name: 'PiContextOptimization',
+      description: 'Verifies Pi-style DAG session tree and context compaction in SQLite',
+      workspaceDir: path.join(tmpDir, 'pi-context-workspace'),
+    });
+
+    // Send multiple turns to Architect so a multi-node DAG session tree is built
+    await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'architect',
+      message: 'Design and propose the initial hexagonal architecture for PiContextOptimization.',
+    });
+    await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'architect',
+      message: 'Evaluate trade-offs for event-driven messaging and persistence.',
+    });
+    await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'architect',
+      message: 'Refine interface boundaries between domain and adapters.',
+    });
+
+    const allArchMessages = storage.listMessages(project.id, 'architect');
+    expect(allArchMessages.length).toBe(6);
+    // Verify Session Tree (DAG) parentId chain
+    expect(allArchMessages[0].parentId).toBeUndefined();
+    for (let i = 1; i < allArchMessages.length; i++) {
+      expect(allArchMessages[i].parentId).toBe(allArchMessages[i - 1].id);
+      expect(allArchMessages[i].tokenEstimate).toBeGreaterThan(0);
+    }
+
+    // Compact the Architect context window (/compact architect), keeping only 1 recent message uncompacted
+    const compactRes = orchestrator.compactContext({
+      projectId: project.id,
+      targetRole: 'architect',
+      keepRecentCount: 1,
+    });
+
+    expect(compactRes.checkpoints).toHaveLength(1);
+    expect(compactRes.totalCompactedMessages).toBe(5);
+    expect(compactRes.totalSavedTokens).toBeGreaterThan(0);
+
+    // Full historical audit log remains intact (6 messages), while active uncompacted window has only 1 message
+    expect(storage.listMessages(project.id, 'architect', false)).toHaveLength(6);
+    expect(storage.listMessages(project.id, 'architect', true)).toHaveLength(1);
+
+    // Assemble the 3-tier Pi-style Context Window
+    const assembled = storage.assembleAgentContextWindow(
+      project.id,
+      'architect',
+    );
+    expect(assembled.compactionCount).toBe(1);
+    expect(assembled.savedTokensByCompaction).toBeGreaterThan(0);
+    expect(assembled.activeRecentMessages).toHaveLength(1);
+    expect(assembled.formattedPromptContext).toContain(
+      '[TIER 1 — CACHEABLE NORMATIVE ARTIFACTS',
+    );
+    expect(assembled.formattedPromptContext).toContain(
+      '[TIER 2 — 4-LAYER PERSISTENT MEMORY & PI COMPACTION CHECKPOINT]',
+    );
+    expect(assembled.formattedPromptContext).toContain(
+      '[Pi Context Compaction Checkpoint — Role: architect',
+    );
+    expect(assembled.formattedPromptContext).toContain(
+      '[TIER 3 — ACTIVE RECENT CONVERSATION WINDOW',
+    );
+  });
 });

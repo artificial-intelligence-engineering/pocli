@@ -33,11 +33,39 @@ export interface StoredMessage {
   id: string;
   projectId: string;
   sessionId: string;
+  parentId?: string;
   fromRole: ActorRole;
   toRole: ActorRole;
   content: string;
+  tokenEstimate: number;
+  compactedIntoId?: string;
   metadataJson: string;
   createdAt: string;
+}
+
+export interface CompactionCheckpoint {
+  id: string;
+  projectId: string;
+  expertRole: ActorRole;
+  upToMessageId: string;
+  compactedMessageCount: number;
+  tokensBefore: number;
+  tokensAfter: number;
+  structuredSummary: string;
+  createdAt: string;
+}
+
+export interface AssembledContextWindow {
+  projectId: string;
+  expertRole: ActorRole;
+  normativePrefix: string;
+  persistentMemoryBlock: string;
+  compactionCheckpointBlock: string;
+  activeRecentMessages: StoredMessage[];
+  activeTokens: number;
+  savedTokensByCompaction: number;
+  compactionCount: number;
+  formattedPromptContext: string;
 }
 
 export interface ExpertChatExchangeSnippet {
@@ -51,6 +79,9 @@ export interface ExpertChatSummary {
   projectId: string;
   expertRole: ActorRole;
   totalMessages: number;
+  activeContextTokens: number;
+  savedTokensByCompaction: number;
+  compactionCount: number;
   lastUserPrompt: string;
   lastExpertReply: string;
   summaryText: string;
@@ -137,10 +168,26 @@ export class PoCliDatabase {
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
         session_id TEXT NOT NULL,
+        parent_id TEXT,
         from_role TEXT NOT NULL,
         to_role TEXT NOT NULL,
         content TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL DEFAULT 0,
+        compacted_into_id TEXT,
         metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS context_compactions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        expert_role TEXT NOT NULL,
+        up_to_message_id TEXT NOT NULL,
+        compacted_message_count INTEGER NOT NULL,
+        tokens_before INTEGER NOT NULL,
+        tokens_after INTEGER NOT NULL,
+        structured_summary TEXT NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
@@ -318,7 +365,33 @@ export class PoCliDatabase {
         PRIMARY KEY (project_id, repo_path),
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+        memory_id UNINDEXED,
+        project_id UNINDEXED,
+        layer UNINDEXED,
+        agent_role UNINDEXED,
+        key,
+        value
+      );
     `);
+
+    // Ensure backward-compatible schema migration for existing SQLite databases
+    const msgCols = this.db
+      .prepare(`PRAGMA table_info(messages)`)
+      .all() as Array<{ name: string }>;
+    const colNames = new Set(msgCols.map((c) => c.name));
+    if (!colNames.has('parent_id')) {
+      this.db.exec(`ALTER TABLE messages ADD COLUMN parent_id TEXT;`);
+    }
+    if (!colNames.has('token_estimate')) {
+      this.db.exec(
+        `ALTER TABLE messages ADD COLUMN token_estimate INTEGER NOT NULL DEFAULT 0;`,
+      );
+    }
+    if (!colNames.has('compacted_into_id')) {
+      this.db.exec(`ALTER TABLE messages ADD COLUMN compacted_into_id TEXT;`);
+    }
   }
 
   // ==========================================================================
@@ -644,11 +717,17 @@ export class PoCliDatabase {
   // SESSIONS & MESSAGES
   // ==========================================================================
 
+  public static estimateTokens(text: string): number {
+    if (!text) return 0;
+    return Math.max(1, Math.ceil(text.length / 4));
+  }
+
   recordMessage(params: {
     projectId: string;
     fromRole: ActorRole;
     toRole: ActorRole;
     content: string;
+    parentId?: string;
     metadata?: Record<string, unknown>;
   }): StoredMessage {
     const project = this.getProject(params.projectId);
@@ -678,20 +757,36 @@ export class PoCliDatabase {
       sessionRow = { id: sessionId };
     }
 
+    // Resolve parent_id in the Pi-style Session Tree (DAG) if not explicitly specified
+    let parentId = params.parentId;
+    if (!parentId) {
+      const prevRow = this.db
+        .prepare(
+          `SELECT id FROM messages WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+        )
+        .get(sessionRow.id) as { id: string } | undefined;
+      parentId = prevRow?.id;
+    }
+
     const msgId = `msg_${crypto.randomUUID().slice(0, 8)}`;
+    const tokenEstimate = PoCliDatabase.estimateTokens(params.content);
     const metadataJson = JSON.stringify(params.metadata ?? {});
     this.db
       .prepare(
-        `INSERT INTO messages (id, project_id, session_id, from_role, to_role, content, metadata_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages (
+          id, project_id, session_id, parent_id, from_role, to_role,
+          content, token_estimate, compacted_into_id, metadata_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       )
       .run(
         msgId,
         params.projectId,
         sessionRow.id,
+        parentId ?? null,
         params.fromRole,
         params.toRole,
         params.content,
+        tokenEstimate,
         metadataJson,
         now,
       );
@@ -708,9 +803,11 @@ export class PoCliDatabase {
       id: msgId,
       projectId: params.projectId,
       sessionId: sessionRow.id,
+      parentId,
       fromRole: params.fromRole,
       toRole: params.toRole,
       content: params.content,
+      tokenEstimate,
       metadataJson,
       createdAt: now,
     };
@@ -793,11 +890,46 @@ export class PoCliDatabase {
       )
       .get(projectId, expertRole) as Record<string, unknown> | undefined;
 
+    const activeTokenRow = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(token_estimate), 0) AS active_tokens
+         FROM messages
+         WHERE project_id = ? AND (from_role = ? OR to_role = ?) AND compacted_into_id IS NULL`,
+      )
+      .get(projectId, expertRole, expertRole) as { active_tokens: number };
+
+    const compactionStatsRow = this.db
+      .prepare(
+        `SELECT COUNT(*) AS comp_count,
+                COALESCE(SUM(MAX(0, tokens_before - tokens_after)), 0) AS saved_tokens,
+                COALESCE((
+                  SELECT tokens_after FROM context_compactions
+                  WHERE project_id = ? AND expert_role = ?
+                  ORDER BY created_at DESC, rowid DESC LIMIT 1
+                ), 0) AS latest_comp_tokens
+         FROM context_compactions
+         WHERE project_id = ? AND expert_role = ?`,
+      )
+      .get(projectId, expertRole, projectId, expertRole) as {
+      comp_count: number;
+      saved_tokens: number;
+      latest_comp_tokens: number;
+    };
+
+    const activeContextTokens =
+      Number(activeTokenRow?.active_tokens ?? 0) +
+      Number(compactionStatsRow?.latest_comp_tokens ?? 0);
+    const savedTokensByCompaction = Number(compactionStatsRow?.saved_tokens ?? 0);
+    const compactionCount = Number(compactionStatsRow?.comp_count ?? 0);
+
     if (!row) {
       return {
         projectId,
         expertRole,
         totalMessages: 0,
+        activeContextTokens: 0,
+        savedTokensByCompaction: 0,
+        compactionCount: 0,
         lastUserPrompt: '',
         lastExpertReply: '',
         summaryText: '',
@@ -810,6 +942,9 @@ export class PoCliDatabase {
       projectId: String(row.project_id),
       expertRole: String(row.expert_role),
       totalMessages: Number(row.total_messages),
+      activeContextTokens,
+      savedTokensByCompaction,
+      compactionCount,
       lastUserPrompt: String(row.last_user_prompt),
       lastExpertReply: String(row.last_expert_reply),
       summaryText: String(row.summary_text),
@@ -871,27 +1006,297 @@ export class PoCliDatabase {
     }));
   }
 
-  listMessages(projectId: string, roleFilter?: ActorRole): StoredMessage[] {
+  listMessages(
+    projectId: string,
+    roleFilter?: ActorRole,
+    onlyUncompacted = false,
+  ): StoredMessage[] {
+    const uncompactedClause = onlyUncompacted
+      ? ` AND compacted_into_id IS NULL`
+      : '';
     const rows = roleFilter
       ? (this.db
           .prepare(
-            `SELECT * FROM messages WHERE project_id = ? AND (from_role = ? OR to_role = ?) ORDER BY created_at ASC`,
+            `SELECT * FROM messages WHERE project_id = ? AND (from_role = ? OR to_role = ?)${uncompactedClause} ORDER BY created_at ASC, rowid ASC`,
           )
           .all(projectId, roleFilter, roleFilter) as Record<string, unknown>[])
       : (this.db
-          .prepare(`SELECT * FROM messages WHERE project_id = ? ORDER BY created_at ASC`)
+          .prepare(
+            `SELECT * FROM messages WHERE project_id = ?${uncompactedClause} ORDER BY created_at ASC, rowid ASC`,
+          )
           .all(projectId) as Record<string, unknown>[]);
 
     return rows.map((r) => ({
       id: String(r.id),
       projectId: String(r.project_id),
       sessionId: String(r.session_id),
+      parentId: r.parent_id ? String(r.parent_id) : undefined,
       fromRole: String(r.from_role),
       toRole: String(r.to_role),
       content: String(r.content),
+      tokenEstimate: Number(
+        r.token_estimate || PoCliDatabase.estimateTokens(String(r.content)),
+      ),
+      compactedIntoId: r.compacted_into_id
+        ? String(r.compacted_into_id)
+        : undefined,
       metadataJson: String(r.metadata_json),
       createdAt: String(r.created_at),
     }));
+  }
+
+  // ==========================================================================
+  // PI-STYLE CONTEXT WINDOW COMPACTION & 4-LAYER MEMORY ASSEMBLY
+  // ==========================================================================
+
+  /**
+   * Condenses uncompacted conversation messages for an expert into a structured
+   * Pi-style Compaction Checkpoint in SQLite while preserving full historical audit rows.
+   */
+  compactAgentContextWindow(params: {
+    projectId: string;
+    expertRole: ActorRole;
+    keepRecentCount?: number;
+  }): CompactionCheckpoint | null {
+    const project = this.getProject(params.projectId);
+    if (!project) throw new Error(`Project ${params.projectId} not found.`);
+
+    const uncompacted = this.listMessages(
+      params.projectId,
+      params.expertRole,
+      true,
+    );
+    if (uncompacted.length === 0) return null;
+
+    const keepCount = params.keepRecentCount ?? 2;
+    const toCompact =
+      uncompacted.length > keepCount
+        ? uncompacted.slice(0, uncompacted.length - keepCount)
+        : uncompacted;
+
+    if (toCompact.length === 0) return null;
+
+    const previousCompaction = this.getLatestCompactionCheckpoint(
+      params.projectId,
+      params.expertRole,
+    );
+
+    const tokensBefore =
+      toCompact.reduce((acc, m) => acc + m.tokenEstimate, 0) +
+      (previousCompaction?.tokensAfter ?? 0);
+
+    const keyBullets = toCompact.map(
+      (m) =>
+        `- [${m.fromRole} -> ${m.toRole}]: ${this.cleanOneLineSnippet(m.content, 110)}`,
+    );
+
+    const structuredSummary = [
+      `[Pi Context Compaction Checkpoint — Role: ${params.expertRole} | Phase: ${project.phase}]`,
+      ...(previousCompaction
+        ? [`Prior Compacted Trajectory: ${this.cleanOneLineSnippet(previousCompaction.structuredSummary, 180)}`]
+        : []),
+      `Condensed ${toCompact.length} turn(s):`,
+      ...keyBullets.slice(-6),
+    ].join('\n');
+
+    const tokensAfter = Math.min(
+      tokensBefore,
+      PoCliDatabase.estimateTokens(structuredSummary),
+    );
+    const checkpointId = `cmp_${crypto.randomUUID().slice(0, 8)}`;
+    const upToMessageId = toCompact[toCompact.length - 1].id;
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO context_compactions (
+          id, project_id, expert_role, up_to_message_id, compacted_message_count,
+          tokens_before, tokens_after, structured_summary, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        checkpointId,
+        params.projectId,
+        params.expertRole,
+        upToMessageId,
+        toCompact.length,
+        tokensBefore,
+        tokensAfter,
+        structuredSummary,
+        now,
+      );
+
+    const markStmt = this.db.prepare(
+      `UPDATE messages SET compacted_into_id = ? WHERE id = ?`,
+    );
+    for (const msg of toCompact) {
+      markStmt.run(checkpointId, msg.id);
+    }
+
+    // Store compacted checkpoint in the 4-layer memory system (AGENT_SPECIFIC layer)
+    this.upsertMemory({
+      projectId: params.projectId,
+      layer: 'AGENT_SPECIFIC',
+      agentRole: params.expertRole,
+      key: `pi_compaction_checkpoint_${params.expertRole}`,
+      value: structuredSummary,
+    });
+
+    // Update SQLite expert chat summary box so Ctrl+Tab shows the compacted summary
+    this.refreshExpertChatSummaryInSqlite(params.projectId, params.expertRole);
+    this.db
+      .prepare(
+        `UPDATE expert_chat_summaries SET summary_text = ?, updated_at = ?
+         WHERE project_id = ? AND expert_role = ?`,
+      )
+      .run(
+        this.cleanOneLineSnippet(structuredSummary, 110),
+        now,
+        params.projectId,
+        params.expertRole,
+      );
+
+    return {
+      id: checkpointId,
+      projectId: params.projectId,
+      expertRole: params.expertRole,
+      upToMessageId,
+      compactedMessageCount: toCompact.length,
+      tokensBefore,
+      tokensAfter,
+      structuredSummary,
+      createdAt: now,
+    };
+  }
+
+  getLatestCompactionCheckpoint(
+    projectId: string,
+    expertRole: ActorRole,
+  ): CompactionCheckpoint | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM context_compactions
+         WHERE project_id = ? AND expert_role = ?
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      )
+      .get(projectId, expertRole) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      projectId: String(row.project_id),
+      expertRole: String(row.expert_role),
+      upToMessageId: String(row.up_to_message_id),
+      compactedMessageCount: Number(row.compacted_message_count),
+      tokensBefore: Number(row.tokens_before),
+      tokensAfter: Number(row.tokens_after),
+      structuredSummary: String(row.structured_summary),
+      createdAt: String(row.created_at),
+    };
+  }
+
+  listCompactionCheckpoints(
+    projectId: string,
+    expertRole?: ActorRole,
+  ): CompactionCheckpoint[] {
+    const rows = expertRole
+      ? (this.db
+          .prepare(
+            `SELECT * FROM context_compactions WHERE project_id = ? AND expert_role = ? ORDER BY created_at DESC, rowid DESC`,
+          )
+          .all(projectId, expertRole) as Record<string, unknown>[])
+      : (this.db
+          .prepare(
+            `SELECT * FROM context_compactions WHERE project_id = ? ORDER BY created_at DESC, rowid DESC`,
+          )
+          .all(projectId) as Record<string, unknown>[]);
+    return rows.map((row) => ({
+      id: String(row.id),
+      projectId: String(row.project_id),
+      expertRole: String(row.expert_role),
+      upToMessageId: String(row.up_to_message_id),
+      compactedMessageCount: Number(row.compacted_message_count),
+      tokensBefore: Number(row.tokens_before),
+      tokensAfter: Number(row.tokens_after),
+      structuredSummary: String(row.structured_summary),
+      createdAt: String(row.created_at),
+    }));
+  }
+
+  /**
+   * Assembles the agent's Context Window using Pi's prompt-caching-friendly 3-tier order:
+   * 1. Tier 1 (Static Cacheable Prefix): Authoritative Normative Artifacts (ARCH-*, REQ-*, ADR-*, SPEC-*)
+   * 2. Tier 2 (4-Layer Persistent & Agent Memory + Latest Pi Compaction Checkpoint)
+   * 3. Tier 3 (Active Recent Uncompacted Conversation DAG Window)
+   */
+  assembleAgentContextWindow(
+    projectId: string,
+    expertRole: ActorRole,
+  ): AssembledContextWindow {
+    const artifacts = this.listArtifacts(projectId, true);
+    const normativePrefix =
+      artifacts.length === 0
+        ? 'No normative artifacts registered yet.'
+        : artifacts
+            .map(
+              (a) =>
+                `[${a.code} v${a.version} | ${a.type} | Status: ${a.status} | TracesTo: ${a.tracesTo.join(',') || 'root'}] ${a.title}`,
+            )
+            .join('\n');
+
+    const persistentMems = this.listMemories(projectId, undefined, expertRole);
+    const persistentMemoryBlock =
+      persistentMems.length === 0
+        ? 'No persistent memory entries recorded yet.'
+        : persistentMems
+            .slice(0, 8)
+            .map((m) => `- [${m.layer}] ${m.key}: ${this.cleanOneLineSnippet(m.value, 140)}`)
+            .join('\n');
+
+    const latestCheckpoint = this.getLatestCompactionCheckpoint(
+      projectId,
+      expertRole,
+    );
+    const compactionCheckpointBlock = latestCheckpoint
+      ? latestCheckpoint.structuredSummary
+      : 'No compaction checkpoints yet (active window within token budget).';
+
+    const activeRecentMessages = this.listMessages(
+      projectId,
+      expertRole,
+      true,
+    ).slice(-6);
+
+    const summaryStats = this.getExpertChatSummary(projectId, expertRole);
+
+    const formattedPromptContext = [
+      `## [TIER 1 — CACHEABLE NORMATIVE ARTIFACTS (AUTHORITATIVE — CANNOT BE OVERRIDDEN BY MEMORY)]`,
+      normativePrefix,
+      ``,
+      `## [TIER 2 — 4-LAYER PERSISTENT MEMORY & PI COMPACTION CHECKPOINT]`,
+      persistentMemoryBlock,
+      compactionCheckpointBlock,
+      ``,
+      `## [TIER 3 — ACTIVE RECENT CONVERSATION WINDOW (UNCOMPACTED DAG LEAF TURNS)]`,
+      ...(activeRecentMessages.length === 0
+        ? ['(No uncompacted recent turns)']
+        : activeRecentMessages.map(
+            (m) =>
+              `[${m.id}${m.parentId ? ` <- ${m.parentId}` : ''} | ${m.fromRole} -> ${m.toRole}]: ${this.cleanOneLineSnippet(m.content, 160)}`,
+          )),
+    ].join('\n');
+
+    return {
+      projectId,
+      expertRole,
+      normativePrefix,
+      persistentMemoryBlock,
+      compactionCheckpointBlock,
+      activeRecentMessages,
+      activeTokens: summaryStats.activeContextTokens,
+      savedTokensByCompaction: summaryStats.savedTokensByCompaction,
+      compactionCount: summaryStats.compactionCount,
+      formattedPromptContext,
+    };
   }
 
   // ==========================================================================
@@ -1559,6 +1964,22 @@ export class PoCliDatabase {
       this.db
         .prepare(`UPDATE memories SET value = ?, updated_at = ? WHERE id = ?`)
         .run(params.value, now, existing.id);
+      this.db
+        .prepare(`DELETE FROM memories_fts WHERE memory_id = ?`)
+        .run(existing.id);
+      this.db
+        .prepare(
+          `INSERT INTO memories_fts (memory_id, project_id, layer, agent_role, key, value)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          existing.id,
+          params.projectId,
+          params.layer,
+          params.agentRole ?? '',
+          params.key,
+          params.value,
+        );
       return this.listMemories(params.projectId, params.layer, params.agentRole).find(
         (m) => m.id === existing.id,
       )!;
@@ -1579,6 +2000,19 @@ export class PoCliDatabase {
         params.value,
         now,
         now,
+      );
+    this.db
+      .prepare(
+        `INSERT INTO memories_fts (memory_id, project_id, layer, agent_role, key, value)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        params.projectId,
+        params.layer,
+        params.agentRole ?? '',
+        params.key,
+        params.value,
       );
 
     return {

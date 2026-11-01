@@ -83,6 +83,7 @@ npm run build
   * `/validate` — Execute independent QA validation tests and collect evidence.
   * `/accept` — Final project acceptance by the Product Owner.
   * `/notebooks` — Re-index and inspect linked RAG Notebooks.
+  * `/compact` — Execute **Pi-inspired Context Window Compaction** (`/compact` for the active agent or `/compact all` for all 4 core agents), condensing older conversation turns into a structured SQLite `context_compactions` checkpoint while preserving the full Session Tree (`parent_id` DAG) and cache-friendly 3-tier prompt assembly (`Tier 1: Normative Artifacts` → `Tier 2: 4-Layer Memory & Compaction Checkpoint` → `Tier 3: Active Uncompacted Turns`).
   * `/settings` — Open the interactive Settings modal or configure UI language (`/settings lang en|es`) and the **Central Working & Artifacts Directory** (`/settings dir <path>`, which defaults to `$HOME/.pocli/` and stores all CLI customizations, LLM-generated Python helper scripts in `artifacts/scripts/`, spreadsheets and Project Manager outputs in `artifacts/outputs/`, and mirrored project artifacts).
   * `/help` — Display all available commands and keyboard shortcuts.
   * `/view`, `/clear`, `/exit`, `/quit`, `/q`.

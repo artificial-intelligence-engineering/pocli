@@ -78,6 +78,7 @@ export interface UiTranslations {
   qaCompletedMsg: (code: string, verdict: string, passed: number, total: number) => string;
   projectAcceptedMsg: string;
   notebooksIndexedMsg: (count: number, names: string) => string;
+  compactedMsg: (role: string, count: number, savedTokens: number) => string;
   multipanelHeaderTitle: string;
   sectionTeamTitle: string;
   sectionArtifactsTitle: (count: number) => string;
@@ -175,6 +176,8 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     projectAcceptedMsg: '★ Project formally ACCEPTED and COMPLETED by the Product Owner!',
     notebooksIndexedMsg: (count, names) =>
       `✔ Active Notebooks linked to project: ${count} (${names || 'none'}).`,
+    compactedMsg: (role, count, savedTokens) =>
+      `✔ Pi-style context compaction completed for ${role}: ${count} message(s) condensed (${savedTokens} tokens saved).`,
     multipanelHeaderTitle: 'PO CLI — Multipanel Command Center (Linux)',
     sectionTeamTitle: '1. Virtual Engineering Team',
     sectionArtifactsTitle: (count) => `2. Versioned Artifacts (${count})`,
@@ -275,6 +278,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/notebooks',
         description: 'Re-index and display linked RAG Notebooks status',
+      },
+      {
+        command: '/compact',
+        description:
+          'Pi-style context window compaction for active agent or all (/compact [all])',
       },
       {
         command: '/settings',
@@ -381,6 +389,8 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     projectAcceptedMsg: '★ ¡Proyecto ACEPTADO y COMPLETADO formalmente por el Product Owner!',
     notebooksIndexedMsg: (count, names) =>
       `✔ Notebooks activos asociados al proyecto: ${count} (${names || 'ninguno'}).`,
+    compactedMsg: (role, count, savedTokens) =>
+      `✔ Compactación de contexto (estilo Pi) completada para ${role}: ${count} mensaje(s) condensados (${savedTokens} tokens ahorrados).`,
     multipanelHeaderTitle: 'PO CLI — Centro de Mando Multipanel (Linux)',
     sectionTeamTitle: '1. Equipo Virtual de Ingeniería',
     sectionArtifactsTitle: (count) => `2. Artefactos Versionados (${count})`,
@@ -481,6 +491,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/notebooks',
         description: 'Re-indexar y mostrar estado de los Notebooks RAG asociados',
+      },
+      {
+        command: '/compact',
+        description:
+          'Compactar context window (estilo Pi) del agente activo o todos (/compact [all])',
       },
       {
         command: '/settings',

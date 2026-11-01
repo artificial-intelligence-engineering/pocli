@@ -506,6 +506,32 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         );
         return;
       }
+      if (cmdToken === '/compact') {
+        const targetArg = parts[1]?.toLowerCase();
+        const targetRole =
+          targetArg === 'all'
+            ? 'all'
+            : targetArg === 'architect' ||
+                targetArg === 'developer' ||
+                targetArg === 'qa' ||
+                targetArg === 'pm'
+              ? (targetArg as ActorRole)
+              : activeRole;
+        const res = orchestrator.compactContext({
+          projectId: project.id,
+          targetRole,
+          keepRecentCount: 1,
+        });
+        refreshState();
+        setStatusBanner(
+          t.compactedMsg(
+            String(targetRole),
+            res.totalCompactedMessages,
+            res.totalSavedTokens,
+          ),
+        );
+        return;
+      }
 
       setStatusBanner(t.unknownCommandMsg(cmdToken));
       return;
@@ -1254,6 +1280,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             projectId: project.id,
             expertRole: roleKey,
             totalMessages: 0,
+            activeContextTokens: 0,
+            savedTokensByCompaction: 0,
+            compactionCount: 0,
             lastUserPrompt: '',
             lastExpertReply: '',
             summaryText: '',
@@ -1276,7 +1305,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   {isSelected ? '▶ ' : ''}
                   {boxTitle}
                 </Text>
-                <Text dimColor>({summary.totalMessages})</Text>
+                <Text dimColor>
+                  ({summary.totalMessages} msgs · {summary.activeContextTokens}t
+                  {summary.savedTokensByCompaction > 0
+                    ? ` · -${summary.savedTokensByCompaction}t`
+                    : ''}
+                  )
+                </Text>
               </Box>
               {summary.totalMessages === 0 ? (
                 <Text dimColor>{t.expertBoxNoChatsYet}</Text>
