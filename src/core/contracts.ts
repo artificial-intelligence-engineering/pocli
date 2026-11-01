@@ -227,6 +227,7 @@ export const LlmProviderTypeSchema = z.enum([
   'anthropic',
   'gemini',
   'ollama',
+  'opencode',
 ]);
 export type LlmProviderType = z.infer<typeof LlmProviderTypeSchema>;
 

@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import {
   ActorRole,
   LlmProviderType,
@@ -59,14 +60,14 @@ export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = [
     defaultTemperature: 0.2,
   },
   {
-    provider: 'anthropic',
+    provider: 'opencode',
     vendor: 'ANTHROPIC',
     providerLabel: 'Anthropic',
-    modelId: 'claude-3-5-haiku',
-    displayName: 'Claude 3.5 Haiku',
+    modelId: 'claude-haiku-5-5',
+    displayName: 'Claude Haiku 5.5',
     isFree: true,
     contextWindow: '200K',
-    recommendedFor: 'Low-Latency Tasks',
+    recommendedFor: 'Fast High-Quality Reasoning',
     defaultTemperature: 0.2,
   },
   // OpenAI
@@ -98,9 +99,20 @@ export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = [
     providerLabel: 'OpenAI',
     modelId: 'o3-mini',
     displayName: 'OpenAI o3-mini',
-    isFree: true,
+    isFree: false,
     contextWindow: '200K',
     recommendedFor: 'Strict QA & Edge Cases',
+    defaultTemperature: 0.0,
+  },
+  {
+    provider: 'opencode',
+    vendor: 'OPENAI',
+    providerLabel: 'OpenAI',
+    modelId: 'gpt-5.4-mini',
+    displayName: 'GPT-5.4 Mini',
+    isFree: true,
+    contextWindow: '128K',
+    recommendedFor: 'Strict QA & Fast Processing',
     defaultTemperature: 0.0,
   },
   {
@@ -127,28 +139,72 @@ export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = [
     defaultTemperature: 0.1,
   },
   {
-    provider: 'gemini',
+    provider: 'opencode',
     vendor: 'GEMINI',
     providerLabel: 'Google Gemini',
-    modelId: 'gemini-2.5-flash',
-    displayName: 'Gemini 2.5 Flash',
+    modelId: 'gemini-3.8-flash',
+    displayName: 'Gemini 3.8 Flash',
     isFree: true,
     contextWindow: '1M',
     recommendedFor: 'Fast Multi-Agent Inquiries',
     defaultTemperature: 0.2,
   },
   {
-    provider: 'gemini',
+    provider: 'opencode',
     vendor: 'GEMINI',
     providerLabel: 'Google Gemini',
-    modelId: 'gemini-2.0-flash',
-    displayName: 'Gemini 2.0 Flash',
+    modelId: 'gemini-3.5-flash-lite',
+    displayName: 'Gemini 3.5 Flash Lite',
     isFree: true,
     contextWindow: '1M',
-    recommendedFor: 'High-Throughput Tasks',
+    recommendedFor: 'High-Throughput Lightweight Tasks',
     defaultTemperature: 0.2,
   },
-  // Meta (Open-Weights / Local Execution)
+  {
+    provider: 'opencode',
+    vendor: 'GEMINI',
+    providerLabel: 'Google Gemini',
+    modelId: 'gemini-4-argon',
+    displayName: 'Gemini 4 Argon',
+    isFree: true,
+    contextWindow: '1M',
+    recommendedFor: 'Advanced Multi-Turn Reasoning',
+    defaultTemperature: 0.1,
+  },
+  // Meta & Open-Weights (Free via OpenCode / Local)
+  {
+    provider: 'opencode',
+    vendor: 'META',
+    providerLabel: 'Meta',
+    modelId: 'glm-5.3-flash-free',
+    displayName: 'GLM 5.3 Flash',
+    isFree: true,
+    contextWindow: '128K',
+    recommendedFor: 'Open-Weights High-Speed Coding',
+    defaultTemperature: 0.2,
+  },
+  {
+    provider: 'opencode',
+    vendor: 'META',
+    providerLabel: 'Meta',
+    modelId: 'deepseek-v4.1-flash-free',
+    displayName: 'DeepSeek V4.1 Flash',
+    isFree: true,
+    contextWindow: '128K',
+    recommendedFor: 'Open Reasoning & Math/Logic',
+    defaultTemperature: 0.2,
+  },
+  {
+    provider: 'opencode',
+    vendor: 'META',
+    providerLabel: 'Meta',
+    modelId: 'beam-free',
+    displayName: 'Beam Free',
+    isFree: true,
+    contextWindow: '128K',
+    recommendedFor: 'Ultra-Fast Sub-Second Turnaround',
+    defaultTemperature: 0.2,
+  },
   {
     provider: 'ollama',
     vendor: 'META',
@@ -157,29 +213,7 @@ export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = [
     displayName: 'Llama 3.3 70B',
     isFree: true,
     contextWindow: '128K',
-    recommendedFor: 'Open-Weights Architecture & PM',
-    defaultTemperature: 0.2,
-  },
-  {
-    provider: 'ollama',
-    vendor: 'META',
-    providerLabel: 'Meta',
-    modelId: 'llama-3.1-8b',
-    displayName: 'Llama 3.1 8B',
-    isFree: true,
-    contextWindow: '128K',
-    recommendedFor: 'Fast Local Coding & Tasks',
-    defaultTemperature: 0.2,
-  },
-  {
-    provider: 'ollama',
-    vendor: 'META',
-    providerLabel: 'Meta',
-    modelId: 'codellama-34b',
-    displayName: 'CodeLlama 34B',
-    isFree: true,
-    contextWindow: '128K',
-    recommendedFor: 'Air-Gapped Code Generation',
+    recommendedFor: 'Local Air-Gapped Architecture',
     defaultTemperature: 0.2,
   },
 ];
@@ -352,6 +386,16 @@ export class LlmGateway {
       );
     }
 
+    // OpenCode-powered zero-auth Free Models execution (gemini-3.8-flash, glm-5.3-flash, etc.)
+    if (provider === 'opencode' || this.isOpenCodeAvailableForModel(modelId)) {
+      try {
+        return await this.callOpenCodeRunner(modelId, input, onStreamToken);
+      } catch (err) {
+        // Fall back to deterministic specialist if OpenCode fails or is unavailable
+        return this.runDeterministicSpecialist(input, onStreamToken);
+      }
+    }
+
     // Deterministic specialist engine (default for local verification & zero-key operation)
     return this.runDeterministicSpecialist(input, onStreamToken);
   }
@@ -499,6 +543,113 @@ export class LlmGateway {
       providerUsed: 'gemini',
       modelUsed: modelId,
     };
+  }
+
+  private isOpenCodeAvailableForModel(modelId: string): boolean {
+    const knownOpenCodeModels = [
+      'gemini-3.8-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-4-argon',
+      'glm-5.3-flash-free',
+      'deepseek-v4.1-flash-free',
+      'beam-free',
+      'flint-40b-free',
+      'mimo-v2.6-flash-free',
+      'gpt-5.4-mini',
+      'claude-haiku-5-5',
+    ];
+    return knownOpenCodeModels.includes(modelId);
+  }
+
+  private async callOpenCodeRunner(
+    modelId: string,
+    input: AgentTurnInput,
+    onStreamToken?: (chunk: string) => void,
+  ): Promise<AgentTurnOutput> {
+    const openCodeModelSpec = modelId.startsWith('opencode/')
+      ? modelId
+      : `opencode/${modelId}`;
+
+    const ragBlock = input.ragCitations
+      .map((c) => `${NotebookRagEngine.formatCitationTag(c)}\n${c.snippet}`)
+      .join('\n\n');
+
+    const promptMessage = [
+      `System: You are acting as the ${input.role.toUpperCase()} specialist in PO CLI.`,
+      input.systemPrompt,
+      input.normativeArtifactsSummary
+        ? `\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}`
+        : '',
+      ragBlock ? `\n[RAG NOTEBOOK SOURCES]\n${ragBlock}` : '',
+      `\nUser request:\n${input.userPrompt}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    return new Promise((resolve, reject) => {
+      const child = spawn(
+        'opencode',
+        ['run', '--format', 'json', '--model', openCodeModelSpec, promptMessage],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 45000,
+        },
+      );
+
+      let accumulatedText = '';
+      let errorOutput = '';
+
+      child.stdout.on('data', (chunk: Buffer) => {
+        const textChunk = chunk.toString();
+        const lines = textChunk.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const parsed = JSON.parse(trimmed) as {
+              type?: string;
+              part?: { type?: string; text?: string };
+            };
+            if (parsed.type === 'text' && parsed.part?.text) {
+              const delta = parsed.part.text;
+              accumulatedText += delta;
+              if (onStreamToken) onStreamToken(delta);
+            }
+          } catch {
+            // Non-JSON raw stdout line fallback
+            if (!trimmed.startsWith('{')) {
+              accumulatedText += `${trimmed}\n`;
+              if (onStreamToken) onStreamToken(`${trimmed}\n`);
+            }
+          }
+        }
+      });
+
+      child.stderr.on('data', (chunk: Buffer) => {
+        errorOutput += chunk.toString();
+      });
+
+      child.on('error', (err) => {
+        reject(err);
+      });
+
+      child.on('close', (code) => {
+        if (code === 0 && accumulatedText.trim().length > 0) {
+          resolve({
+            replyText: accumulatedText.trim(),
+            toolCalls: [],
+            providerUsed: 'opencode',
+            modelUsed: modelId,
+          });
+        } else {
+          reject(
+            new Error(
+              `OpenCode exit ${code}: ${errorOutput.trim() || 'No text output produced'}`,
+            ),
+          );
+        }
+      });
+    });
   }
 
   private async runDeterministicSpecialist(
