@@ -95,7 +95,7 @@ export const AVAILABLE_AGENTS: AvailableAgentInfo[] = [
       es: 'Diseño de arquitectura, especificaciones (ARCH-001) y contratos',
       en: 'Architecture design, formal specifications (ARCH-001) and contracts',
     },
-    icon: '🏛',
+    icon: '📐',
   },
   {
     role: 'developer',
@@ -1890,8 +1890,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     wrap="truncate-end"
                   >
                     {isSelected ? '❯ ' : '  '}
-                    {item.icon}{item.role === 'architect' ? '  ' : ' '}
-                    {item.title}{' '}
+                    {item.icon} {item.title}{' '}
                     {isCurrentActive && (
                       <Text color="green" bold>
                         [{language === 'es' ? 'Activo' : 'Active'}]
@@ -1906,7 +1905,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     wrap="truncate-end"
                   >
                     {modelLabel}
-                    {item.role === 'architect' ? ' ' : ''}
                   </Text>
                 </Box>
               </Box>
