@@ -356,12 +356,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     }) as typeof stdout.write;
 
     stdout.write = syncedWrite;
-    origWrite(ENABLE_MOUSE_TRACKING_SEQ);
+    origWrite('\x1b[>4;2m\x1b[>1u' + ENABLE_MOUSE_TRACKING_SEQ);
 
     const restoreTerminal = () => {
       try {
         stdout.write = origWrite;
-        origWrite(`${DISABLE_MOUSE_TRACKING_SEQ}\x1b[?2026l`);
+        origWrite('\x1b[>4;0m\x1b[<u' + DISABLE_MOUSE_TRACKING_SEQ + '\x1b[?2026l');
       } catch {
         // Ignore write errors during process teardown
       }
@@ -443,7 +443,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     if (now - lastCycleTimeRef.current < 100) return;
     lastCycleTimeRef.current = now;
     closeAllModals();
-    const roles: ActorRole[] = AVAILABLE_AGENTS.map((a) => a.role);
+    const roles: ActorRole[] = ['pm', 'architect', 'developer', 'qa'];
     const currIdx = roles.indexOf(activeRole);
     const nextIdx = (currIdx + 1) % roles.length;
     const nextRole = roles[nextIdx];
@@ -462,9 +462,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const onRawData = (data: Buffer | string) => {
       const seq = typeof data === 'string' ? data : data.toString('utf8');
       if (
-        seq === '\x1b[27;5;9~' || // xterm modifyOtherKeys Ctrl+Tab
-        seq === '\x1b[9;5u' ||    // Kitty / CSI-u Ctrl+Tab
-        seq === '\x1b[1;5I'       // VTE / GNOME Terminal Ctrl+Tab
+        seq.includes('\x1b[27;5;9~') ||
+        seq.includes('[27;5;9~') ||
+        seq.includes('\x1b[9;5u') ||
+        seq.includes('[9;5u') ||
+        seq.includes('\x1b[1;5I') ||
+        seq.includes('[1;5I')
       ) {
         cycleNextAgent();
       }
@@ -1565,6 +1568,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // Intercept Ctrl+Tab and Ctrl+N to cycle through agent chats in carousel
+    const isCtrlTab =
+      (key.tab && key.ctrl) ||
+      (key.ctrl && (input === 'n' || input === 'N')) ||
+      input === '\x1b[27;5;9~' ||
+      input === '[27;5;9~' ||
+      input === '\x1b[9;5u' ||
+      input === '[9;5u' ||
+      input === '\x1b[1;5I' ||
+      input === '[1;5I';
+
+    if (isCtrlTab) {
+      cycleNextAgent();
+      return;
+    }
+
     // 1. Handle New Project Creation Wizard (/project)
     if (projectWizardStep !== 'CLOSED') {
       if (key.escape) {
@@ -2159,6 +2178,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return next;
       });
       if (selectedSlashIdx !== 0) setSelectedSlashIdx(0);
+      return;
+    }
+
+    // Prevent unparsed terminal escape sequences from leaking into the prompt input box
+    if (
+      input &&
+      (input.startsWith('\x1b') ||
+        (input.startsWith('[') &&
+          (input.includes(';') || input.endsWith('~') || input.endsWith('u') || input.endsWith('I'))))
+    ) {
       return;
     }
 
@@ -3919,7 +3948,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Text>
           </Box>
           <Box flexDirection="row">
-            <Text color="gray">ctrl+tab </Text>
+            <Text color="gray">ctrl+tab/n </Text>
             <Text color="white">cycle   </Text>
             <Text color="gray">shift+tab </Text>
             <Text color="white">agents   </Text>

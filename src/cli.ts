@@ -23,8 +23,8 @@ import { CommandCenterApp } from './tui/CommandCenterApp.js';
 function enterFullscreenTerminal(): void {
   if (process.stdout.isTTY) {
     // Enter alternate screen buffer, clear screen, move cursor to home (1,1),
-    // and enable xterm modifyOtherKeys so Ctrl+Tab sends a distinct escape sequence
-    process.stdout.write('\x1b[?1049h\x1b[2J\x1b[H\x1b[>4;1m');
+    // and enable xterm modifyOtherKeys (mode 2) + Kitty protocol so Ctrl+Tab sends a distinct escape sequence
+    process.stdout.write('\x1b[?1049h\x1b[2J\x1b[H\x1b[>4;2m\x1b[>1u');
   } else {
     process.stdout.write('\x1b[2J\x1b[H');
   }
@@ -32,8 +32,8 @@ function enterFullscreenTerminal(): void {
 
 function exitFullscreenTerminal(): void {
   if (process.stdout.isTTY) {
-    // Disable modifyOtherKeys and restore primary screen buffer
-    process.stdout.write('\x1b[>4;0m\x1b[?1049l');
+    // Disable modifyOtherKeys and Kitty protocol, then restore primary screen buffer
+    process.stdout.write('\x1b[>4;0m\x1b[<u\x1b[?1049l');
   }
 }
 
