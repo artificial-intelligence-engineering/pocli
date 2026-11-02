@@ -161,6 +161,22 @@ function fitAndPadLine(text: string, width: number): string {
   return oneLine.padEnd(safeWidth, ' ');
 }
 
+function formatInteractionLine(
+  label: string,
+  count: number,
+  width: number,
+): string {
+  const fullText = ` ${label} Interactions: ${count}`;
+  if (fullText.length <= width) {
+    return fullText.padEnd(width, ' ');
+  }
+  const shortText = ` ${label} Inter.: ${count}`;
+  if (shortText.length <= width) {
+    return shortText.padEnd(width, ' ');
+  }
+  return ` ${label}: ${count}`.padEnd(width, ' ');
+}
+
 export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   orchestrator,
   initialProject,
@@ -3589,9 +3605,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               );
 
               const poCount = summary.interactions?.po ?? 0;
-              const poLabel = expertBoxInnerWidth >= 20 ? 'PO Interactions' : 'PO';
-              const line2 = fitAndPadLine(
-                ` ${poLabel}: ${poCount}`,
+              const line2 = formatInteractionLine(
+                'PO',
+                poCount,
                 expertBoxInnerWidth,
               );
 
@@ -3600,16 +3616,19 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               const peer2Count = summary.interactions?.[peers[1].role] ?? 0;
               const peer3Count = summary.interactions?.[peers[2].role] ?? 0;
 
-              const line3 = fitAndPadLine(
-                ` ${peers[0].label}: ${peer1Count}`,
+              const line3 = formatInteractionLine(
+                peers[0].label,
+                peer1Count,
                 expertBoxInnerWidth,
               );
-              const line4 = fitAndPadLine(
-                ` ${peers[1].label}: ${peer2Count}`,
+              const line4 = formatInteractionLine(
+                peers[1].label,
+                peer2Count,
                 expertBoxInnerWidth,
               );
-              const line5 = fitAndPadLine(
-                ` ${peers[2].label}: ${peer3Count}`,
+              const line5 = formatInteractionLine(
+                peers[2].label,
+                peer3Count,
                 expertBoxInnerWidth,
               );
 
