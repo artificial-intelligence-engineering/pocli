@@ -85,6 +85,56 @@ When the **Project Manager (PM)** executes parallel or sequential cross-agent in
 
 By constraining harness overhead to ~1,000 tokens, POCLI preserves **over 90–95% of the context window** (even on compact 8k/16k local models) exclusively for real source code, diffs, and RAG Knowledge Notebook citations.
 
+### Technical Breakdown: Where and How System Prompts are Stored & Assembled
+
+POCLI manages prompts through a decoupled two-layer architecture separating **immutable role definitions** from **dynamic, cache-friendly project state**:
+
+#### 1. Static Role Prompts (`src/runtime/harnesses.ts`)
+The baseline behavioral prompt for each virtual engineering role is stored in the core harness registry (`BUILTIN_HARNESSES` in `src/runtime/harnesses.ts`):
+* **`architect.systemPrompt`:** Requirements analysis, architectural proposals, ADR authoring, and specification approval boundaries.
+* **`developer.systemPrompt`:** Implementation strictly against approved handoff bundles; explicit ban on unilateral deviations (`consult_architect`).
+* **`qa.systemPrompt`:** Empirical verification, defect severity classification, and grounded `ACCEPT`/`REJECT` verdicts.
+* **`pm.systemPrompt`:** Parallel and sequential inquiry orchestration, discrepancy detection, and strict non-interference authority limits.
+
+Dynamic or user-defined specialist agents can be added at runtime via `HarnessRegistry.registerCustomHarness()`, registering domain permissions with `AuthorityGuard`.
+
+#### 2. Dynamic Context Assembly from SQLite (`src/storage/database.ts`)
+On each conversational turn, `src/runtime/orchestrator.ts` calls `storage.assembleAgentContextWindow(projectId, targetRole)`, which queries the central SQLite database (`$HOME/.pocli/pocli.sqlite`):
+* **Tier 1 (Authoritative Artifacts):** Queries the `artifacts` table to build a compact normative index (`[ARCH-001 v1 | Status: APPROVED]`).
+* **Tier 2 (Memory & Checkpoint):** Reads up to 8 persistent records from the `memories` table (4-layer memory) and the latest structured summary from the `context_compactions` table (produced by `/compact`).
+* **Tier 3 (Active Window):** Reads the last 6 uncompacted leaf messages from the `messages` table (Session Tree DAG).
+
+#### 3. Execution Pipeline & Child Process Isolation
+
+In `src/runtime/llm-gateway.ts`, the static harness instructions and dynamic context are merged into a single system instruction block:
+
+```text
+${input.systemPrompt}
+
+[NORMATIVE ARTIFACTS]
+${input.normativeArtifactsSummary}
+
+[RAG NOTEBOOK SOURCES]
+${ragBlock}
+```
+
+```
+┌──────────────────────────────────────────────┐
+│  src/runtime/harnesses.ts                    │ ──> Static Role Prompt (150-250 tokens)
+└──────────────────────────────────────────────┘
+                       +
+┌──────────────────────────────────────────────┐
+│  $HOME/.pocli/pocli.sqlite                   │ ──> Tier 1 + Tier 2 (Normative & Compaction)
+└──────────────────────────────────────────────┘
+                       │
+                       ▼  (assembled in src/runtime/orchestrator.ts)
+┌──────────────────────────────────────────────┐
+│  Linux Child Process Worker (JSON-RPC stdio) │ ──> Sent to LLM Provider (Total: ~600-1,200 tokens)
+└──────────────────────────────────────────────┘
+```
+
+This multi-process architecture guarantees that agent execution is isolated inside a dedicated Linux child process (`LOCAL_PROCESS`, `LINUX_BWRAP`, or `OCI_CONTAINER`) without blocking the Ink TUI and without leaking conversational state between specialists.
+
 ---
 
 ## Architecture & Implementation (Phases 0 to 7)
