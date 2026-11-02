@@ -89,14 +89,28 @@ By constraining harness overhead to ~1,000 tokens, POCLI preserves **over 90–9
 
 POCLI manages prompts through a decoupled two-layer architecture separating **immutable role definitions** from **dynamic, cache-friendly project state**:
 
-#### 1. Static Role Prompts (`src/runtime/harnesses.ts`)
-The baseline behavioral prompt for each virtual engineering role is stored in the core harness registry (`BUILTIN_HARNESSES` in `src/runtime/harnesses.ts`):
-* **`architect.systemPrompt`:** Requirements analysis, architectural proposals, ADR authoring, and specification approval boundaries.
-* **`developer.systemPrompt`:** Implementation strictly against approved handoff bundles; explicit ban on unilateral deviations (`consult_architect`).
-* **`qa.systemPrompt`:** Empirical verification, defect severity classification, and grounded `ACCEPT`/`REJECT` verdicts.
-* **`pm.systemPrompt`:** Parallel and sequential inquiry orchestration, discrepancy detection, and strict non-interference authority limits.
+#### 1. Decoupled Role Prompts (`behavior/system/*.md` & `src/runtime/harnesses.ts`)
+The baseline behavioral prompt for each virtual engineering role is decoupled into standalone Markdown files under `behavior/system/`:
+* `behavior/system/architect.md` — Software Architect directives and ADR/spec boundaries.
+* `behavior/system/developer.md` — Senior Developer implementation constraints and handoff compliance.
+* `behavior/system/qa.md` — Independent QA empirical verification and verdict rules.
+* `behavior/system/pm.md` — Project Manager inquiry coordination and strict non-interference limits.
 
-Dynamic or user-defined specialist agents can be added at runtime via `HarnessRegistry.registerCustomHarness()`, registering domain permissions with `AuthorityGuard`.
+`HarnessRegistry` in `src/runtime/harnesses.ts` loads these files with in-memory caching and cascading resolution. Dynamic or custom specialist agents can also be registered at runtime via `HarnessRegistry.registerCustomHarness()`.
+
+##### User Prompt Overrides (Customizing Agent Behavior)
+
+POCLI resolves system prompts using a **cascading priority hierarchy**, allowing users to customize agent directives without modifying the codebase:
+
+1. **User Global Override (`$HOME/.pocli/behavior/system/<role>.md`):** Highest priority. If present, it overrides the default prompt across all projects for your local environment:
+   ```bash
+   # Example: customize the Senior Developer prompt for your local system
+   mkdir -p ~/.pocli/behavior/system
+   cp behavior/system/developer.md ~/.pocli/behavior/system/developer.md
+   # Edit ~/.pocli/behavior/system/developer.md to inject your custom rules or style guides
+   ```
+2. **Repository Default (`behavior/system/<role>.md`):** The standard shipped behavior for the team.
+3. **In-Memory Fallback:** Built-in embedded definitions ensuring the CLI remains resilient even in isolated or containerized runtimes without filesystem access.
 
 #### 2. Dynamic Context Assembly from SQLite (`src/storage/database.ts`)
 On each conversational turn, `src/runtime/orchestrator.ts` calls `storage.assembleAgentContextWindow(projectId, targetRole)`, which queries the central SQLite database (`$HOME/.pocli/pocli.sqlite`):

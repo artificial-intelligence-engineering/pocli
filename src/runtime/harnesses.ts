@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { ActorRole, ArtifactType } from '../core/contracts.js';
 import { AuthorityGuard } from '../core/workflow.js';
 
@@ -9,20 +13,134 @@ export interface AgentHarness {
   allowedArtifactTypes: ArtifactType[];
 }
 
+const promptCache = new Map<string, string>();
+
+export function getProjectRoot(): string {
+  try {
+    const currentFile = fileURLToPath(import.meta.url);
+    const candidate = path.resolve(path.dirname(currentFile), '..', '..');
+    if (fs.existsSync(path.join(candidate, 'package.json'))) {
+      return candidate;
+    }
+  } catch {
+    // ignore
+  }
+  return process.cwd();
+}
+
+export function loadRoleSystemPrompt(role: string, fallbackPrompt: string): string {
+  if (promptCache.has(role)) {
+    return promptCache.get(role)!;
+  }
+
+  // 1. User global override: $HOME/.pocli/behavior/system/<role>.md
+  const userOverride = path.join(os.homedir(), '.pocli', 'behavior', 'system', `${role}.md`);
+  if (fs.existsSync(userOverride)) {
+    try {
+      const content = fs.readFileSync(userOverride, 'utf8').trim();
+      if (content) {
+        promptCache.set(role, content);
+        return content;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 2. Co-located bundle path (dist/behavior/system/<role>.md in standalone distributions)
+  try {
+    const currentFile = fileURLToPath(import.meta.url);
+    const coLocatedPath = path.resolve(path.dirname(currentFile), '..', 'behavior', 'system', `${role}.md`);
+    if (fs.existsSync(coLocatedPath)) {
+      const content = fs.readFileSync(coLocatedPath, 'utf8').trim();
+      if (content) {
+        promptCache.set(role, content);
+        return content;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Repository/package default: behavior/system/<role>.md
+  const projectRoot = getProjectRoot();
+  const repoFile = path.join(projectRoot, 'behavior', 'system', `${role}.md`);
+  if (fs.existsSync(repoFile)) {
+    try {
+      const content = fs.readFileSync(repoFile, 'utf8').trim();
+      if (content) {
+        promptCache.set(role, content);
+        return content;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 4. Fallback to process.cwd() / behavior/system/<role>.md
+  const cwdFile = path.join(process.cwd(), 'behavior', 'system', `${role}.md`);
+  if (fs.existsSync(cwdFile)) {
+    try {
+      const content = fs.readFileSync(cwdFile, 'utf8').trim();
+      if (content) {
+        promptCache.set(role, content);
+        return content;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 5. Fallback to built-in in-memory string (resilience in bundled single binaries)
+  promptCache.set(role, fallbackPrompt);
+  return fallbackPrompt;
+}
+
+export function clearPromptCache(): void {
+  promptCache.clear();
+}
+
+const FALLBACK_PROMPTS: Record<string, string> = {
+  architect: [
+    'You are the Lead Software Architect of the PO CLI virtual engineering team.',
+    'Your primary interlocutor is the human Product Owner, who holds final authority over the project.',
+    'Responsibilities:',
+    '1. Analyze functional and non-functional requirements and ask clarifying questions when information is missing.',
+    '2. Query authorized knowledge Notebooks and always cite the source [Notebook | Doc | Section].',
+    '3. Propose architectures explaining advantages, drawbacks, and technical trade-offs.',
+    '4. Produce versioned artifacts (REQUIREMENT, ADR, ARCHITECTURE, SPECIFICATION) and request explicit Product Owner approval.',
+    '5. Evaluate technical consultations from the Developer without allowing unilateral deviations.',
+  ].join('\n'),
+  developer: [
+    'You are the Senior Developer of the PO CLI virtual engineering team.',
+    'You work strictly on the Approved Architecture, Requirements, and Specifications delivered in the Handoff bundle.',
+    'FUNDAMENTAL RULE: You cannot unilaterally modify approved architectural decisions.',
+    'If you encounter an ambiguity, contradiction, or need to deviate from the architecture, you MUST use the consult_architect tool.',
+    'When you finish an implementation or a correction cycle, prepare and submit the deliverable to QA via submit_for_qa.',
+  ].join('\n'),
+  qa: [
+    'You are the Independent QA Engineer of the PO CLI virtual engineering team.',
+    'Your mission is to independently verify whether the Developer implementation fulfills Requirements, Approved Architecture, and Acceptance Criteria.',
+    'Never accept claims without proof: execute real verification checks, collect evidence, classify defects by severity (LOW, MEDIUM, HIGH, CRITICAL), and emit a grounded verdict (ACCEPT or REJECT).',
+  ].join('\n'),
+  pm: [
+    'You are the Project Manager (PM) of the PO CLI virtual engineering team.',
+    'The Software Architect, Senior Developer, and Independent QA Engineer remain permanently active in the runtime.',
+    'Responsibilities:',
+    '1. Query active agents in PARALLEL (simultaneously) or SEQUENTIALLY (chained context) as requested by the Product Owner or as best fits the inquiry.',
+    '2. Record all questions asked and responses received, identify incomplete replies, distinguish each agent contribution, and detect discrepancies or contradictions.',
+    '3. Deliver both individual agent responses and a consolidated summary to the Product Owner without attributing unexpressed agreements.',
+    '4. STRICT AUTHORITY BOUNDARY: You have NO authority to direct, modify, or interrupt the work of the engineering agents.',
+  ].join('\n'),
+};
+
 const BUILTIN_HARNESSES: Record<string, AgentHarness> = {
   architect: {
     role: 'architect',
     displayName: 'Software Architect',
-    systemPrompt: [
-      'You are the Lead Software Architect of the PO CLI virtual engineering team.',
-      'Your primary interlocutor is the human Product Owner, who holds final authority over the project.',
-      'Responsibilities:',
-      '1. Analyze functional and non-functional requirements and ask clarifying questions when information is missing.',
-      '2. Query authorized knowledge Notebooks and always cite the source [Notebook | Doc | Section].',
-      '3. Propose architectures explaining advantages, drawbacks, and technical trade-offs.',
-      '4. Produce versioned artifacts (REQUIREMENT, ADR, ARCHITECTURE, SPECIFICATION) and request explicit Product Owner approval.',
-      '5. Evaluate technical consultations from the Developer without allowing unilateral deviations.',
-    ].join('\n'),
+    get systemPrompt(): string {
+      return loadRoleSystemPrompt('architect', FALLBACK_PROMPTS.architect);
+    },
     allowedTools: [
       'query_notebooks',
       'propose_requirement',
@@ -45,13 +163,9 @@ const BUILTIN_HARNESSES: Record<string, AgentHarness> = {
   developer: {
     role: 'developer',
     displayName: 'Senior Developer',
-    systemPrompt: [
-      'You are the Senior Developer of the PO CLI virtual engineering team.',
-      'You work strictly on the Approved Architecture, Requirements, and Specifications delivered in the Handoff bundle.',
-      'FUNDAMENTAL RULE: You cannot unilaterally modify approved architectural decisions.',
-      'If you encounter an ambiguity, contradiction, or need to deviate from the architecture, you MUST use the consult_architect tool.',
-      'When you finish an implementation or a correction cycle, prepare and submit the deliverable to QA via submit_for_qa.',
-    ].join('\n'),
+    get systemPrompt(): string {
+      return loadRoleSystemPrompt('developer', FALLBACK_PROMPTS.developer);
+    },
     allowedTools: [
       'query_notebooks',
       'write_implementation_plan',
@@ -70,11 +184,9 @@ const BUILTIN_HARNESSES: Record<string, AgentHarness> = {
   qa: {
     role: 'qa',
     displayName: 'Independent QA Engineer',
-    systemPrompt: [
-      'You are the Independent QA Engineer of the PO CLI virtual engineering team.',
-      'Your mission is to independently verify whether the Developer implementation fulfills Requirements, Approved Architecture, and Acceptance Criteria.',
-      'Never accept claims without proof: execute real verification checks, collect evidence, classify defects by severity (LOW, MEDIUM, HIGH, CRITICAL), and emit a grounded verdict (ACCEPT or REJECT).',
-    ].join('\n'),
+    get systemPrompt(): string {
+      return loadRoleSystemPrompt('qa', FALLBACK_PROMPTS.qa);
+    },
     allowedTools: [
       'query_notebooks',
       'write_test_case',
@@ -86,15 +198,9 @@ const BUILTIN_HARNESSES: Record<string, AgentHarness> = {
   pm: {
     role: 'pm',
     displayName: 'Project Manager (PM)',
-    systemPrompt: [
-      'You are the Project Manager (PM) of the PO CLI virtual engineering team.',
-      'The Software Architect, Senior Developer, and Independent QA Engineer remain permanently active in the runtime.',
-      'Responsibilities:',
-      '1. Query active agents in PARALLEL (simultaneously) or SEQUENTIALLY (chained context) as requested by the Product Owner or as best fits the inquiry.',
-      '2. Record all questions asked and responses received, identify incomplete replies, distinguish each agent contribution, and detect discrepancies or contradictions.',
-      '3. Deliver both individual agent responses and a consolidated summary to the Product Owner without attributing unexpressed agreements.',
-      '4. STRICT AUTHORITY BOUNDARY: You have NO authority to direct, modify, or interrupt the work of the engineering agents.',
-    ].join('\n'),
+    get systemPrompt(): string {
+      return loadRoleSystemPrompt('pm', FALLBACK_PROMPTS.pm);
+    },
     allowedTools: [
       'query_notebooks',
       'query_agents_parallel',
@@ -129,5 +235,9 @@ export class HarnessRegistry {
       harness.role,
       harness.allowedArtifactTypes,
     );
+  }
+
+  static reloadPrompts(): void {
+    clearPromptCache();
   }
 }

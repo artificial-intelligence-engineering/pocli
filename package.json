@@ -6,8 +6,13 @@
   "bin": {
     "pocli": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "behavior",
+    "data"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"require('node:fs').cpSync('behavior', 'dist/behavior', { recursive: true });\"",
     "pocli": "tsx src/cli.ts",
     "start": "tsx src/cli.ts",
     "tui": "tsx src/cli.ts tui",
