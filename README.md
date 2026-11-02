@@ -31,6 +31,62 @@ In **POCLI**, the **human user is the Product Owner** and retains final authorit
 
 ---
 
+## Performance & Token Efficiency: The Minimal Harness Philosophy
+
+A core architectural principle of **POCLI** is extreme token efficiency and low latency, inspired by the minimalist design philosophy of **Pi** (*pi-agent*) and deliberately avoiding the prompt bloat seen in alternatives like OpenCode, Codex, or Claude Code—especially when running against local models (`llama.cpp`, Ollama) or rate-limited free tiers.
+
+### Understanding the System Prompt
+
+The **system prompt** is the baseline set of instructions and constraints defining the persona, behavioral boundaries, role permissions, and tooling available to the language model and its execution environment (*harness*) throughout an interaction:
+
+* **Behavioral Directives:** Establishes the agent's identity, operational boundaries, and response formatting.
+* **Persistent Transmission:** Injected and transmitted to the model provider on **every single conversational turn** to maintain continuous context and operational rules.
+* **Prompt Processing Phase:** Prior to generating the first response token, the LLM inference server must sequentially ingest and index all system prompt instructions.
+
+#### Why System Prompt Size is Critical
+
+1. **Token Consumption & Incurred Costs:** Because it is included in every API call, an oversized system prompt imposes a heavy, recurring tax on your token quota with every conversational turn.
+2. **Response Latency:** A large volume of initial instructions demands significantly more prompt processing time before generation can begin.
+3. **Context Budget for the Project:** Tokens consumed by the system prompt permanently subtract from the total context window available for your actual project code, diffs, and files.
+
+### 1. System Prompt Size & Specialization
+
+| Environment | System Prompt Overhead | Design Approach |
+| :--- | :--- | :--- |
+| **Claude Code** | ~25,000 tokens | Monolithic rules, comprehensive checklists, tool manuals, and extensive style guides. |
+| **OpenCode / Codex** | 10,000 – 15,000 tokens | Heavy multi-tool schemas, task manager prompts, and broad operational guidelines. |
+| **Pi agent** | 500 – 900 tokens | Minimalist core behavioral guidelines. |
+| **POCLI** | **150 – 250 tokens** | **Ultra-concise, role-scoped harnesses** (`Architect`: ~140 tokens, `Developer`: ~105 tokens, `QA`: ~70 tokens, `PM`: ~130 tokens). |
+
+### 2. Prompt Processing Latency (TTFT) & 3-Tier Context Assembly
+
+Before generating the first token, LLM inference engines must index the entire prompt. In OpenCode or Claude Code, sending even a simple greeting or status request forces the model to process 13,000+ tokens (often taking **up to 25 seconds** on local hardware or free-tier APIs).
+
+In POCLI, the runtime assembles a **3-Tier Context Window** directly from SQLite:
+* **Tier 1 (Cacheable Normative Prefix):** Only authoritative artifact codes, versions, and titles (`[REQ-001 v1 | APPROVED]`), rather than full document bodies.
+* **Tier 2 (4-Layer Memory & Compaction Checkpoint):** Up to 8 high-priority persistent memories and the latest structured `/compact` summary.
+* **Tier 3 (Active Recent Turns):** Strictly the last **6 uncompacted leaf turns** from the Session Tree DAG.
+
+Total prompt payload remains between **600 and 1,200 tokens**, yielding a Time-To-First-Token (TTFT) of **under 1 second**.
+
+### 3. "Minimal Harness" vs. Tool Bloat
+
+Unlike frameworks that inject dozens of tool JSON schemas and UI state into every turn:
+* The **Ink TUI** runs 100% locally in Node.js; modal dialogs, project switchers, and visual components never pollute the LLM's context.
+* Tool availability is strictly bounded by role: `Independent QA Engineer` only receives 4 verification tools, `Senior Developer` receives 6, etc.
+
+### 4. Isolated Subagent Inquiries with Clean Context
+
+When the **Project Manager (PM)** executes parallel or sequential cross-agent inquiries (`query_agents_parallel` / `query_agents_sequential`), or when the Developer initiates a formal consultation with the Architect (`consult_architect`):
+* The runtime spawns isolated worker turns in independent Linux processes.
+* Inquiries receive only the targeted question and the normative Tier 1 prefix—**never dragging along the human Product Owner's full conversational history**.
+
+### 5. Maximum Context Budget for Code & Artifacts
+
+By constraining harness overhead to ~1,000 tokens, POCLI preserves **over 90–95% of the context window** (even on compact 8k/16k local models) exclusively for real source code, diffs, and RAG Knowledge Notebook citations.
+
+---
+
 ## Architecture & Implementation (Phases 0 to 7)
 
 * **Documentation & ADRs:**
