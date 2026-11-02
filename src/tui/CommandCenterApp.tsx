@@ -202,6 +202,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [selectedSystemIdx, setSelectedSystemIdx] = useState<number>(0);
   const [systemViewDetail, setSystemViewDetail] = useState<'menu' | 'prompt' | 'locations'>('menu');
   const [systemViewingRole, setSystemViewingRole] = useState<ActorRole>('architect');
+  const [systemPromptScrollOffset, setSystemPromptScrollOffset] = useState<number>(0);
 
   // Interactive OpenCode-style Per-Agent Model Picker Modal (/models)
   const [isModelsModalOpen, setIsModelsModalOpen] = useState<boolean>(false);
@@ -348,6 +349,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsModelsModalOpen(false);
     setIsSystemModalOpen(false);
     setSystemViewDetail('menu');
+    setSystemPromptScrollOffset(0);
     setIsExitConfirmOpen(false);
     setModelsFilterQuery('');
     setDbModalOutput('');
@@ -660,6 +662,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         if (subParam === 'location' || subParam === 'locations' || subParam === 'loc') {
           setSelectedSystemIdx(4);
           setSystemViewDetail('locations');
+          setSystemPromptScrollOffset(0);
           setIsSystemModalOpen(true);
           return;
         }
@@ -667,11 +670,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         if (subParam && roleMatch) {
           setSystemViewingRole(roleMatch as ActorRole);
           setSystemViewDetail('prompt');
+          setSystemPromptScrollOffset(0);
           setIsSystemModalOpen(true);
           return;
         }
         setSelectedSystemIdx(0);
         setSystemViewDetail('menu');
+        setSystemPromptScrollOffset(0);
         setIsSystemModalOpen(true);
         return;
       }
@@ -1044,6 +1049,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           setSelectedSystemIdx((prev) =>
             isUp ? (prev > 0 ? prev - 1 : 4) : prev < 4 ? prev + 1 : 0,
           );
+        } else if (systemViewDetail === 'prompt') {
+          setSystemPromptScrollOffset((prev) =>
+            isUp ? Math.max(0, prev - 2) : prev + 2,
+          );
         }
         return;
       }
@@ -1137,13 +1146,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         if (systemViewDetail === 'menu') {
           if (selectedSystemIdx === 4) {
             setSystemViewDetail('locations');
+            setSystemPromptScrollOffset(0);
           } else {
             const chosen = AVAILABLE_AGENTS[selectedSystemIdx] ?? AVAILABLE_AGENTS[0];
             setSystemViewingRole(chosen.role);
             setSystemViewDetail('prompt');
+            setSystemPromptScrollOffset(0);
           }
         } else {
           setSystemViewDetail('menu');
+          setSystemPromptScrollOffset(0);
         }
         return;
       }
@@ -1396,6 +1408,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (key.escape || input === 'q') {
         if (systemViewDetail !== 'menu') {
           setSystemViewDetail('menu');
+          setSystemPromptScrollOffset(0);
         } else {
           setIsSystemModalOpen(false);
         }
@@ -1418,28 +1431,59 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             setSelectedSystemIdx(numIdx);
             setSystemViewingRole(chosen.role);
             setSystemViewDetail('prompt');
+            setSystemPromptScrollOffset(0);
             return;
           }
         }
         if (input === '5') {
           setSelectedSystemIdx(4);
           setSystemViewDetail('locations');
+          setSystemPromptScrollOffset(0);
           return;
         }
         if (key.return) {
           if (selectedSystemIdx === 4) {
             setSystemViewDetail('locations');
+            setSystemPromptScrollOffset(0);
           } else {
             const chosen =
               AVAILABLE_AGENTS[selectedSystemIdx] ?? AVAILABLE_AGENTS[0];
             setSystemViewingRole(chosen.role);
             setSystemViewDetail('prompt');
+            setSystemPromptScrollOffset(0);
           }
+          return;
+        }
+      } else if (systemViewDetail === 'prompt') {
+        if (key.upArrow) {
+          setSystemPromptScrollOffset((prev) => Math.max(0, prev - 1));
+          return;
+        }
+        if (key.downArrow) {
+          setSystemPromptScrollOffset((prev) => prev + 1);
+          return;
+        }
+        if (key.pageUp) {
+          setSystemPromptScrollOffset((prev) => Math.max(0, prev - 6));
+          return;
+        }
+        if (key.pageDown) {
+          setSystemPromptScrollOffset((prev) => prev + 6);
+          return;
+        }
+        if (input === 'g') {
+          setSystemPromptScrollOffset(0);
+          return;
+        }
+        if (key.return) {
+          setSystemViewDetail('menu');
+          setSystemPromptScrollOffset(0);
           return;
         }
       } else {
         if (key.return) {
           setSystemViewDetail('menu');
+          setSystemPromptScrollOffset(0);
           return;
         }
       }
@@ -2033,19 +2077,78 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     );
   };
 
+  // Helper to wrap prompt text into fixed-width lines without cutting words
+  const wrapPromptText = (content: string, maxWidth: number): string[] => {
+    const result: string[] = [];
+    const rawLines = content.split('\n');
+    const safeWidth = Math.max(20, maxWidth);
+    for (const raw of rawLines) {
+      if (!raw.trim()) {
+        result.push('');
+        continue;
+      }
+      const words = raw.split(' ');
+      let currentLine = '';
+      for (const word of words) {
+        if (!currentLine) {
+          currentLine = word;
+        } else if (currentLine.length + 1 + word.length <= safeWidth) {
+          currentLine += ` ${word}`;
+        } else {
+          result.push(currentLine);
+          let rem = word;
+          while (rem.length > safeWidth) {
+            result.push(rem.slice(0, safeWidth));
+            rem = rem.slice(safeWidth);
+          }
+          currentLine = rem;
+        }
+      }
+      if (currentLine) {
+        result.push(currentLine);
+      }
+    }
+    return result;
+  };
+
   // Interactive System Prompts Inspector Modal (/system)
   const renderSystemModal = () => {
     const modalWidth = Math.min(92, Math.max(70, dimensions.columns - 4));
     const resolutions = HarnessRegistry.inspectResolutions();
 
-    // 1. Detail View: Single Agent System Prompt (Read-Only)
+    // 1. Detail View: Single Agent System Prompt (Read-Only) with scroll & scrollbar
     if (systemViewDetail === 'prompt') {
       const activeAgent =
         AVAILABLE_AGENTS.find((a) => a.role === systemViewingRole) ??
         AVAILABLE_AGENTS[0];
       const roleTheme = getRoleTheme(systemViewingRole);
       const res = HarnessRegistry.inspectResolution(systemViewingRole);
-      const promptLines = res.content.split('\n');
+
+      const windowHeight = Math.max(
+        6,
+        Math.min(16, Math.max(6, dimensions.rows - 14)),
+      );
+      const textWidth = Math.max(20, modalWidth - 10);
+      const displayLines = wrapPromptText(res.content, textWidth);
+      const totalLines = displayLines.length;
+      const maxScroll = Math.max(0, totalLines - windowHeight);
+      const currentScroll = Math.max(
+        0,
+        Math.min(maxScroll, systemPromptScrollOffset),
+      );
+
+      const thumbHeight = Math.max(
+        1,
+        Math.round((windowHeight / Math.max(1, totalLines)) * windowHeight),
+      );
+      const maxThumbTop = Math.max(0, windowHeight - thumbHeight);
+      const thumbTop =
+        maxScroll > 0
+          ? Math.min(
+              maxThumbTop,
+              Math.round((currentScroll / maxScroll) * maxThumbTop),
+            )
+          : 0;
 
       return (
         <Box
@@ -2064,14 +2167,25 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             paddingX={1}
           >
             <Text bold color={roleTheme.accentColor} wrap="truncate-end">
-              {activeAgent.icon} {activeAgent.title} — {language === 'es' ? 'System Prompt' : 'System Prompt'}
+              {activeAgent.icon} {activeAgent.title} — System Prompt
             </Text>
             <Text dimColor wrap="truncate-end">
-              {language === 'es' ? 'Esc volver al menú' : 'Esc back to menu'}
+              {totalLines > windowHeight
+                ? `${currentScroll + 1}-${Math.min(
+                    totalLines,
+                    currentScroll + windowHeight,
+                  )} / ${totalLines}`
+                : `${totalLines} ${language === 'es' ? 'líneas' : 'lines'}`}
             </Text>
           </Box>
 
-          <Box paddingX={1} marginBottom={1} flexDirection="row" justifyContent="space-between" width="100%">
+          <Box
+            paddingX={1}
+            marginBottom={1}
+            flexDirection="row"
+            justifyContent="space-between"
+            width="100%"
+          >
             <Box flexShrink={1}>
               <Text dimColor wrap="truncate-end">
                 {language === 'es' ? 'Origen:' : 'Source:'}{' '}
@@ -2098,6 +2212,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Box>
           </Box>
 
+          {/* Scrollable Prompt Content Box with Vertical Scrollbar */}
           <Box
             flexDirection="column"
             borderStyle="single"
@@ -2105,22 +2220,47 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             paddingX={1}
             paddingY={0}
             marginBottom={1}
+            height={windowHeight + 2}
           >
-            {promptLines.map((line, lIdx) => (
-              <Text key={lIdx} color="white" wrap="truncate-end">
-                {line || ' '}
-              </Text>
-            ))}
+            {Array.from({ length: windowHeight }, (_, idx) => {
+              const lineIdx = currentScroll + idx;
+              const lineText =
+                lineIdx < totalLines ? displayLines[lineIdx] : '';
+              const isThumb =
+                totalLines > windowHeight &&
+                idx >= thumbTop &&
+                idx < thumbTop + thumbHeight;
+
+              return (
+                <Box key={idx} justifyContent="space-between" width="100%">
+                  <Box flexShrink={1}>
+                    <Text color="white" wrap="truncate-end">
+                      {lineText || ' '}
+                    </Text>
+                  </Box>
+                  {totalLines > windowHeight && (
+                    <Box flexShrink={0} paddingLeft={1}>
+                      <Text
+                        color={isThumb ? roleTheme.accentColor : 'gray'}
+                        bold={isThumb}
+                      >
+                        {isThumb ? '█' : '░'}
+                      </Text>
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
           </Box>
 
           <Box justifyContent="space-between" paddingX={1}>
             <Text dimColor>
               {language === 'es'
-                ? 'ℹ Modo sólo lectura (Read-Only)'
-                : 'ℹ Read-only viewer'}
+                ? '↑/↓ o Rueda Ratón desplazar · Esc volver'
+                : '↑/↓ or Mouse Wheel scroll · Esc back'}
             </Text>
             <Text dimColor>
-              {language === 'es' ? '[Esc] Volver' : '[Esc] Back'}
+              {language === 'es' ? '[Esc] Menú' : '[Esc] Menu'}
             </Text>
           </Box>
         </Box>
