@@ -210,3 +210,26 @@ Inspired by NotebookLM, users can create and manage specialized **Knowledge Note
   3. `OCI_CONTAINER`: Isolated execution inside Podman/Docker OCI containers.
 - **Persistence:** Local SQLite (`node:sqlite` with `WAL` and `FTS5`) decoupled from the domain model.
 - **MCP & Multi-Model Gateway:** Model Context Protocol (`MCP`) client with per-role tool permissions, and decoupled LLM routing supporting different providers/models for Architect, Developer, and QA.
+
+## 11. GitHub Development & Issue Lifecycle Workflow
+
+When developing, maintaining, or resolving tasks for the PO CLI project, agents must adhere to the following GitHub-driven lifecycle:
+
+- **Prerequisite Validation (`gh` CLI):**
+  - The agent must verify that the GitHub CLI (`gh`) is installed and authenticated with proper repository scopes (`gh auth status`).
+- **Issue Creation & Language Policy:**
+  - The agent creates GitHub issues whenever explicitly requested by the user.
+  - **Language Rule:** Even if the user interacts with the agent in Spanish or another language, all GitHub issues (title, description, acceptance criteria) must **always** be authored in **English**.
+- **Issue Resolution & Feature Branching:**
+  - To resolve an issue, work must **never** be performed directly on `main`.
+  - The agent must always branch out from up-to-date `main` into a dedicated feature branch named according to the pattern: `feature/issue-<number>-<slug>`.
+- **Pull Request Creation:**
+  - All changes to resolve an issue must be submitted through a Pull Request via GitHub CLI (`gh pr create`).
+  - The PR description must link to and automatically close the target issue using standard keywords (e.g., `Closes #<number>`).
+- **User Authorization for Merges:**
+  - The agent is **strictly prohibited** from merging any Pull Request into `main` unilaterally.
+  - The PR merge must **always** be explicitly reviewed and authorized by the user.
+- **Post-Merge Branch Hygiene:**
+  - Once the user authorizes and executes/requests the merge, both the local and remote feature branches must be deleted (`gh pr merge <number> --merge --delete-branch` and `git branch -d <branch>`).
+  - Remote tracking references must be pruned cleanly (`git remote prune origin`).
+
