@@ -515,7 +515,18 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       expect(summary.totalMessages).toBeGreaterThan(0);
       expect(summary.summaryText.length).toBeGreaterThan(0);
       expect(summary.recentExchanges.length).toBeGreaterThan(0);
+      expect(summary.interactions).toBeDefined();
+      expect(typeof summary.interactions.po).toBe('number');
+      expect(typeof summary.interactions.pm).toBe('number');
+      expect(typeof summary.interactions.architect).toBe('number');
+      expect(typeof summary.interactions.developer).toBe('number');
+      expect(typeof summary.interactions.qa).toBe('number');
     }
+
+    const pmSummary = summaries.find((s) => s.expertRole === 'pm')!;
+    expect(pmSummary.interactions.architect).toBeGreaterThan(0);
+    expect(pmSummary.interactions.developer).toBeGreaterThan(0);
+    expect(pmSummary.interactions.qa).toBeGreaterThan(0);
 
     const storedPmInquiries = storage.listPmInquiries(project.id);
     expect(storedPmInquiries).toHaveLength(2);

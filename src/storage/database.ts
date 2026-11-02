@@ -91,6 +91,15 @@ export interface ExpertChatExchangeSnippet {
   createdAt: string;
 }
 
+export interface ExpertInteractions {
+  po: number;
+  pm: number;
+  architect: number;
+  developer: number;
+  qa: number;
+  [key: string]: number;
+}
+
 export interface ExpertChatSummary {
   projectId: string;
   expertRole: ActorRole;
@@ -103,6 +112,7 @@ export interface ExpertChatSummary {
   summaryText: string;
   recentExchanges: ExpertChatExchangeSnippet[];
   updatedAt: string;
+  interactions: ExpertInteractions;
 }
 
 export class PoCliDatabase {
@@ -1097,6 +1107,33 @@ export class PoCliDatabase {
     const savedTokensByCompaction = Number(compactionStatsRow?.saved_tokens ?? 0);
     const compactionCount = Number(compactionStatsRow?.comp_count ?? 0);
 
+    const interactionRow = this.db
+      .prepare(
+        `SELECT 
+          COALESCE(SUM(CASE WHEN from_role = 'product_owner' AND to_role = ? THEN 1 ELSE 0 END), 0) AS po_count,
+          COALESCE(SUM(CASE WHEN from_role = ? AND to_role = 'architect' THEN 1 ELSE 0 END), 0) AS arq_count,
+          COALESCE(SUM(CASE WHEN from_role = ? AND to_role = 'developer' THEN 1 ELSE 0 END), 0) AS dev_count,
+          COALESCE(SUM(CASE WHEN from_role = ? AND to_role = 'qa' THEN 1 ELSE 0 END), 0) AS qa_count,
+          COALESCE(SUM(CASE WHEN from_role = ? AND to_role = 'pm' THEN 1 ELSE 0 END), 0) AS pm_count
+        FROM messages
+        WHERE project_id = ?`,
+      )
+      .get(expertRole, expertRole, expertRole, expertRole, expertRole, projectId) as {
+        po_count: number;
+        arq_count: number;
+        dev_count: number;
+        qa_count: number;
+        pm_count: number;
+      } | undefined;
+
+    const interactions: ExpertInteractions = {
+      po: Number(interactionRow?.po_count ?? 0),
+      architect: Number(interactionRow?.arq_count ?? 0),
+      developer: Number(interactionRow?.dev_count ?? 0),
+      qa: Number(interactionRow?.qa_count ?? 0),
+      pm: Number(interactionRow?.pm_count ?? 0),
+    };
+
     if (!row) {
       return {
         projectId,
@@ -1110,6 +1147,7 @@ export class PoCliDatabase {
         summaryText: '',
         recentExchanges: [],
         updatedAt: new Date().toISOString(),
+        interactions,
       };
     }
 
@@ -1127,6 +1165,7 @@ export class PoCliDatabase {
         String(row.recent_exchanges_json || '[]'),
       ) as ExpertChatExchangeSnippet[],
       updatedAt: String(row.updated_at),
+      interactions,
     };
   }
 

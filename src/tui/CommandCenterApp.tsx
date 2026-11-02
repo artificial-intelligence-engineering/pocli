@@ -126,6 +126,32 @@ export const AVAILABLE_AGENTS: AvailableAgentInfo[] = [
   },
 ];
 
+const PEER_ROLES_PER_EXPERT: Record<
+  ActorRole,
+  { role: ActorRole; label: string }[]
+> = {
+  pm: [
+    { role: 'architect', label: 'ARQ' },
+    { role: 'developer', label: 'DEV' },
+    { role: 'qa', label: 'QA' },
+  ],
+  architect: [
+    { role: 'developer', label: 'DEV' },
+    { role: 'qa', label: 'QA' },
+    { role: 'pm', label: 'PM' },
+  ],
+  developer: [
+    { role: 'architect', label: 'ARQ' },
+    { role: 'pm', label: 'PM' },
+    { role: 'qa', label: 'QA' },
+  ],
+  qa: [
+    { role: 'architect', label: 'ARQ' },
+    { role: 'developer', label: 'DEV' },
+    { role: 'pm', label: 'PM' },
+  ],
+};
+
 function fitAndPadLine(text: string, width: number): string {
   const safeWidth = Math.max(10, width);
   const oneLine = text.replace(/\s+/g, ' ');
@@ -3517,9 +3543,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       ) : (
         <>
           {/* Top Row: 4 Expert Chat Summary Boxes loaded from SQLite.
-              All 4 boxes have strictly fixed height (6 rows) and width (25%) with
-              single-line truncated records so selecting an agent never resizes boxes. */}
-          <Box flexDirection="row" width="100%" height={6} marginTop={1}>
+              All 4 boxes have strictly fixed height (7 rows) and width (25%) with
+              PO and peer specialist interaction counters. */}
+          <Box flexDirection="row" width="100%" height={7} marginTop={1}>
             {(['pm', 'architect', 'developer', 'qa'] as const).map((roleKey) => {
               const summary = expertSummaries.find(
                 (s) => s.expertRole === roleKey,
@@ -3535,6 +3561,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 summaryText: '',
                 recentExchanges: [],
                 updatedAt: '',
+                interactions: {
+                  po: 0,
+                  pm: 0,
+                  architect: 0,
+                  developer: 0,
+                  qa: 0,
+                },
               };
               const roleTheme = getRoleTheme(roleKey);
               const boxTitle = t.expertBoxTitles[roleKey];
@@ -3554,34 +3587,38 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 `${titlePrefix}${' '.repeat(headerGap)}${statsBadge} `,
                 expertBoxInnerWidth,
               );
-              const line2 =
-                summary.totalMessages === 0
-                  ? fitAndPadLine(` ${t.expertBoxNoChatsYet}`, expertBoxInnerWidth)
-                  : fitAndPadLine(
-                      ` ${t.expertBoxSummaryLabel} ${summary.summaryText}`,
-                      expertBoxInnerWidth,
-                    );
-              const ex1 = summary.recentExchanges.slice(-2)[0];
-              const ex2 = summary.recentExchanges.slice(-2)[1];
-              const line3 = ex1
-                ? fitAndPadLine(
-                    ` • [${ex1.fromRole === 'product_owner' ? 'PO' : ex1.fromRole}]: ${ex1.snippet}`,
-                    expertBoxInnerWidth,
-                  )
-                : fitAndPadLine(' ', expertBoxInnerWidth);
-              const line4 = ex2
-                ? fitAndPadLine(
-                    ` • [${ex2.fromRole === 'product_owner' ? 'PO' : ex2.fromRole}]: ${ex2.snippet}`,
-                    expertBoxInnerWidth,
-                  )
-                : fitAndPadLine(' ', expertBoxInnerWidth);
+
+              const poCount = summary.interactions?.po ?? 0;
+              const poLabel = expertBoxInnerWidth >= 20 ? 'PO Interactions' : 'PO';
+              const line2 = fitAndPadLine(
+                ` ${poLabel}: ${poCount}`,
+                expertBoxInnerWidth,
+              );
+
+              const peers = PEER_ROLES_PER_EXPERT[roleKey];
+              const peer1Count = summary.interactions?.[peers[0].role] ?? 0;
+              const peer2Count = summary.interactions?.[peers[1].role] ?? 0;
+              const peer3Count = summary.interactions?.[peers[2].role] ?? 0;
+
+              const line3 = fitAndPadLine(
+                ` ${peers[0].label}: ${peer1Count}`,
+                expertBoxInnerWidth,
+              );
+              const line4 = fitAndPadLine(
+                ` ${peers[1].label}: ${peer2Count}`,
+                expertBoxInnerWidth,
+              );
+              const line5 = fitAndPadLine(
+                ` ${peers[2].label}: ${peer3Count}`,
+                expertBoxInnerWidth,
+              );
 
               return (
                 <Box
                   key={roleKey}
                   flexDirection="column"
                   width="25%"
-                  height={6}
+                  height={7}
                   borderStyle="round"
                   borderColor={roleTheme.accentColor}
                   paddingX={0}
@@ -3595,29 +3632,64 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     {line1}
                   </Text>
                   <Text
-                    bold={isSelected}
+                    bold={isSelected || poCount > 0}
                     wrap="truncate-end"
                     backgroundColor={isSelected ? roleTheme.bgColor : undefined}
-                    color={isSelected ? roleTheme.fgColor : 'white'}
-                    dimColor={!isSelected && summary.totalMessages === 0}
+                    color={
+                      isSelected
+                        ? roleTheme.fgColor
+                        : poCount > 0
+                          ? 'white'
+                          : undefined
+                    }
+                    dimColor={!isSelected && poCount === 0}
                   >
                     {line2}
                   </Text>
                   <Text
+                    bold={isSelected || peer1Count > 0}
                     wrap="truncate-end"
                     backgroundColor={isSelected ? roleTheme.bgColor : undefined}
-                    color={isSelected ? roleTheme.fgColor : undefined}
-                    dimColor={!isSelected}
+                    color={
+                      isSelected
+                        ? roleTheme.fgColor
+                        : peer1Count > 0
+                          ? 'white'
+                          : undefined
+                    }
+                    dimColor={!isSelected && peer1Count === 0}
                   >
                     {line3}
                   </Text>
                   <Text
+                    bold={isSelected || peer2Count > 0}
                     wrap="truncate-end"
                     backgroundColor={isSelected ? roleTheme.bgColor : undefined}
-                    color={isSelected ? roleTheme.fgColor : undefined}
-                    dimColor={!isSelected}
+                    color={
+                      isSelected
+                        ? roleTheme.fgColor
+                        : peer2Count > 0
+                          ? 'white'
+                          : undefined
+                    }
+                    dimColor={!isSelected && peer2Count === 0}
                   >
                     {line4}
+                  </Text>
+                  <Text
+                    bold={isSelected || peer3Count > 0}
+                    wrap="truncate-end"
+                    backgroundColor={isSelected ? roleTheme.bgColor : undefined}
+                    color={
+                      isSelected
+                        ? roleTheme.fgColor
+                        : peer3Count > 0
+                          ? 'white'
+                          : undefined
+                    }
+                    dimColor={!isSelected && peer3Count === 0}
+                  >
+                    {line5}
                   </Text>
                 </Box>
               );
