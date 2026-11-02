@@ -76,6 +76,7 @@ export class PoCliOrchestrator extends EventEmitter {
     projectId: string;
     targetRole: ActorRole;
     message: string;
+    alreadyRecorded?: boolean;
     onStreamChunk?: (chunk: string) => void;
   }): Promise<{
     reply: string;
@@ -91,18 +92,20 @@ export class PoCliOrchestrator extends EventEmitter {
     const harness = HarnessRegistry.getHarness(params.targetRole);
     const modelConfig = this.storage.getRoleConfig(project.id, params.targetRole);
 
-    // Record Product Owner's message
-    Logger.info(
-      'ORCHESTRATOR',
-      `Message to '${params.targetRole}': "${params.message.replace(/\s+/g, ' ').slice(0, 60)}"`,
-      { projectId: project.id },
-    );
-    this.storage.recordMessage({
-      projectId: project.id,
-      fromRole: 'product_owner',
-      toRole: params.targetRole,
-      content: params.message,
-    });
+    // Record Product Owner's message if not already recorded prior to LLM dispatch
+    if (!params.alreadyRecorded) {
+      Logger.info(
+        'ORCHESTRATOR',
+        `Message to '${params.targetRole}': "${params.message.replace(/\s+/g, ' ').slice(0, 60)}"`,
+        { projectId: project.id },
+      );
+      this.storage.recordMessage({
+        projectId: project.id,
+        fromRole: 'product_owner',
+        toRole: params.targetRole,
+        content: params.message,
+      });
+    }
 
     // Query authorized Notebooks via Hybrid RAG
     const citations = this.rag.queryForProjectRole({

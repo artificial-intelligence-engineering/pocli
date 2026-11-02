@@ -273,9 +273,24 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [inputValue, setInputValue] = useState<string>('');
   const [selectedSlashIdx, setSelectedSlashIdx] = useState<number>(0);
   const [messageScrollOffset, setMessageScrollOffset] = useState<number>(0);
+  const [messagesVersion, setMessagesVersion] = useState<number>(0);
   const [busy, setBusy] = useState<boolean>(false);
   const [streamingText, setStreamingText] = useState<string>('');
   const [statusBanner, setStatusBanner] = useState<string>(t.initialStatusBanner);
+
+  // Animated thinking spinner frames: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
+  const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  const [spinnerIdx, setSpinnerIdx] = useState<number>(0);
+
+  useEffect(() => {
+    if (!busy || streamingText) return;
+    const interval = setInterval(() => {
+      setSpinnerIdx((prev) => (prev + 1) % SPINNER_FRAMES.length);
+    }, 80);
+    return () => clearInterval(interval);
+  }, [busy, streamingText]);
+
+  const thinkingSpinner = SPINNER_FRAMES[spinnerIdx];
 
   // Mouse text selection state for copying conversation lines to clipboard
   const [dragAnchor, setDragAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -1064,6 +1079,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
 
   const sendChatMessage = async (targetRole: ActorRole, messageText: string) => {
+    // 1. Immediately record user prompt to SQLite so it appears in the chat log without delay
+    orchestrator.storage.recordMessage({
+      projectId: project.id,
+      fromRole: 'product_owner',
+      toRole: targetRole,
+      content: messageText,
+    });
+    setMessageScrollOffset(0);
+    setMessagesVersion((prev) => prev + 1);
+    refreshState();
+
     setBusy(true);
     setStreamingText('');
     setStatusBanner(t.consultingAgentMsg(targetRole));
@@ -1072,6 +1098,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         projectId: project.id,
         targetRole,
         message: messageText,
+        alreadyRecorded: true,
         onStreamChunk: (chunk) => {
           setStreamingText((prev) => prev + chunk);
         },
@@ -1085,6 +1112,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         ),
       );
       setMessageScrollOffset(0);
+      setMessagesVersion((prev) => prev + 1);
       refreshState();
     } catch (err) {
       setStatusBanner(`✖ Error: ${(err as Error).message}`);
@@ -2128,7 +2156,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   }, [activeModelCfg]);
   const messages = useMemo(
     () => orchestrator.storage.listMessages(project.id, activeRole),
-    [orchestrator.storage, project.id, activeRole, expertSummaries],
+    [orchestrator.storage, project.id, activeRole, expertSummaries, messagesVersion],
   );
   const sliceWindowedMessages = (winSize: number) => {
     if (messages.length <= winSize) return messages;
@@ -4025,9 +4053,31 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   })
                 )}
 
+                {/* Thinking / Waiting indicator */}
+                {busy && !streamingText && (
+                  <Box flexDirection="row" marginY={1} paddingLeft={1}>
+                    <Text color={activeTheme.accentColor} bold>
+                      {activeRoleDisplayName}
+                    </Text>
+                    <Text dimColor italic>
+                      {' '}
+                      {thinkingSpinner}{' '}
+                      {language === 'es'
+                        ? '[Pensando respuesta...]'
+                        : '[Thinking...]'}
+                    </Text>
+                  </Box>
+                )}
+
                 {/* Streaming response */}
                 {streamingText && (
                   <Box flexDirection="column" marginY={1} paddingLeft={1}>
+                    <Box flexDirection="row" marginBottom={0}>
+                      <Text color={activeTheme.accentColor} bold>
+                        {activeRoleDisplayName}
+                      </Text>
+                      <Text dimColor> · streaming</Text>
+                    </Box>
                     <Text color="green">{streamingText}█</Text>
                   </Box>
                 )}
@@ -4481,6 +4531,31 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     </Box>
                   );
                 })
+              )}
+
+              {/* Thinking / Waiting indicator in multipanel */}
+              {busy && !streamingText && (
+                <Box flexDirection="column" marginTop={1}>
+                  <Text bold color={activeTheme.accentColor}>
+                    [{activeRoleDisplayName}]:
+                  </Text>
+                  <Text dimColor italic>
+                    {thinkingSpinner}{' '}
+                    {language === 'es'
+                      ? '[Pensando respuesta...]'
+                      : '[Thinking...]'}
+                  </Text>
+                </Box>
+              )}
+
+              {/* Streaming response in multipanel */}
+              {streamingText && (
+                <Box flexDirection="column" marginTop={1}>
+                  <Text bold color={activeTheme.accentColor}>
+                    [{activeRoleDisplayName} (streaming)]:
+                  </Text>
+                  <Text color="green">{streamingText}█</Text>
+                </Box>
               )}
             </Box>
           </Box>
