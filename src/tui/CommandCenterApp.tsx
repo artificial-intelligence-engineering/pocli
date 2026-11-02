@@ -274,21 +274,36 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [selectedSlashIdx, setSelectedSlashIdx] = useState<number>(0);
   const [messageScrollOffset, setMessageScrollOffset] = useState<number>(0);
   const [messagesVersion, setMessagesVersion] = useState<number>(0);
-  const [busy, setBusy] = useState<boolean>(false);
-  const [streamingText, setStreamingText] = useState<string>('');
+  const [busyRoles, setBusyRoles] = useState<Partial<Record<ActorRole, boolean>>>({});
+  const [streamingByRole, setStreamingByRole] = useState<Partial<Record<ActorRole, string>>>({});
+  const [roleDrafts, setRoleDrafts] = useState<Partial<Record<ActorRole, string>>>({});
   const [statusBanner, setStatusBanner] = useState<string>(t.initialStatusBanner);
+
+  const isAnyRoleBusy = useMemo(
+    () => Object.values(busyRoles).some(Boolean),
+    [busyRoles],
+  );
+  const isActiveRoleBusy = Boolean(busyRoles[activeRole]);
+  const activeStreamingText = streamingByRole[activeRole] || '';
 
   // Animated thinking spinner frames: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
   const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   const [spinnerIdx, setSpinnerIdx] = useState<number>(0);
 
+  const hasAnyThinkingRole = useMemo(() => {
+    return Object.keys(busyRoles).some((r) => {
+      const role = r as ActorRole;
+      return busyRoles[role] && !streamingByRole[role];
+    });
+  }, [busyRoles, streamingByRole]);
+
   useEffect(() => {
-    if (!busy || streamingText) return;
+    if (!hasAnyThinkingRole) return;
     const interval = setInterval(() => {
       setSpinnerIdx((prev) => (prev + 1) % SPINNER_FRAMES.length);
     }, 80);
     return () => clearInterval(interval);
-  }, [busy, streamingText]);
+  }, [hasAnyThinkingRole]);
 
   const thinkingSpinner = SPINNER_FRAMES[spinnerIdx];
 
@@ -613,7 +628,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const executeCommandOrMessage = async (rawText: string) => {
     const trimmed = rawText.trim();
-    if (!trimmed || busy) return;
+    if (!trimmed) return;
 
     // Handle slash commands starting with "/"
     if (trimmed.startsWith('/')) {
@@ -725,13 +740,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         );
         if (target && found) {
           closeAllModals();
-          setActiveRole(found.role);
+          switchActiveRole(found.role);
           setViewMode('chat');
-          setStatusBanner(
-            t.activeInterlocutorMsg(
-              getRoleDisplayName(found.role, language),
-            ),
-          );
           return;
         }
         closeAllModals();
@@ -793,36 +803,27 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/clear') {
-        setStreamingText('');
+        setStreamingByRole({});
         setStatusBanner(t.statusClearedMsg);
         return;
       }
       if (cmdToken === '/architect') {
-        setActiveRole('architect');
-        setStatusBanner(
-          t.activeInterlocutorMsg(getRoleDisplayName('architect', language)),
-        );
+        switchActiveRole('architect');
         return;
       }
       if (cmdToken === '/developer') {
-        setActiveRole('developer');
-        setStatusBanner(
-          t.activeInterlocutorMsg(getRoleDisplayName('developer', language)),
-        );
+        switchActiveRole('developer');
         return;
       }
       if (cmdToken === '/qa') {
-        setActiveRole('qa');
-        setStatusBanner(
-          t.activeInterlocutorMsg(getRoleDisplayName('qa', language)),
-        );
+        switchActiveRole('qa');
         return;
       }
       if (cmdToken === '/pm') {
-        setActiveRole('pm');
+        switchActiveRole('pm');
         const modeArg = parts[1]?.toLowerCase();
         if (modeArg === 'parallel' || modeArg === 'sequential') {
-          setBusy(true);
+          setBusyRoles((prev) => ({ ...prev, pm: true }));
           const modality = modeArg === 'sequential' ? 'SEQUENTIAL' : 'PARALLEL';
           setStatusBanner(
             `⏳ PM running ${modality} inquiry across active agents...`,
@@ -840,18 +841,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           } catch (err) {
             setStatusBanner(`✖ Error: ${(err as Error).message}`);
           } finally {
-            setBusy(false);
+            setBusyRoles((prev) => ({ ...prev, pm: false }));
           }
           return;
         }
-        setStatusBanner(
-          t.activeInterlocutorMsg(getRoleDisplayName('pm', language)),
-        );
         return;
       }
       if (cmdToken === '/propose') {
-        setActiveRole('architect');
-        await sendChatMessage(
+        switchActiveRole('architect');
+        void sendChatMessage(
           'architect',
           'Design and propose the formal architecture and requirements for this project.',
         );
@@ -890,7 +888,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (cmdToken === '/handoff') {
         try {
           const bundle = orchestrator.performDeveloperHandoff(project.id);
-          setActiveRole('developer');
+          switchActiveRole('developer');
           setStatusBanner(
             t.handoffCompletedMsg(bundle.approvedArchitectureVersion),
           );
@@ -901,15 +899,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/implement') {
-        setActiveRole('developer');
-        await sendChatMessage(
+        switchActiveRole('developer');
+        void sendChatMessage(
           'developer',
           'Implement the software strictly following the approved Handoff bundle.',
         );
         return;
       }
       if (cmdToken === '/consult') {
-        setBusy(true);
+        setBusyRoles((prev) => ({ ...prev, developer: true, architect: true }));
         try {
           const cons = await orchestrator.consultArchitectFromDeveloper({
             projectId: project.id,
@@ -923,13 +921,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         } catch (err) {
           setStatusBanner(`✖ Error: ${(err as Error).message}`);
         } finally {
-          setBusy(false);
+          setBusyRoles((prev) => ({ ...prev, developer: false, architect: false }));
         }
         return;
       }
       if (cmdToken === '/validate') {
-        setBusy(true);
-        setActiveRole('qa');
+        setBusyRoles((prev) => ({ ...prev, qa: true }));
+        switchActiveRole('qa');
         setStatusBanner(t.qaRunningMsg);
         try {
           const res = await orchestrator.submitToQaAndValidate({
@@ -947,7 +945,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         } catch (err) {
           setStatusBanner(`✖ Error: ${(err as Error).message}`);
         } finally {
-          setBusy(false);
+          setBusyRoles((prev) => ({ ...prev, qa: false }));
         }
         return;
       }
@@ -1071,11 +1069,33 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     }
 
     // Normal conversation message sent to the currently active professional
+    if (busyRoles[activeRole]) {
+      setStatusBanner(
+        language === 'es'
+          ? `⏳ ${activeRoleDisplayName} está procesando una respuesta. Espera o cambia de agente con Tab.`
+          : `⏳ ${activeRoleDisplayName} is currently thinking. Please wait or switch agent with Tab.`
+      );
+      return;
+    }
+
     setInputValue('');
+    setRoleDrafts((prev) => ({ ...prev, [activeRole]: '' }));
     if (viewMode === 'startup') {
       setViewMode('chat');
     }
-    await sendChatMessage(activeRole, trimmed);
+    void sendChatMessage(activeRole, trimmed);
+  };
+
+  const switchActiveRole = (nextRole: ActorRole) => {
+    if (nextRole === activeRole) return;
+    const currentDraft = inputValue.trim().startsWith('/') ? '' : inputValue;
+    setRoleDrafts((prev) => ({ ...prev, [activeRole]: currentDraft }));
+    setInputValue(roleDrafts[nextRole] || '');
+    setActiveRole(nextRole);
+    setMessageScrollOffset(0);
+    setStatusBanner(
+      t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
+    );
   };
 
   const sendChatMessage = async (targetRole: ActorRole, messageText: string) => {
@@ -1090,8 +1110,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setMessagesVersion((prev) => prev + 1);
     refreshState();
 
-    setBusy(true);
-    setStreamingText('');
+    setBusyRoles((prev) => ({ ...prev, [targetRole]: true }));
+    setStreamingByRole((prev) => ({ ...prev, [targetRole]: '' }));
     setStatusBanner(t.consultingAgentMsg(targetRole));
     try {
       const res = await orchestrator.chatWithProfessional({
@@ -1100,10 +1120,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         message: messageText,
         alreadyRecorded: true,
         onStreamChunk: (chunk) => {
-          setStreamingText((prev) => prev + chunk);
+          setStreamingByRole((prev) => ({
+            ...prev,
+            [targetRole]: (prev[targetRole] || '') + chunk,
+          }));
         },
       });
-      setStreamingText('');
+      setStreamingByRole((prev) => {
+        const next = { ...prev };
+        delete next[targetRole];
+        return next;
+      });
       setStatusBanner(
         t.agentRepliedMsg(
           targetRole,
@@ -1117,16 +1144,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     } catch (err) {
       setStatusBanner(`✖ Error: ${(err as Error).message}`);
     } finally {
-      setBusy(false);
+      setBusyRoles((prev) => ({ ...prev, [targetRole]: false }));
+      setStreamingByRole((prev) => {
+        const next = { ...prev };
+        delete next[targetRole];
+        return next;
+      });
     }
   };
 
   const selectRoleByMouse = (role: ActorRole) => {
-    setActiveRole(role);
-    setMessageScrollOffset(0);
-    setStatusBanner(
-      t.activeInterlocutorMsg(getRoleDisplayName(role, language)),
-    );
+    switchActiveRole(role);
   };
 
   const handleMouseEvent = (ev: ParsedMouseEvent) => {
@@ -1404,7 +1432,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
 
       // Slash Command Popover: click executes selected slash command
-      if (isSlashMenuOpen && filteredSlashCommands.length > 0 && !busy) {
+      if (isSlashMenuOpen && filteredSlashCommands.length > 0) {
         const chosen =
           filteredSlashCommands[selectedSlashIdx] ?? filteredSlashCommands[0];
         if (chosen) {
@@ -1610,11 +1638,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         const chosen = AVAILABLE_AGENTS[numIdx];
         if (chosen) {
           setIsAgentsModalOpen(false);
-          setActiveRole(chosen.role);
+          switchActiveRole(chosen.role);
           setViewMode('chat');
-          setStatusBanner(
-            t.activeInterlocutorMsg(getRoleDisplayName(chosen.role, language)),
-          );
           return;
         }
       }
@@ -1623,11 +1648,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           AVAILABLE_AGENTS[selectedAgentIdx] ?? AVAILABLE_AGENTS[0];
         if (chosen) {
           setIsAgentsModalOpen(false);
-          setActiveRole(chosen.role);
+          switchActiveRole(chosen.role);
           setViewMode('chat');
-          setStatusBanner(
-            t.activeInterlocutorMsg(getRoleDisplayName(chosen.role, language)),
-          );
         }
         return;
       }
@@ -2080,8 +2102,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    if (busy) return;
-
     // Up / Down arrows navigate the "/" slash command popover when open
     if (key.upArrow && isSlashMenuOpen && filteredSlashCommands.length > 0) {
       setSelectedSlashIdx((prev) =>
@@ -2114,13 +2134,21 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     }
 
     if (key.backspace || key.delete) {
-      setInputValue((prev) => prev.slice(0, -1));
+      setInputValue((prev) => {
+        const next = prev.slice(0, -1);
+        setRoleDrafts((d) => ({ ...d, [activeRole]: next }));
+        return next;
+      });
       if (selectedSlashIdx !== 0) setSelectedSlashIdx(0);
       return;
     }
 
     if (!key.ctrl && !key.meta && input) {
-      setInputValue((prev) => prev + input);
+      setInputValue((prev) => {
+        const next = prev + input;
+        setRoleDrafts((d) => ({ ...d, [activeRole]: next }));
+        return next;
+      });
       if (selectedSlashIdx !== 0) setSelectedSlashIdx(0);
     }
   });
@@ -2415,6 +2443,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     {isCurrentActive && (
                       <Text color="green" bold>
                         [{language === 'es' ? 'Activo' : 'Active'}]
+                      </Text>
+                    )}
+                    {busyRoles[item.role] && (
+                      <Text color="yellow" bold>
+                        {' '}
+                        {thinkingSpinner}{' '}
+                        {language === 'es' ? '[Pensando...]' : '[Thinking...]'}
                       </Text>
                     )}
                   </Text>
@@ -3935,7 +3970,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             >
               {/* Scrollable Conversation messages */}
               <Box flexDirection="column" flexGrow={1} overflowY="hidden">
-                {openCodeMessages.length === 0 && !streamingText ? (
+                {openCodeMessages.length === 0 && !activeStreamingText ? (
                   <Box flexDirection="column" marginY={1}>
                     <Text dimColor>
                       {language === 'es'
@@ -4054,7 +4089,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 )}
 
                 {/* Thinking / Waiting indicator */}
-                {busy && !streamingText && (
+                {isActiveRoleBusy && !activeStreamingText && (
                   <Box flexDirection="row" marginY={1} paddingLeft={1}>
                     <Text color={activeTheme.accentColor} bold>
                       {activeRoleDisplayName}
@@ -4070,7 +4105,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 )}
 
                 {/* Streaming response */}
-                {streamingText && (
+                {activeStreamingText && (
                   <Box flexDirection="column" marginY={1} paddingLeft={1}>
                     <Box flexDirection="row" marginBottom={0}>
                       <Text color={activeTheme.accentColor} bold>
@@ -4078,7 +4113,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                       </Text>
                       <Text dimColor> · streaming</Text>
                     </Box>
-                    <Text color="green">{streamingText}█</Text>
+                    <Text color="green">{activeStreamingText}█</Text>
                   </Box>
                 )}
               </Box>
@@ -4176,6 +4211,29 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               <Text dimColor>
                 {artifacts.length} {language === 'es' ? 'activos' : 'active'}
               </Text>
+
+              {isAnyRoleBusy && (
+                <>
+                  <Box height={1} />
+                  <Text bold color="yellow">
+                    {language === 'es' ? 'Agentes en curso' : 'Active Agents'}
+                  </Text>
+                  {AVAILABLE_AGENTS.map((item) => {
+                    if (!busyRoles[item.role]) return null;
+                    const rTheme = getRoleTheme(item.role);
+                    const isStreamingThis = Boolean(streamingByRole[item.role]);
+                    return (
+                      <Text key={item.role} color={rTheme.accentColor}>
+                        {thinkingSpinner}{' '}
+                        {getRoleDisplayName(item.role, language)}{' '}
+                        <Text dimColor>
+                          ({isStreamingThis ? 'streaming' : language === 'es' ? 'pensando' : 'thinking'})
+                        </Text>
+                      </Text>
+                    );
+                  })}
+                </>
+              )}
             </Box>
           </Box>
         )}
@@ -4184,8 +4242,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             ■■■···· esc interrupt          12.2K (1%) · $0.02  ctrl+p commands     ~/HACK/dev/ai.github.io.git:master */}
         <Box width="100%" justifyContent="space-between" height={1}>
           <Box flexDirection="row">
-            <Text color={busy ? 'cyan' : 'gray'}>
-              {busy ? '■■■···· ' : '■······ '}
+            <Text color={isAnyRoleBusy ? 'cyan' : 'gray'}>
+              {isAnyRoleBusy ? '■■■···· ' : '■······ '}
             </Text>
             <Text color="gray">esc interrupt</Text>
           </Box>
@@ -4282,11 +4340,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               const roleTheme = getRoleTheme(roleKey);
               const boxTitle = t.expertBoxTitles[roleKey];
               const isSelected = activeRole === roleKey;
-              const statsBadge = `(${summary.totalMessages}m·${summary.activeContextTokens}t${
-                summary.savedTokensByCompaction > 0
-                  ? `·-${summary.savedTokensByCompaction}t`
-                  : ''
-              })`;
+              const isCardBusy = Boolean(busyRoles[roleKey]);
+              const isCardStreaming = Boolean(streamingByRole[roleKey]);
+              const statsBadge = isCardStreaming
+                ? `[streaming]`
+                : isCardBusy
+                  ? `${thinkingSpinner} [thinking]`
+                  : `(${summary.totalMessages}m·${summary.activeContextTokens}t${
+                      summary.savedTokensByCompaction > 0
+                        ? `·-${summary.savedTokensByCompaction}t`
+                        : ''
+                    })`;
 
               const titlePrefix = isSelected ? ` ▶ ${boxTitle}` : ` ${boxTitle}`;
               const headerGap = Math.max(
@@ -4534,7 +4598,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               )}
 
               {/* Thinking / Waiting indicator in multipanel */}
-              {busy && !streamingText && (
+              {isActiveRoleBusy && !activeStreamingText && (
                 <Box flexDirection="column" marginTop={1}>
                   <Text bold color={activeTheme.accentColor}>
                     [{activeRoleDisplayName}]:
@@ -4549,12 +4613,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               )}
 
               {/* Streaming response in multipanel */}
-              {streamingText && (
+              {activeStreamingText && (
                 <Box flexDirection="column" marginTop={1}>
                   <Text bold color={activeTheme.accentColor}>
                     [{activeRoleDisplayName} (streaming)]:
                   </Text>
-                  <Text color="green">{streamingText}█</Text>
+                  <Text color="green">{activeStreamingText}█</Text>
                 </Box>
               )}
             </Box>
@@ -4588,7 +4652,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 dir: {project.workspaceDir} · {t.returnToCleanViewHint}
               </Text>
             </Box>
-            <Text color={busy ? 'yellow' : 'gray'}>{statusBanner}</Text>
+            <Text color={isAnyRoleBusy ? 'yellow' : 'gray'}>{statusBanner}</Text>
           </Box>
         </>
       )}

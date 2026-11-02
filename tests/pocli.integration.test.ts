@@ -944,4 +944,50 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       globalThis.fetch = origFetch;
     }
   });
+
+  it('Issue #3: executes concurrent agent chats in parallel with independent streaming and DAG histories', async () => {
+    const project = orchestrator.createProject({
+      name: 'ConcurrentChatsApp',
+      description: 'Test project for concurrent multi-agent executions',
+      workspaceDir: path.join(tmpDir, 'ws-concurrent'),
+    });
+
+    const pmChunks: string[] = [];
+    const devChunks: string[] = [];
+
+    // Dispatch both turns concurrently
+    const [pmRes, devRes] = await Promise.all([
+      orchestrator.chatWithProfessional({
+        projectId: project.id,
+        targetRole: 'pm',
+        message: 'PM status inquiry for sprint roadmap',
+        onStreamChunk: (c) => pmChunks.push(c),
+      }),
+      orchestrator.chatWithProfessional({
+        projectId: project.id,
+        targetRole: 'developer',
+        message: 'Developer implementation plan check',
+        onStreamChunk: (c) => devChunks.push(c),
+      }),
+    ]);
+
+    // Both should have run in distinct Linux child processes
+    expect(pmRes.workerPid).toBeGreaterThan(0);
+    expect(devRes.workerPid).toBeGreaterThan(0);
+    expect(pmRes.workerPid).not.toBe(devRes.workerPid);
+
+    // Both received streaming chunks independently
+    expect(pmChunks.length).toBeGreaterThan(0);
+    expect(devChunks.length).toBeGreaterThan(0);
+
+    // Histories are tracked independently in SQLite
+    const pmMessages = storage.listMessages(project.id, 'pm');
+    const devMessages = storage.listMessages(project.id, 'developer');
+
+    expect(pmMessages).toHaveLength(2);
+    expect(devMessages).toHaveLength(2);
+
+    expect(pmMessages[0].content).toBe('PM status inquiry for sprint roadmap');
+    expect(devMessages[0].content).toBe('Developer implementation plan check');
+  });
 });
