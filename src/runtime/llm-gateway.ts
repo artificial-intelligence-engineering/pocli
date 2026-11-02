@@ -283,6 +283,96 @@ function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
       recommendedFor: 'OpenCode Zen Fast Code Specialist',
       defaultTemperature: 0.1,
     },
+    // OpenRouter
+    {
+      provider: 'openrouter',
+      vendor: 'ANTHROPIC',
+      providerLabel: 'OpenRouter',
+      modelId: 'anthropic/claude-3.7-sonnet',
+      displayName: 'Claude 3.7 Sonnet (OpenRouter)',
+      isFree: false,
+      contextWindow: '200K',
+      recommendedFor: 'Extended Thinking via OpenRouter',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'openrouter',
+      vendor: 'ANTHROPIC',
+      providerLabel: 'OpenRouter',
+      modelId: 'anthropic/claude-3.5-sonnet',
+      displayName: 'Claude 3.5 Sonnet (OpenRouter)',
+      isFree: false,
+      contextWindow: '200K',
+      recommendedFor: 'Fast Coding via OpenRouter',
+      defaultTemperature: 0.2,
+    },
+    {
+      provider: 'openrouter',
+      vendor: 'OPENAI',
+      providerLabel: 'OpenRouter',
+      modelId: 'openai/gpt-4o',
+      displayName: 'GPT-4o (OpenRouter)',
+      isFree: false,
+      contextWindow: '128K',
+      recommendedFor: 'General Engineering via OpenRouter',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'openrouter',
+      vendor: 'DEEPSEEK',
+      providerLabel: 'OpenRouter',
+      modelId: 'deepseek/deepseek-r1',
+      displayName: 'DeepSeek R1 (OpenRouter)',
+      isFree: false,
+      contextWindow: '64K',
+      recommendedFor: 'Deep Reasoning via OpenRouter',
+      defaultTemperature: 0.0,
+    },
+    {
+      provider: 'openrouter',
+      vendor: 'QWEN',
+      providerLabel: 'OpenRouter',
+      modelId: 'qwen/qwen-2.5-coder-32b-instruct',
+      displayName: 'Qwen 2.5 Coder 32B (OpenRouter)',
+      isFree: false,
+      contextWindow: '128K',
+      recommendedFor: 'Fast Code Generation via OpenRouter',
+      defaultTemperature: 0.1,
+    },
+    // Groq
+    {
+      provider: 'groq',
+      vendor: 'META',
+      providerLabel: 'Groq LPU',
+      modelId: 'llama-3.3-70b-versatile',
+      displayName: 'Llama 3.3 70B (Groq)',
+      isFree: false,
+      contextWindow: '128K',
+      recommendedFor: 'Ultra-Fast 300 tps Architecture',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'groq',
+      vendor: 'META',
+      providerLabel: 'Groq LPU',
+      modelId: 'llama-3.1-8b-instant',
+      displayName: 'Llama 3.1 8B Instant (Groq)',
+      isFree: false,
+      contextWindow: '128K',
+      recommendedFor: 'Instant Sub-Second Inquiries',
+      defaultTemperature: 0.2,
+    },
+    {
+      provider: 'groq',
+      vendor: 'MISTRAL',
+      providerLabel: 'Groq LPU',
+      modelId: 'mixtral-8x7b-32768',
+      displayName: 'Mixtral 8x7B (Groq)',
+      isFree: false,
+      contextWindow: '32K',
+      recommendedFor: 'MoE Fast Inference via Groq',
+      defaultTemperature: 0.2,
+    },
   ];
 }
 
@@ -353,6 +443,9 @@ export function resolveModelSpec(query: string): ModelCatalogEntry | null {
         provLower === 'gemini' ||
         provLower === 'ollama' ||
         provLower === 'meta' ||
+        provLower === 'opencode' ||
+        provLower === 'openrouter' ||
+        provLower === 'groq' ||
         provLower === 'deterministic')
     ) {
       const provider: LlmProviderType =
@@ -478,6 +571,30 @@ export class LlmGateway {
       return this.callOpenAiCompatible(
         'https://opencode.ai/zen/v1/chat/completions',
         opencodeKey,
+        modelId,
+        temperature,
+        input,
+        onStreamToken,
+      );
+    }
+
+    const openrouterKey = AuthStorage.getApiKey('openrouter');
+    if (provider === 'openrouter' && openrouterKey) {
+      return this.callOpenAiCompatible(
+        'https://openrouter.ai/api/v1/chat/completions',
+        openrouterKey,
+        modelId,
+        temperature,
+        input,
+        onStreamToken,
+      );
+    }
+
+    const groqKey = AuthStorage.getApiKey('groq');
+    if (provider === 'groq' && groqKey) {
+      return this.callOpenAiCompatible(
+        'https://api.groq.com/openai/v1/chat/completions',
+        groqKey,
         modelId,
         temperature,
         input,

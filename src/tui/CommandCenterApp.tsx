@@ -258,6 +258,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [modelsTargetRole, setModelsTargetRole] = useState<ActorRole | 'all'>(
     'architect',
   );
+  const [modelsProviderTab, setModelsProviderTab] = useState<string>('all');
   const [modelsFilterQuery, setModelsFilterQuery] = useState<string>('');
   const [selectedModelIdx, setSelectedModelIdx] = useState<number>(0);
   const [roleConfigVersion, setRoleConfigVersion] = useState<number>(0);
@@ -411,6 +412,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setSystemPromptScrollOffset(0);
     setLogScrollOffset(0);
     setIsExitConfirmOpen(false);
+    setModelsProviderTab('all');
     setModelsFilterQuery('');
     setDbModalOutput('');
     setProjectWizardStep('CLOSED');
@@ -420,6 +422,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const resolvedTarget = targetRole ?? activeRole;
     closeAllModals();
     setModelsTargetRole(resolvedTarget);
+    setModelsProviderTab('all');
     setModelsFilterQuery('');
     if (resolvedTarget !== 'all') {
       const currentCfg = orchestrator.storage.getRoleConfig(
@@ -475,9 +478,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
 
   const filteredModels = useMemo(() => {
+    let list = AVAILABLE_MODELS_CATALOG;
+    if (modelsProviderTab !== 'all') {
+      list = list.filter((m) => m.provider === modelsProviderTab);
+    }
     const q = modelsFilterQuery.trim().toLowerCase();
-    if (!q) return AVAILABLE_MODELS_CATALOG;
-    return AVAILABLE_MODELS_CATALOG.filter(
+    if (!q) return list;
+    return list.filter(
       (m) =>
         m.modelId.toLowerCase().includes(q) ||
         m.displayName.toLowerCase().includes(q) ||
@@ -486,7 +493,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         m.recommendedFor.toLowerCase().includes(q) ||
         `${m.provider}/${m.modelId}`.toLowerCase().includes(q),
     );
-  }, [modelsFilterQuery]);
+  }, [modelsProviderTab, modelsFilterQuery]);
 
   const copyTextToClipboard = (text: string) => {
     if (!text) return;
@@ -1186,6 +1193,110 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // 2. Handle Left Mouse Button Click
     if (ev.button === 'left' && ev.action === 'press') {
+      // 2a. Interactive Models Modal Click Handler
+      if (isModelsModalOpen) {
+        const modalWidth = Math.max(96, Math.min(136, dimensions.columns - 4));
+        const windowSize = Math.max(
+          6,
+          Math.min(12, Math.max(22, dimensions.rows - 1) - 18),
+        );
+        const modalHeight = windowSize + 14;
+        const modalTop = Math.max(1, Math.floor((dimensions.rows - modalHeight) / 2)) + 1;
+        const modalLeft = Math.max(1, Math.floor((dimensions.columns - modalWidth) / 2)) + 1;
+
+        const relY = ev.y - modalTop;
+        const relX = ev.x - modalLeft;
+
+        // Click outside the modal closes it
+        if (relY < 0 || relY >= modalHeight || relX < 0 || relX >= modalWidth) {
+          setIsModelsModalOpen(false);
+          setModelsFilterQuery('');
+          return;
+        }
+
+        // Line 2: Agent Selector colored boxes (PM, ARQ, DEV, QA, ALL)
+        // Rows relY around 4 (allow 3..5 for click area)
+        if (relY >= 3 && relY <= 5) {
+          const targetOptions = ['pm', 'architect', 'developer', 'qa', 'all'] as const;
+          const tabWidth = 14;
+          const totalBarWidth = 5 * (tabWidth + 2); // 80 cols
+          const barStartX = 2 + Math.max(0, Math.floor((modalWidth - 4 - totalBarWidth) / 2));
+          const btnOffset = relX - barStartX;
+          if (btnOffset >= 0 && btnOffset < totalBarWidth) {
+            const btnIdx = Math.floor(btnOffset / (tabWidth + 2));
+            if (btnIdx >= 0 && btnIdx < targetOptions.length) {
+              setModelsTargetRole(targetOptions[btnIdx]);
+              return;
+            }
+          }
+        }
+
+        // Line 3: Provider Filter Tabs (ALL, OPENCODE ZEN, OPENROUTER, etc.)
+        // Rows relY around 6..7
+        if (relY >= 6 && relY <= 7) {
+          const providerTabs = [
+            { id: 'all', label: language === 'es' ? 'TODOS' : 'ALL' },
+            { id: 'opencode', label: 'OPENCODE ZEN' },
+            { id: 'openrouter', label: 'OPENROUTER' },
+            { id: 'anthropic', label: 'ANTHROPIC' },
+            { id: 'openai', label: 'OPENAI' },
+            { id: 'gemini', label: 'GEMINI' },
+            { id: 'groq', label: 'GROQ' },
+            { id: 'ollama', label: 'OLLAMA' },
+            { id: 'freellm', label: 'FREE/ZERO' },
+          ];
+          const totalTabsWidth = providerTabs.reduce(
+            (sum, pt) => sum + pt.label.length + 3,
+            0,
+          );
+          const tabsStartX =
+            2 + Math.max(0, Math.floor((modalWidth - 4 - totalTabsWidth) / 2));
+
+          let curX = tabsStartX;
+          for (const pt of providerTabs) {
+            const tabW = pt.label.length + 2;
+            if (relX >= curX && relX < curX + tabW) {
+              setModelsProviderTab(pt.id);
+              setSelectedModelIdx(0);
+              return;
+            }
+            curX += tabW + 1;
+          }
+        }
+
+        // Line 5+: Model Catalog List rows starting at listStartY = 12
+        const listStartY = 12;
+        const startIdx = Math.max(
+          0,
+          Math.min(
+            selectedModelIdx - Math.floor(windowSize / 2),
+            Math.max(0, filteredModels.length - windowSize),
+          ),
+        );
+        const visibleCount = Math.min(
+          windowSize,
+          filteredModels.length - startIdx,
+        );
+
+        if (relY >= listStartY && relY < listStartY + visibleCount) {
+          const clickedRow = relY - listStartY;
+          const targetModelIdx = startIdx + clickedRow;
+          if (targetModelIdx >= 0 && targetModelIdx < filteredModels.length) {
+            if (selectedModelIdx === targetModelIdx) {
+              applyModelSelection(
+                modelsTargetRole,
+                filteredModels[targetModelIdx],
+              );
+            } else {
+              setSelectedModelIdx(targetModelIdx);
+            }
+            return;
+          }
+        }
+
+        return;
+      }
+
       const rolesOrder = ['pm', 'architect', 'developer', 'qa'] as const;
 
       // Top Color Banner (single line, rows 1..2): clicking cycles to the next agent
@@ -1205,16 +1316,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setDbModalOutput('');
         setIsExitConfirmOpen(false);
         setIsAuthModalOpen(false);
-        return;
-      }
-
-      // Interactive Models modal: click applies selected model to current target
-      if (isModelsModalOpen && filteredModels.length > 0) {
-        const chosen =
-          filteredModels[selectedModelIdx] ?? filteredModels[0];
-        if (chosen) {
-          applyModelSelection(modelsTargetRole, chosen);
-        }
         return;
       }
 
@@ -1640,8 +1741,27 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
 
+      const providerTabList = [
+        'all',
+        'opencode',
+        'openrouter',
+        'anthropic',
+        'openai',
+        'gemini',
+        'groq',
+        'ollama',
+        'freellm',
+      ];
+      if (key.tab) {
+        const currTabIdx = providerTabList.indexOf(modelsProviderTab);
+        const nextTabIdx = (currTabIdx + 1) % providerTabList.length;
+        setModelsProviderTab(providerTabList[nextTabIdx]);
+        setSelectedModelIdx(0);
+        return;
+      }
+
       const targetOptions = ['pm', 'architect', 'developer', 'qa', 'all'] as const;
-      if (key.leftArrow || key.rightArrow || key.tab) {
+      if (key.leftArrow || key.rightArrow) {
         const currIdx = Math.max(
           0,
           targetOptions.indexOf(
@@ -2847,7 +2967,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // Larger, strictly fixed modal dimensions so moving left/right/up/down or
     // typing in the filter never changes the dialog width or height.
-    const modalWidth = Math.max(82, Math.min(128, dimensions.columns - 6));
+    const modalWidth = Math.max(96, Math.min(136, dimensions.columns - 4));
     const tabWidth = 14;
     const centerInBox = (label: string, width: number): string => {
       if (label.length >= width) return label.slice(0, width);
@@ -2857,9 +2977,21 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     };
     const windowSize = Math.max(
       6,
-      Math.min(12, Math.max(22, dimensions.rows - 1) - 16),
+      Math.min(12, Math.max(22, dimensions.rows - 1) - 18),
     );
-    const modalHeight = windowSize + 12;
+    const modalHeight = windowSize + 14;
+
+    const providerTabs = [
+      { id: 'all', label: language === 'es' ? 'TODOS' : 'ALL', isConfigured: true },
+      { id: 'opencode', label: 'OPENCODE ZEN', isConfigured: Boolean(AuthStorage.getApiKey('opencode')) },
+      { id: 'openrouter', label: 'OPENROUTER', isConfigured: Boolean(AuthStorage.getApiKey('openrouter')) },
+      { id: 'anthropic', label: 'ANTHROPIC', isConfigured: Boolean(AuthStorage.getApiKey('anthropic')) },
+      { id: 'openai', label: 'OPENAI', isConfigured: Boolean(AuthStorage.getApiKey('openai')) },
+      { id: 'gemini', label: 'GEMINI', isConfigured: Boolean(AuthStorage.getApiKey('gemini')) },
+      { id: 'groq', label: 'GROQ', isConfigured: Boolean(AuthStorage.getApiKey('groq')) },
+      { id: 'ollama', label: 'OLLAMA', isConfigured: true },
+      { id: 'freellm', label: 'FREE/ZERO', isConfigured: true },
+    ];
 
     const startIdx = Math.max(
       0,
@@ -2969,7 +3101,41 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           </Box>
         </Box>
 
-        {/* OpenCode-style Live Search / Filter Input (fixed 3 rows) */}
+        {/* Line 3: Provider / Gateway Filter Tabs */}
+        <Box
+          flexDirection="row"
+          width="100%"
+          height={1}
+          marginTop={1}
+          justifyContent="center"
+        >
+          {providerTabs.map((pt) => {
+            const isSelectedTab = modelsProviderTab === pt.id;
+            const buttonText = isSelectedTab ? `▶ ${pt.label} ◀` : ` ${pt.label} `;
+            const hasKey = pt.isConfigured;
+
+            return (
+              <Box key={pt.id} height={1} marginX={0}>
+                <Text
+                  bold={isSelectedTab}
+                  backgroundColor={isSelectedTab ? targetTheme.bgColor : undefined}
+                  color={
+                    isSelectedTab
+                      ? targetTheme.fgColor
+                      : hasKey
+                        ? 'white'
+                        : 'gray'
+                  }
+                >
+                  {buttonText}
+                </Text>
+                <Text color="gray"> </Text>
+              </Box>
+            );
+          })}
+        </Box>
+
+        {/* Line 4: Live Search / Filter Input (fixed 3 rows) */}
         <Box
           marginTop={1}
           height={3}
@@ -2994,7 +3160,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           </Text>
         </Box>
 
-        {/* Scrollable Model Catalog List with strictly fixed height (windowSize rows) */}
+        {/* Line 5+: Scrollable Model Catalog List with strictly fixed height (windowSize rows) */}
         <Box flexDirection="column" marginTop={1} height={windowSize}>
           {visibleModels.length === 0 ? (
             <Text dimColor wrap="truncate-end">
@@ -3004,6 +3170,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             visibleModels.map((m, localIdx) => {
               const realIdx = startIdx + localIdx;
               const isRowSelected = realIdx === selectedModelIdx;
+              const isKeyConfigured =
+                m.isFree ||
+                m.provider === 'deterministic' ||
+                Boolean(AuthStorage.getApiKey(m.provider));
+
               const assignedRoles = (
                 ['pm', 'architect', 'developer', 'qa'] as const
               ).filter((rKey) => {
@@ -3024,10 +3195,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   >
                     {isRowSelected ? '❯ ' : '  '}
                     <Text color="cyan">
-                      [{m.vendor.padEnd(10, ' ')}]
+                      [{m.vendor.padEnd(9, ' ')}]
                     </Text>{' '}
-                    <Text color={m.isFree ? 'green' : 'gray'}>
-                      [{m.isFree ? 'Free' : 'Paid'}]
+                    <Text color="yellow">
+                      [{m.providerLabel.padEnd(12, ' ')}]
+                    </Text>{' '}
+                    <Text color={m.isFree ? 'green' : isKeyConfigured ? 'green' : 'gray'}>
+                      [{m.isFree ? 'Free' : isKeyConfigured ? 'Key OK' : 'Req Key'}]
                     </Text>{' '}
                     <Text bold={isRowSelected} color={isRowSelected ? 'white' : undefined}>
                       {m.modelId.padEnd(28, ' ')}
