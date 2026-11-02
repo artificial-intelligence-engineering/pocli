@@ -121,7 +121,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     viewLabel: 'view',
     cleanViewName: 'clean',
     multipanelViewName: 'multipanel',
-    toggleViewHint: 'press Ctrl+Tab for Multipanel',
+    toggleViewHint: 'press Tab for Multipanel',
     virtualEngineeringTeam: 'Virtual Engineering Team',
     archVersionShort: 'Arch',
     qaCyclesShort: 'QA Cycles',
@@ -131,9 +131,9 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     inputPlaceholderHint:
       'Type your instruction or "/" for commands (/propose, /approve, /handoff, /implement, /validate, /settings)',
     bottomShortcutsHint:
-      '/ commands · Mouse click/wheel · Ctrl+Tab multipanel · Esc exit',
+      '/ commands · Mouse click/wheel · Tab multipanel · Ctrl+Tab cycle · Esc exit',
     initialStatusBanner:
-      'Type a message for the active professional or use "/" for commands. Press Ctrl+Tab to switch views.',
+      'Type a message for the active professional or use "/" for commands. Press Tab for multipanel, Ctrl+Tab to cycle agents.',
     settingsTitle: 'Application Settings (/settings)',
     settingsSubtitle:
       'Use ↑/↓ to select option · ←/→ or Enter to edit · Esc to close',
@@ -216,7 +216,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     noMessagesInChannel: 'No messages in this channel yet.',
     copiedToClipboardMsg: (charCount) =>
       `✔ Copied ${charCount} character${charCount === 1 ? '' : 's'} to clipboard.`,
-    returnToCleanViewHint: 'Press Ctrl+Tab to return to clean view',
+    returnToCleanViewHint: 'Press Tab to return to clean view',
     expertBoxTitles: {
       pm: 'Project Manager',
       architect: 'Architect',
@@ -347,7 +347,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       },
       {
         command: '/view',
-        description: 'Toggle between clean view (OpenCode) and Multipanel (Ctrl+Tab)',
+        description: 'Toggle between clean view (OpenCode) and Multipanel (Tab)',
       },
       {
         command: '/clear',
@@ -377,7 +377,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     viewLabel: 'vista',
     cleanViewName: 'limpia',
     multipanelViewName: 'multipanel',
-    toggleViewHint: 'pulsa Ctrl+Tab para Multipanel',
+    toggleViewHint: 'pulsa Tab para Multipanel',
     virtualEngineeringTeam: 'Equipo Virtual de Ingeniería',
     archVersionShort: 'Arq',
     qaCyclesShort: 'Ciclos QA',
@@ -387,9 +387,9 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     inputPlaceholderHint:
       'Escribe tu instrucción o "/" para comandos (/propose, /approve, /handoff, /implement, /validate, /settings)',
     bottomShortcutsHint:
-      '/ comandos · Ratón clic/rueda · Ctrl+Tab multipanel · Esc salir',
+      '/ comandos · Ratón clic/rueda · Tab multipanel · Ctrl+Tab rotar · Esc salir',
     initialStatusBanner:
-      'Escribe un mensaje para el profesional activo o usa "/" para comandos. Pulsa Ctrl+Tab para alternar vista.',
+      'Escribe un mensaje para el profesional activo o usa "/" para comandos. Pulsa Tab para alternar vista, Ctrl+Tab para rotar agentes.',
     settingsTitle: 'Configuración de la Aplicación (/settings)',
     settingsSubtitle:
       'Usa ↑/↓ para elegir opción · ←/→ o Enter para editar · Esc para cerrar',
@@ -472,7 +472,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     noMessagesInChannel: 'No hay mensajes en este canal todavía.',
     copiedToClipboardMsg: (charCount) =>
       `✔ ${charCount} carácter(es) copiado(s) al portapapeles.`,
-    returnToCleanViewHint: 'Pulsa Ctrl+Tab para volver a vista limpia',
+    returnToCleanViewHint: 'Pulsa Tab para volver a vista limpia',
     expertBoxTitles: {
       pm: 'Project Manager',
       architect: 'Arquitecto',
@@ -603,7 +603,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       },
       {
         command: '/view',
-        description: 'Alternar entre vista limpia (OpenCode) y Multipanel (Ctrl+Tab)',
+        description: 'Alternar entre vista limpia (OpenCode) y Multipanel (Tab)',
       },
       {
         command: '/clear',

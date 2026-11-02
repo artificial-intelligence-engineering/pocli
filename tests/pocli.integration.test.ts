@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   AuthorityGuard,
+  AVAILABLE_AGENTS,
   AVAILABLE_MODELS_CATALOG,
   DEFAULT_POCLI_HOME_DIR,
   executeDbCommandOrQuery,
@@ -989,5 +990,22 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
 
     expect(pmMessages[0].content).toBe('PM status inquiry for sprint roadmap');
     expect(devMessages[0].content).toBe('Developer implementation plan check');
+  });
+
+  it('Issue #4: verifies Ctrl+Tab agent carousel cycling sequence and wrap-around', () => {
+    // Verify carousel roles sequence from AVAILABLE_AGENTS
+    const roles = AVAILABLE_AGENTS.map((a) => a.role);
+    expect(roles).toEqual(['architect', 'developer', 'qa', 'pm']);
+
+    // Emulate carousel next function
+    const getNextRole = (current: string) => {
+      const idx = roles.indexOf(current as any);
+      return roles[(idx + 1) % roles.length];
+    };
+
+    expect(getNextRole('architect')).toBe('developer');
+    expect(getNextRole('developer')).toBe('qa');
+    expect(getNextRole('qa')).toBe('pm');
+    expect(getNextRole('pm')).toBe('architect'); // wraps around to first
   });
 });

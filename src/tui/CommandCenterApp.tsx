@@ -388,29 +388,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     };
   }, [stdout]);
 
-  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab sequences via Ink's internal_eventEmitter
-  // (avoids attaching a competing 'data' listener on stdin that conflicts with Ink's 'readable' loop)
-  useEffect(() => {
-    const emitter = internal_eventEmitter ?? stdin;
-    if (!emitter) return;
-    const eventName = internal_eventEmitter ? 'input' : 'data';
-    const onRawData = (data: Buffer | string) => {
-      const seq = typeof data === 'string' ? data : data.toString('utf8');
-      if (
-        seq === '\x1b[27;5;9~' || // xterm modifyOtherKeys Ctrl+Tab
-        seq === '\x1b[9;5u' ||    // Kitty / CSI-u Ctrl+Tab
-        seq === '\x1b[1;5I' ||    // VTE / GNOME Terminal Ctrl+Tab
-        seq === '\x1b[Z'          // Shift+Tab / Backtab fallback in standard Linux terminals
-      ) {
-        setViewMode((prev) => (prev === 'multipanel' ? 'chat' : 'multipanel'));
-      }
-    };
-    emitter.on(eventName, onRawData);
-    return () => {
-      emitter.off(eventName, onRawData);
-    };
-  }, [stdin, internal_eventEmitter]);
-
   const applyLanguageChange = (nextLang: SupportedLanguage) => {
     orchestrator.storage.updateSettings({ language: nextLang });
     setLanguage(nextLang);
@@ -447,6 +424,56 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setDbModalOutput('');
     setProjectWizardStep('CLOSED');
   };
+
+  const switchActiveRole = (nextRole: ActorRole) => {
+    if (nextRole === activeRole) return;
+    const currentDraft = inputValue.trim().startsWith('/') ? '' : inputValue;
+    setRoleDrafts((prev) => ({ ...prev, [activeRole]: currentDraft }));
+    setInputValue(roleDrafts[nextRole] || '');
+    setActiveRole(nextRole);
+    setMessageScrollOffset(0);
+    setStatusBanner(
+      t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
+    );
+  };
+
+  const lastCycleTimeRef = useRef<number>(0);
+  const cycleNextAgent = () => {
+    const now = Date.now();
+    if (now - lastCycleTimeRef.current < 100) return;
+    lastCycleTimeRef.current = now;
+    closeAllModals();
+    const roles: ActorRole[] = AVAILABLE_AGENTS.map((a) => a.role);
+    const currIdx = roles.indexOf(activeRole);
+    const nextIdx = (currIdx + 1) % roles.length;
+    const nextRole = roles[nextIdx];
+    switchActiveRole(nextRole);
+    if (viewMode !== 'chat') {
+      setViewMode('chat');
+    }
+  };
+
+  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab sequences via Ink's internal_eventEmitter
+  // (avoids attaching a competing 'data' listener on stdin that conflicts with Ink's 'readable' loop)
+  useEffect(() => {
+    const emitter = internal_eventEmitter ?? stdin;
+    if (!emitter) return;
+    const eventName = internal_eventEmitter ? 'input' : 'data';
+    const onRawData = (data: Buffer | string) => {
+      const seq = typeof data === 'string' ? data : data.toString('utf8');
+      if (
+        seq === '\x1b[27;5;9~' || // xterm modifyOtherKeys Ctrl+Tab
+        seq === '\x1b[9;5u' ||    // Kitty / CSI-u Ctrl+Tab
+        seq === '\x1b[1;5I'       // VTE / GNOME Terminal Ctrl+Tab
+      ) {
+        cycleNextAgent();
+      }
+    };
+    emitter.on(eventName, onRawData);
+    return () => {
+      emitter.off(eventName, onRawData);
+    };
+  }, [stdin, internal_eventEmitter, activeRole, viewMode, inputValue, roleDrafts]);
 
   const openModelsModal = (targetRole?: ActorRole | 'all') => {
     const resolvedTarget = targetRole ?? activeRole;
@@ -1084,18 +1111,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       setViewMode('chat');
     }
     void sendChatMessage(activeRole, trimmed);
-  };
-
-  const switchActiveRole = (nextRole: ActorRole) => {
-    if (nextRole === activeRole) return;
-    const currentDraft = inputValue.trim().startsWith('/') ? '' : inputValue;
-    setRoleDrafts((prev) => ({ ...prev, [activeRole]: currentDraft }));
-    setInputValue(roleDrafts[nextRole] || '');
-    setActiveRole(nextRole);
-    setMessageScrollOffset(0);
-    setStatusBanner(
-      t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
-    );
   };
 
   const sendChatMessage = async (targetRole: ActorRole, messageText: string) => {
@@ -2083,13 +2098,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // Toggle between OpenCode chat view and Multipanel Command Center on Tab/Ctrl+Tab
-    if (key.tab) {
+    // Ctrl+Tab cycles through agent chats in a carousel
+    if (key.tab && key.ctrl) {
+      cycleNextAgent();
+      return;
+    }
+
+    // Toggle between OpenCode chat view and Multipanel Command Center on plain Tab
+    if (key.tab && !key.shift && !key.ctrl) {
       if (
         isSlashMenuOpen &&
-        filteredSlashCommands.length > 0 &&
-        !key.shift &&
-        !key.ctrl
+        filteredSlashCommands.length > 0
       ) {
         const chosen =
           filteredSlashCommands[selectedSlashIdx] ?? filteredSlashCommands[0];
@@ -3900,6 +3919,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Text>
           </Box>
           <Box flexDirection="row">
+            <Text color="gray">ctrl+tab </Text>
+            <Text color="white">cycle   </Text>
             <Text color="gray">shift+tab </Text>
             <Text color="white">agents   </Text>
             <Text color="gray">ctrl+p </Text>
