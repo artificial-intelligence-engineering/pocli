@@ -10,6 +10,8 @@
  *    to the next candidate in the fallback chain.
  */
 
+import { Logger } from '../core/logger.js';
+
 export type RoutingStrategy = 'auto:smart' | 'auto:fast' | 'auto:balanced' | 'auto:reliable' | 'custom';
 
 export interface ProviderQuotaLimits {
@@ -296,6 +298,7 @@ export class LLMRouter {
     for (const provider of chain) {
       const startTime = Date.now();
       const modelToUse = this.resolveModelForProvider(provider, payload.model);
+      Logger.debug('LLM-ROUTER', `Requesting completion from provider '${provider.id}' (model: ${modelToUse})`);
 
       try {
         const text = await this.executeProviderRequest(
@@ -309,6 +312,7 @@ export class LLMRouter {
 
         const latencyMs = Date.now() - startTime;
         this.recordSuccess(provider.id, latencyMs, text.length);
+        Logger.info('LLM-ROUTER', `Provider '${provider.id}' (${modelToUse}) responded in ${latencyMs}ms (${text.length} chars)`);
 
         return {
           text,
@@ -333,6 +337,7 @@ export class LLMRouter {
         const cooldownMs = isRateLimit ? 45000 : isServerErr ? 15000 : 10000;
         this.recordFailure(provider.id, cooldownMs);
         errors.push({ providerId: provider.id, error: errMsg });
+        Logger.warn('LLM-ROUTER', `Provider '${provider.id}' failed (cooldown ${cooldownMs}ms): ${errMsg}`);
 
         if (!this.fallbackEnabled) {
           throw new Error(`LLMRouter failure on ${provider.id}: ${errMsg}`);

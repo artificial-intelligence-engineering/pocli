@@ -23,6 +23,7 @@ import { AgentToolCallRequest } from './llm-gateway.js';
 import { McpRegistry } from './mcp-client.js';
 import { IndexResult, NotebookRagEngine } from './notebook-rag.js';
 import { LinuxAgentProcessRunner, WorkerExecutionResult } from './process-runner.js';
+import { Logger } from '../core/logger.js';
 
 export interface HandoffBundle {
   projectId: string;
@@ -91,6 +92,11 @@ export class PoCliOrchestrator extends EventEmitter {
     const modelConfig = this.storage.getRoleConfig(project.id, params.targetRole);
 
     // Record Product Owner's message
+    Logger.info(
+      'ORCHESTRATOR',
+      `Message to '${params.targetRole}': "${params.message.replace(/\s+/g, ' ').slice(0, 60)}"`,
+      { projectId: project.id },
+    );
     this.storage.recordMessage({
       projectId: project.id,
       fromRole: 'product_owner',
@@ -137,6 +143,10 @@ export class PoCliOrchestrator extends EventEmitter {
     );
 
     // Record specialist's reply in the SQLite Session Tree (DAG)
+    Logger.info(
+      'ORCHESTRATOR',
+      `Reply from '${params.targetRole}' (PID ${turnResult.workerPid}, ${createdArtifacts.length} artifacts created)`,
+    );
     const replyMsg = this.storage.recordMessage({
       projectId: project.id,
       fromRole: params.targetRole,

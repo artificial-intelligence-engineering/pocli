@@ -15,6 +15,7 @@ import {
   AVAILABLE_MODELS_CATALOG,
   resolveModelSpec,
 } from './runtime/llm-gateway.js';
+import { Logger } from './core/logger.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
 
 function enterFullscreenTerminal(): void {
@@ -158,6 +159,49 @@ async function main(): Promise<void> {
     return;
   }
 
+  // OpenCode-style `pocli logs` command:
+  //   - `pocli logs` -> prints the last 50 lines of logs
+  //   - `pocli logs -n <num>` -> prints the last <num> lines
+  //   - `pocli logs path` -> prints path to the active log file ($HOME/.pocli/logs/pocli.log)
+  //   - `pocli logs clear` / `pocli logs -c` -> clears the log file
+  if (subcommand === 'logs' || subcommand === 'log') {
+    const logArgs = args.slice(1);
+    if (logArgs[0] === 'path') {
+      console.log(Logger.getLogFilePath());
+      storage.close();
+      return;
+    }
+    if (
+      logArgs[0] === 'clear' ||
+      logArgs[0] === '-c' ||
+      logArgs[0] === '--clear'
+    ) {
+      Logger.clear();
+      console.log('✔ Logs cleared.');
+      storage.close();
+      return;
+    }
+
+    let count = 50;
+    const nIdx = logArgs.indexOf('-n');
+    if (nIdx !== -1 && logArgs[nIdx + 1]) {
+      const parsed = parseInt(logArgs[nIdx + 1], 10);
+      if (!isNaN(parsed) && parsed > 0) count = parsed;
+    }
+
+    const lines = Logger.getRecentLines(count);
+    if (lines.length === 0) {
+      console.log(`(No logs found at ${Logger.getLogFilePath()})`);
+    } else {
+      console.log(`=== Last ${lines.length} log lines (${Logger.getLogFilePath()}) ===\n`);
+      for (const line of lines) {
+        console.log(line);
+      }
+    }
+    storage.close();
+    return;
+  }
+
   if (subcommand === 'tui' || subcommand === 'pocli') {
     let project = storage.getActiveProject();
     if (!project) {
@@ -293,6 +337,7 @@ async function main(): Promise<void> {
       '  pocli db                            Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)',
       '  pocli db path                       Print the active SQLite database file path',
       '  pocli db "<sql>" [--format json]    Execute a SQL query or dot-command (.tables, .stats)',
+      '  pocli logs [-n 50|path|clear]       Inspect or clear runtime diagnostic logs ($HOME/.pocli/logs/)',
       '  pocli demo                          Run a full 8-phase workflow demonstration on Linux',
       '  npm test                            Run the integration test suite',
     ].join('\n'),

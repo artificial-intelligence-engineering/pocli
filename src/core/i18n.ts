@@ -331,6 +331,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
           'Inspect SQLite database or run query (/db [.stats|.tables|.experts|<sql>])',
       },
       {
+        command: '/logs',
+        description:
+          'Inspect application runtime diagnostic logs (/logs [clear|path])',
+      },
+      {
         command: '/settings',
         description:
           'Open settings or change language/working dir (/settings lang en|es · /settings dir <path>)',
@@ -575,6 +580,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         command: '/db',
         description:
           'Inspeccionar base de datos SQLite o ejecutar SQL (/db [.stats|.tables|<sql>])',
+      },
+      {
+        command: '/logs',
+        description:
+          'Inspeccionar registros de diagnóstico en tiempo de ejecución (/logs [clear|path])',
       },
       {
         command: '/settings',

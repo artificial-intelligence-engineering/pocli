@@ -9,6 +9,7 @@ import {
   JsonRpcResponse,
 } from '../core/contracts.js';
 import { AgentTurnInput, AgentTurnOutput } from './llm-gateway.js';
+import { Logger } from '../core/logger.js';
 
 export interface WorkerExecutionResult extends AgentTurnOutput {
   workerPid: number;
@@ -89,6 +90,11 @@ export class LinuxAgentProcessRunner {
       workspaceDir,
     );
 
+    Logger.debug(
+      'WORKER',
+      `Spawned worker PID ${child.pid} for role='${input.role}' (modality: ${effectiveModality})`,
+    );
+
     return new Promise<WorkerExecutionResult>((resolve, reject) => {
       const rl = readline.createInterface({
         input: child.stdout,
@@ -145,6 +151,11 @@ export class LinuxAgentProcessRunner {
           child.stdin.write(`${JSON.stringify(shutdownReq)}\n`);
 
           if (rpcRes.error) {
+            Logger.error(
+              'WORKER',
+              `Worker PID ${child.pid} error for role='${input.role}': ${rpcRes.error.message}`,
+              { code: rpcRes.error.code },
+            );
             reject(
               new Error(
                 `Worker JSON-RPC Error (${rpcRes.error.code}): ${rpcRes.error.message}`,
@@ -154,6 +165,10 @@ export class LinuxAgentProcessRunner {
           }
 
           const resObj = rpcRes.result as WorkerExecutionResult;
+          Logger.debug(
+            'WORKER',
+            `Worker PID ${child.pid} turn completed for role='${input.role}'`,
+          );
           resolve({
             ...resObj,
             modalityUsed: effectiveModality,

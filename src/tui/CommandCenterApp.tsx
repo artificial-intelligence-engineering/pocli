@@ -13,6 +13,7 @@ import { ExpertChatSummary } from '../storage/database.js';
 import { executeDbCommandOrQuery } from '../storage/db-repl.js';
 import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
+import { Logger } from '../core/logger.js';
 import {
   AVAILABLE_MODELS_CATALOG,
   getModelVendorLabel,
@@ -247,6 +248,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [systemViewingRole, setSystemViewingRole] = useState<ActorRole>('architect');
   const [systemPromptScrollOffset, setSystemPromptScrollOffset] = useState<number>(0);
 
+  // Interactive Logs Viewer Modal (/logs)
+  const [isLogsModalOpen, setIsLogsModalOpen] = useState<boolean>(false);
+  const [logScrollOffset, setLogScrollOffset] = useState<number>(0);
+
   // Interactive OpenCode-style Per-Agent Model Picker Modal (/models)
   const [isModelsModalOpen, setIsModelsModalOpen] = useState<boolean>(false);
   const [modelsTargetRole, setModelsTargetRole] = useState<ActorRole | 'all'>(
@@ -391,8 +396,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsAgentsModalOpen(false);
     setIsModelsModalOpen(false);
     setIsSystemModalOpen(false);
+    setIsLogsModalOpen(false);
     setSystemViewDetail('menu');
     setSystemPromptScrollOffset(0);
+    setLogScrollOffset(0);
     setIsExitConfirmOpen(false);
     setModelsFilterQuery('');
     setDbModalOutput('');
@@ -556,6 +563,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     !isAgentsModalOpen &&
     !isModelsModalOpen &&
     !isSystemModalOpen &&
+    !isLogsModalOpen &&
     !isHelpOpen &&
     !isSettingsOpen &&
     !isExitConfirmOpen;
@@ -721,6 +729,26 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setSystemViewDetail('menu');
         setSystemPromptScrollOffset(0);
         setIsSystemModalOpen(true);
+        return;
+      }
+      if (cmdToken === '/logs' || cmdToken === '/log') {
+        closeAllModals();
+        const subParam = parts[1]?.toLowerCase();
+        if (subParam === 'clear' || subParam === '-c') {
+          Logger.clear();
+          setStatusBanner(
+            language === 'es'
+              ? '✔ Logs de diagnóstico borrados'
+              : '✔ Diagnostic logs cleared',
+          );
+          return;
+        }
+        if (subParam === 'path') {
+          setStatusBanner(`📍 Log: ${Logger.getLogFilePath().replace(os.homedir(), '~')}`);
+          return;
+        }
+        setLogScrollOffset(0);
+        setIsLogsModalOpen(true);
         return;
       }
       if (cmdToken === '/clear') {
@@ -1097,6 +1125,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             isUp ? Math.max(0, prev - 2) : prev + 2,
           );
         }
+        return;
+      }
+      if (isLogsModalOpen) {
+        setLogScrollOffset((prev) => (isUp ? Math.max(0, prev - 2) : prev + 2));
         return;
       }
       if (isSettingsOpen && !isEditingWorkDir) {
@@ -1533,7 +1565,47 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // 2d. Handle OpenCode-style Per-Agent Model Picker Modal (/models or Ctrl+O)
+    // 2d. Handle Interactive Logs Viewer Modal (/logs)
+    if (isLogsModalOpen) {
+      if (key.escape || input === 'q') {
+        setIsLogsModalOpen(false);
+        setLogScrollOffset(0);
+        return;
+      }
+      if (key.upArrow) {
+        setLogScrollOffset((prev) => Math.max(0, prev - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setLogScrollOffset((prev) => prev + 1);
+        return;
+      }
+      if (key.pageUp) {
+        setLogScrollOffset((prev) => Math.max(0, prev - 8));
+        return;
+      }
+      if (key.pageDown) {
+        setLogScrollOffset((prev) => prev + 8);
+        return;
+      }
+      if (input === 'g') {
+        setLogScrollOffset(0);
+        return;
+      }
+      if (input === 'c') {
+        Logger.clear();
+        setLogScrollOffset(0);
+        return;
+      }
+      if (key.return) {
+        setIsLogsModalOpen(false);
+        setLogScrollOffset(0);
+        return;
+      }
+      return;
+    }
+
+    // 2e. Handle OpenCode-style Per-Agent Model Picker Modal (/models or Ctrl+O)
     if (isModelsModalOpen) {
       if (key.escape) {
         setIsModelsModalOpen(false);
@@ -2891,6 +2963,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     isAgentsModalOpen ||
     isModelsModalOpen ||
     isSystemModalOpen ||
+    isLogsModalOpen ||
     isExitConfirmOpen ||
     dbModalOutput.length > 0 ||
     projectWizardStep !== 'CLOSED';
@@ -2914,6 +2987,160 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       <Text>{dbModalOutput}</Text>
     </Box>
   );
+
+  // Interactive Logs Viewer Modal (/logs)
+  const renderLogsModal = () => {
+    const modalWidth = Math.min(108, Math.max(76, dimensions.columns - 4));
+    const lines = Logger.getRecentLines(200);
+    const windowHeight = Math.max(
+      6,
+      Math.min(16, Math.max(6, dimensions.rows - 12)),
+    );
+    const totalLines = lines.length;
+    const maxScroll = Math.max(0, totalLines - windowHeight);
+    const currentScroll = Math.max(
+      0,
+      Math.min(maxScroll, logScrollOffset),
+    );
+
+    const thumbHeight = Math.max(
+      1,
+      Math.round((windowHeight / Math.max(1, totalLines)) * windowHeight),
+    );
+    const maxThumbTop = Math.max(0, windowHeight - thumbHeight);
+    const thumbTop =
+      maxScroll > 0
+        ? Math.min(
+            maxThumbTop,
+            Math.round((currentScroll / maxScroll) * maxThumbTop),
+          )
+        : 0;
+
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        borderStyle="round"
+        borderColor="yellow"
+        paddingX={1}
+        paddingY={1}
+        marginBottom={1}
+      >
+        <Box
+          justifyContent="space-between"
+          marginBottom={1}
+          width="100%"
+          paddingX={1}
+        >
+          <Text bold color="yellow" wrap="truncate-end">
+            📋 {language === 'es' ? 'Registros de Diagnóstico (/logs)' : 'Diagnostic Logs (/logs)'}
+          </Text>
+          <Text dimColor wrap="truncate-end">
+            {totalLines > windowHeight
+              ? `${currentScroll + 1}-${Math.min(
+                  totalLines,
+                  currentScroll + windowHeight,
+                )} / ${totalLines}`
+              : `${totalLines} ${language === 'es' ? 'líneas' : 'lines'}`}
+          </Text>
+        </Box>
+
+        <Box
+          paddingX={1}
+          marginBottom={1}
+          flexDirection="row"
+          justifyContent="space-between"
+          width="100%"
+        >
+          <Box flexShrink={1}>
+            <Text dimColor wrap="truncate-end">
+              {language === 'es' ? 'Archivo:' : 'File:'}{' '}
+              {Logger.getLogFilePath().replace(os.homedir(), '~')}
+            </Text>
+          </Box>
+          <Box flexShrink={0} paddingLeft={2}>
+            <Text dimColor>
+              {language === 'es' ? '[c] Borrar logs' : '[c] Clear logs'}
+            </Text>
+          </Box>
+        </Box>
+
+        {/* Scrollable Log Lines Box with Vertical Scrollbar */}
+        <Box
+          flexDirection="column"
+          borderStyle="single"
+          borderColor="gray"
+          paddingX={1}
+          paddingY={0}
+          marginBottom={1}
+          height={windowHeight + 2}
+        >
+          {totalLines === 0 ? (
+            <Text dimColor>
+              {language === 'es'
+                ? '(No hay registros aún en el archivo de log)'
+                : '(No log entries recorded yet)'}
+            </Text>
+          ) : (
+            Array.from({ length: windowHeight }, (_, idx) => {
+              const lineIdx = currentScroll + idx;
+              const rawLine = lineIdx < totalLines ? lines[lineIdx] : '';
+              const isThumb =
+                totalLines > windowHeight &&
+                idx >= thumbTop &&
+                idx < thumbTop + thumbHeight;
+
+              const isError = rawLine.includes('[ERROR]');
+              const isWarn = rawLine.includes('[WARN ]');
+              const isDebug = rawLine.includes('[DEBUG]');
+              const textColor = isError
+                ? 'red'
+                : isWarn
+                  ? 'yellow'
+                  : isDebug
+                    ? 'gray'
+                    : 'white';
+
+              return (
+                <Box key={idx} justifyContent="space-between" width="100%">
+                  <Box flexShrink={1}>
+                    <Text
+                      color={textColor}
+                      bold={isError}
+                      wrap="truncate-end"
+                    >
+                      {rawLine || ' '}
+                    </Text>
+                  </Box>
+                  {totalLines > windowHeight && (
+                    <Box flexShrink={0} paddingLeft={1}>
+                      <Text
+                        color={isThumb ? 'yellow' : 'gray'}
+                        bold={isThumb}
+                      >
+                        {isThumb ? '█' : '░'}
+                      </Text>
+                    </Box>
+                  )}
+                </Box>
+              );
+            })
+          )}
+        </Box>
+
+        <Box justifyContent="space-between" paddingX={1}>
+          <Text dimColor>
+            {language === 'es'
+              ? '↑/↓ o Rueda Ratón · PgUp/PgDn · [c] Limpiar · [Esc] Cerrar'
+              : '↑/↓ or Mouse Wheel · PgUp/PgDn · [c] Clear · [Esc] Close'}
+          </Text>
+          <Text dimColor>
+            [Esc] {language === 'es' ? 'Cerrar' : 'Close'}
+          </Text>
+        </Box>
+      </Box>
+    );
+  };
 
   const renderExitConfirmModal = () => (
     <Box
@@ -3109,6 +3336,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isSystemModalOpen && renderSystemModal()}
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
+            {isLogsModalOpen && renderLogsModal()}
             {isHelpOpen && renderHelpModal()}
             {isSettingsOpen && renderSettingsModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
@@ -3250,6 +3478,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isSystemModalOpen && renderSystemModal()}
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
+            {isLogsModalOpen && renderLogsModal()}
             {isHelpOpen && renderHelpModal()}
             {isSettingsOpen && renderSettingsModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
@@ -3553,6 +3782,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {isSystemModalOpen && renderSystemModal()}
           {isModelsModalOpen && renderModelsModal()}
           {dbModalOutput.length > 0 && renderDbModal()}
+          {isLogsModalOpen && renderLogsModal()}
           {isHelpOpen && renderHelpModal()}
           {isSettingsOpen && renderSettingsModal()}
           {isExitConfirmOpen && renderExitConfirmModal()}
