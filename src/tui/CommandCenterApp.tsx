@@ -166,15 +166,16 @@ function formatInteractionLine(
   count: number,
   width: number,
 ): string {
-  const fullText = ` ${label} Interactions: ${count}`;
+  const paddedRole = label.padEnd(3, ' ');
+  const fullText = ` ${paddedRole} Interactions: ${count}`;
   if (fullText.length <= width) {
     return fullText.padEnd(width, ' ');
   }
-  const shortText = ` ${label} Inter.: ${count}`;
+  const shortText = ` ${paddedRole} Inter.: ${count}`;
   if (shortText.length <= width) {
     return shortText.padEnd(width, ' ');
   }
-  return ` ${label}: ${count}`.padEnd(width, ' ');
+  return ` ${paddedRole}: ${count}`.padEnd(width, ' ');
 }
 
 export const CommandCenterApp: React.FC<CommandCenterProps> = ({
