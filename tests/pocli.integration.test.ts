@@ -990,4 +990,58 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(pmMessages[0].content).toBe('PM status inquiry for sprint roadmap');
     expect(devMessages[0].content).toBe('Developer implementation plan check');
   });
+
+  it('Issue #4: cycles agent chats in a carousel order (pm -> architect -> developer -> qa -> pm) and updates hints', () => {
+    const roles = ['pm', 'architect', 'developer', 'qa'] as const;
+
+    // 1. Verify carousel cycling logic and wrap-around
+    const getNextRole = (current: string) => {
+      const idx = roles.indexOf(current as (typeof roles)[number]);
+      const nextIdx = idx >= 0 ? (idx + 1) % roles.length : 0;
+      return roles[nextIdx];
+    };
+
+    expect(getNextRole('pm')).toBe('architect');
+    expect(getNextRole('architect')).toBe('developer');
+    expect(getNextRole('developer')).toBe('qa');
+    expect(getNextRole('qa')).toBe('pm');
+
+    // 2. Verify draft input preservation per agent role
+    const drafts: Partial<Record<string, string>> = {};
+    let activeRole = 'pm';
+    let currentInput = 'Draft prompt for PM';
+
+    // Simulate switching from PM to Architect
+    drafts[activeRole] = currentInput;
+    activeRole = getNextRole(activeRole);
+    currentInput = drafts[activeRole] || '';
+    expect(activeRole).toBe('architect');
+    expect(currentInput).toBe('');
+
+    // Architect writes a draft
+    currentInput = 'Draft prompt for Architect';
+    drafts[activeRole] = currentInput;
+
+    // Cycle through Developer and QA back to PM
+    activeRole = getNextRole(activeRole); // to developer
+    expect(activeRole).toBe('developer');
+    activeRole = getNextRole(activeRole); // to qa
+    expect(activeRole).toBe('qa');
+    activeRole = getNextRole(activeRole); // back to pm
+    expect(activeRole).toBe('pm');
+    currentInput = drafts[activeRole] || '';
+    expect(currentInput).toBe('Draft prompt for PM');
+
+    // Cycle once more to Architect and verify preserved draft
+    activeRole = getNextRole(activeRole);
+    expect(activeRole).toBe('architect');
+    currentInput = drafts[activeRole] || '';
+    expect(currentInput).toBe('Draft prompt for Architect');
+
+    // 3. Verify i18n shortcuts hints reflect Ctrl+N for cycle and Tab for multipanel
+    expect(I18N_DICTIONARY.en.bottomShortcutsHint).toContain('Ctrl+N cycle');
+    expect(I18N_DICTIONARY.en.bottomShortcutsHint).toContain('Tab multipanel');
+    expect(I18N_DICTIONARY.es.bottomShortcutsHint).toContain('Ctrl+N carrusel');
+    expect(I18N_DICTIONARY.es.bottomShortcutsHint).toContain('Tab multipanel');
+  });
 });

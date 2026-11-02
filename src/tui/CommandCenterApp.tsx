@@ -388,7 +388,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     };
   }, [stdout]);
 
-  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab sequences via Ink's internal_eventEmitter
+  const cycleNextAgentRef = useRef<() => void>(() => {});
+
+  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab or Ctrl+N sequences via Ink's internal_eventEmitter
   // (avoids attaching a competing 'data' listener on stdin that conflicts with Ink's 'readable' loop)
   useEffect(() => {
     const emitter = internal_eventEmitter ?? stdin;
@@ -397,12 +399,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const onRawData = (data: Buffer | string) => {
       const seq = typeof data === 'string' ? data : data.toString('utf8');
       if (
+        seq === '\x0e' ||         // Ctrl+N raw
         seq === '\x1b[27;5;9~' || // xterm modifyOtherKeys Ctrl+Tab
         seq === '\x1b[9;5u' ||    // Kitty / CSI-u Ctrl+Tab
-        seq === '\x1b[1;5I' ||    // VTE / GNOME Terminal Ctrl+Tab
-        seq === '\x1b[Z'          // Shift+Tab / Backtab fallback in standard Linux terminals
+        seq === '\x1b[1;5I'       // VTE / GNOME Terminal Ctrl+Tab
       ) {
-        setViewMode((prev) => (prev === 'multipanel' ? 'chat' : 'multipanel'));
+        cycleNextAgentRef.current();
       }
     };
     emitter.on(eventName, onRawData);
@@ -1097,6 +1099,23 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
     );
   };
+
+  const lastCycleTimeRef = useRef<number>(0);
+  const cycleNextAgent = () => {
+    const now = Date.now();
+    if (now - lastCycleTimeRef.current < 150) return;
+    lastCycleTimeRef.current = now;
+    closeAllModals();
+    const roles: ActorRole[] = ['pm', 'architect', 'developer', 'qa'];
+    const currIdx = roles.indexOf(activeRole);
+    const nextIdx = currIdx >= 0 ? (currIdx + 1) % roles.length : 0;
+    const nextRole = roles[nextIdx];
+    switchActiveRole(nextRole);
+    if (viewMode !== 'chat') {
+      setViewMode('chat');
+    }
+  };
+  cycleNextAgentRef.current = cycleNextAgent;
 
   const sendChatMessage = async (targetRole: ActorRole, messageText: string) => {
     // 1. Immediately record user prompt to SQLite so it appears in the chat log without delay
@@ -2053,6 +2072,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // Ctrl+N shortcut to cycle through agent chats in a carousel (pm -> architect -> developer -> qa -> pm)
+    if (
+      (key.ctrl && (input === 'n' || input === 'N' || input === '\x0e')) ||
+      input === '\x0e' ||
+      (key.tab && key.ctrl) ||
+      input === '\x1b[27;5;9~' ||
+      input === '[27;5;9~' ||
+      input === '\x1b[9;5u' ||
+      input === '[9;5u'
+    ) {
+      cycleNextAgent();
+      return;
+    }
+
     // ESC key navigation: clears input, goes to previous screen, or asks to exit on startup screen
     if (key.escape) {
       if (inputValue.length > 0) {
@@ -2083,13 +2116,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // Toggle between OpenCode chat view and Multipanel Command Center on Tab/Ctrl+Tab
-    if (key.tab) {
+    // Toggle between OpenCode chat view and Multipanel Command Center on Tab
+    if (key.tab && !key.ctrl) {
       if (
         isSlashMenuOpen &&
         filteredSlashCommands.length > 0 &&
-        !key.shift &&
-        !key.ctrl
+        !key.shift
       ) {
         const chosen =
           filteredSlashCommands[selectedSlashIdx] ?? filteredSlashCommands[0];
@@ -2144,6 +2176,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     }
 
     if (!key.ctrl && !key.meta && input) {
+      // Filter out raw unparsed escape sequences that terminals might emit
+      if (
+        input.startsWith('\x1b') ||
+        (input.startsWith('[') &&
+          (input.includes(';') ||
+            input.endsWith('~') ||
+            input.endsWith('u') ||
+            input.endsWith('I')))
+      ) {
+        return;
+      }
       setInputValue((prev) => {
         const next = prev + input;
         setRoleDrafts((d) => ({ ...d, [activeRole]: next }));
@@ -3892,7 +3935,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         )}
 
         {/* Bottom Footer Bar matching OpenCode screenshot:
-            ~/HACK/dev/ai.github.io.git:master     shift+tab agents   ctrl+p commands              1.0.0 */}
+            ~/HACK/dev/ai.github.io.git:master     ctrl+n cycle   shift+tab agents   ctrl+p commands              1.0.0 */}
         <Box width="100%" justifyContent="space-between" height={1}>
           <Box flexDirection="row">
             <Text color="gray">
@@ -3900,6 +3943,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Text>
           </Box>
           <Box flexDirection="row">
+            <Text color="gray">ctrl+n </Text>
+            <Text color="white">cycle   </Text>
             <Text color="gray">shift+tab </Text>
             <Text color="white">agents   </Text>
             <Text color="gray">ctrl+p </Text>
@@ -4239,7 +4284,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         )}
 
         {/* Bottom Footer Bar matching OpenCode screenshot:
-            ■■■···· esc interrupt          12.2K (1%) · $0.02  ctrl+p commands     ~/HACK/dev/ai.github.io.git:master */}
+            ■■■···· esc interrupt          ctrl+n cycle   12.2K (1%) · $0.02  ctrl+p commands     ~/HACK/dev/ai.github.io.git:master */}
         <Box width="100%" justifyContent="space-between" height={1}>
           <Box flexDirection="row">
             <Text color={isAnyRoleBusy ? 'cyan' : 'gray'}>
@@ -4248,6 +4293,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text color="gray">esc interrupt</Text>
           </Box>
           <Box flexDirection="row">
+            <Text color="gray">ctrl+n </Text>
+            <Text color="white">cycle   </Text>
             <Text color="gray">
               {(estimatedTokens / 1000).toFixed(1)}K ({Math.max(1, Math.round((estimatedTokens / 200000) * 100))}%) · {activeModelEntry.isFree ? '$0.00' : '$0.02'}{'  '}
             </Text>
