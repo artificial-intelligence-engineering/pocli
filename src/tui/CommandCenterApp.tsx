@@ -197,6 +197,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [isAgentsModalOpen, setIsAgentsModalOpen] = useState<boolean>(false);
   const [selectedAgentIdx, setSelectedAgentIdx] = useState<number>(0);
 
+  // Interactive System Prompts Inspector Modal (/system)
+  const [isSystemModalOpen, setIsSystemModalOpen] = useState<boolean>(false);
+  const [selectedSystemIdx, setSelectedSystemIdx] = useState<number>(0);
+  const [systemViewDetail, setSystemViewDetail] = useState<'menu' | 'prompt' | 'locations'>('menu');
+  const [systemViewingRole, setSystemViewingRole] = useState<ActorRole>('architect');
+
   // Interactive OpenCode-style Per-Agent Model Picker Modal (/models)
   const [isModelsModalOpen, setIsModelsModalOpen] = useState<boolean>(false);
   const [modelsTargetRole, setModelsTargetRole] = useState<ActorRole | 'all'>(
@@ -340,6 +346,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsProjectsModalOpen(false);
     setIsAgentsModalOpen(false);
     setIsModelsModalOpen(false);
+    setIsSystemModalOpen(false);
+    setSystemViewDetail('menu');
     setIsExitConfirmOpen(false);
     setModelsFilterQuery('');
     setDbModalOutput('');
@@ -502,6 +510,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     !isProjectsModalOpen &&
     !isAgentsModalOpen &&
     !isModelsModalOpen &&
+    !isSystemModalOpen &&
     !isHelpOpen &&
     !isSettingsOpen &&
     !isExitConfirmOpen;
@@ -643,6 +652,27 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         const currIdx = AVAILABLE_AGENTS.findIndex((a) => a.role === activeRole);
         setSelectedAgentIdx(currIdx >= 0 ? currIdx : 0);
         setIsAgentsModalOpen(true);
+        return;
+      }
+      if (cmdToken === '/system' || cmdToken === '/sys') {
+        closeAllModals();
+        const subParam = parts[1]?.toLowerCase();
+        if (subParam === 'location' || subParam === 'locations' || subParam === 'loc') {
+          setSelectedSystemIdx(4);
+          setSystemViewDetail('locations');
+          setIsSystemModalOpen(true);
+          return;
+        }
+        const roleMatch = ['architect', 'developer', 'qa', 'pm'].find((r) => r.startsWith(subParam ?? ''));
+        if (subParam && roleMatch) {
+          setSystemViewingRole(roleMatch as ActorRole);
+          setSystemViewDetail('prompt');
+          setIsSystemModalOpen(true);
+          return;
+        }
+        setSelectedSystemIdx(0);
+        setSystemViewDetail('menu');
+        setIsSystemModalOpen(true);
         return;
       }
       if (cmdToken === '/clear') {
@@ -1009,6 +1039,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         );
         return;
       }
+      if (isSystemModalOpen) {
+        if (systemViewDetail === 'menu') {
+          setSelectedSystemIdx((prev) =>
+            isUp ? (prev > 0 ? prev - 1 : 4) : prev < 4 ? prev + 1 : 0,
+          );
+        }
+        return;
+      }
       if (isSettingsOpen && !isEditingWorkDir) {
         setSettingsRowIdx((prev) => (prev === 0 ? 1 : 0));
         return;
@@ -1090,6 +1128,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           setStatusBanner(
             t.activeInterlocutorMsg(getRoleDisplayName(chosen.role, language)),
           );
+        }
+        return;
+      }
+
+      // Interactive System Prompts modal in startup mode
+      if (isSystemModalOpen) {
+        if (systemViewDetail === 'menu') {
+          if (selectedSystemIdx === 4) {
+            setSystemViewDetail('locations');
+          } else {
+            const chosen = AVAILABLE_AGENTS[selectedSystemIdx] ?? AVAILABLE_AGENTS[0];
+            setSystemViewingRole(chosen.role);
+            setSystemViewDetail('prompt');
+          }
+        } else {
+          setSystemViewDetail('menu');
         }
         return;
       }
@@ -1337,7 +1391,62 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // 2b. Handle OpenCode-style Per-Agent Model Picker Modal (/models or Ctrl+O)
+    // 2c. Handle Interactive System Prompts Modal (/system)
+    if (isSystemModalOpen) {
+      if (key.escape || input === 'q') {
+        if (systemViewDetail !== 'menu') {
+          setSystemViewDetail('menu');
+        } else {
+          setIsSystemModalOpen(false);
+        }
+        return;
+      }
+
+      if (systemViewDetail === 'menu') {
+        if (key.upArrow) {
+          setSelectedSystemIdx((prev) => (prev > 0 ? prev - 1 : 4));
+          return;
+        }
+        if (key.downArrow) {
+          setSelectedSystemIdx((prev) => (prev < 4 ? prev + 1 : 0));
+          return;
+        }
+        if (input === '1' || input === '2' || input === '3' || input === '4') {
+          const numIdx = parseInt(input, 10) - 1;
+          const chosen = AVAILABLE_AGENTS[numIdx];
+          if (chosen) {
+            setSelectedSystemIdx(numIdx);
+            setSystemViewingRole(chosen.role);
+            setSystemViewDetail('prompt');
+            return;
+          }
+        }
+        if (input === '5') {
+          setSelectedSystemIdx(4);
+          setSystemViewDetail('locations');
+          return;
+        }
+        if (key.return) {
+          if (selectedSystemIdx === 4) {
+            setSystemViewDetail('locations');
+          } else {
+            const chosen =
+              AVAILABLE_AGENTS[selectedSystemIdx] ?? AVAILABLE_AGENTS[0];
+            setSystemViewingRole(chosen.role);
+            setSystemViewDetail('prompt');
+          }
+          return;
+        }
+      } else {
+        if (key.return) {
+          setSystemViewDetail('menu');
+          return;
+        }
+      }
+      return;
+    }
+
+    // 2d. Handle OpenCode-style Per-Agent Model Picker Modal (/models or Ctrl+O)
     if (isModelsModalOpen) {
       if (key.escape) {
         setIsModelsModalOpen(false);
@@ -1924,6 +2033,316 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     );
   };
 
+  // Interactive System Prompts Inspector Modal (/system)
+  const renderSystemModal = () => {
+    const modalWidth = Math.min(92, Math.max(70, dimensions.columns - 4));
+    const resolutions = HarnessRegistry.inspectResolutions();
+
+    // 1. Detail View: Single Agent System Prompt (Read-Only)
+    if (systemViewDetail === 'prompt') {
+      const activeAgent =
+        AVAILABLE_AGENTS.find((a) => a.role === systemViewingRole) ??
+        AVAILABLE_AGENTS[0];
+      const roleTheme = getRoleTheme(systemViewingRole);
+      const res = HarnessRegistry.inspectResolution(systemViewingRole);
+      const promptLines = res.content.split('\n');
+
+      return (
+        <Box
+          flexDirection="column"
+          width={modalWidth}
+          borderStyle="round"
+          borderColor={roleTheme.accentColor}
+          paddingX={1}
+          paddingY={1}
+          marginBottom={1}
+        >
+          <Box
+            justifyContent="space-between"
+            marginBottom={1}
+            width="100%"
+            paddingX={1}
+          >
+            <Text bold color={roleTheme.accentColor} wrap="truncate-end">
+              {activeAgent.icon} {activeAgent.title} — {language === 'es' ? 'System Prompt' : 'System Prompt'}
+            </Text>
+            <Text dimColor wrap="truncate-end">
+              {language === 'es' ? 'Esc volver al menú' : 'Esc back to menu'}
+            </Text>
+          </Box>
+
+          <Box paddingX={1} marginBottom={1} flexDirection="row" justifyContent="space-between" width="100%">
+            <Box flexShrink={1}>
+              <Text dimColor wrap="truncate-end">
+                {language === 'es' ? 'Origen:' : 'Source:'}{' '}
+                <Text
+                  bold
+                  color={
+                    res.isOverride ? 'green' : res.isFallback ? 'yellow' : 'cyan'
+                  }
+                >
+                  [{res.statusLabel[language === 'es' ? 'es' : 'en']}]
+                </Text>
+                {' · '}
+                {res.resolvedPath
+                  ? res.resolvedPath.replace(os.homedir(), '~')
+                  : (language === 'es'
+                    ? 'In-Memory Fallback'
+                    : 'In-Memory Fallback')}
+              </Text>
+            </Box>
+            <Box flexShrink={0} paddingLeft={2}>
+              <Text color={res.isFallback ? 'yellow' : 'green'} bold>
+                {res.isFallback ? '⚠ LOADED' : '✔ LOADED'}
+              </Text>
+            </Box>
+          </Box>
+
+          <Box
+            flexDirection="column"
+            borderStyle="single"
+            borderColor="gray"
+            paddingX={1}
+            paddingY={0}
+            marginBottom={1}
+          >
+            {promptLines.map((line, lIdx) => (
+              <Text key={lIdx} color="white" wrap="truncate-end">
+                {line || ' '}
+              </Text>
+            ))}
+          </Box>
+
+          <Box justifyContent="space-between" paddingX={1}>
+            <Text dimColor>
+              {language === 'es'
+                ? 'ℹ Modo sólo lectura (Read-Only)'
+                : 'ℹ Read-only viewer'}
+            </Text>
+            <Text dimColor>
+              {language === 'es' ? '[Esc] Volver' : '[Esc] Back'}
+            </Text>
+          </Box>
+        </Box>
+      );
+    }
+
+    // 2. Detail View: Locations & Resolution Hierarchy
+    if (systemViewDetail === 'locations') {
+      return (
+        <Box
+          flexDirection="column"
+          width={modalWidth}
+          borderStyle="round"
+          borderColor="cyan"
+          paddingX={1}
+          paddingY={1}
+          marginBottom={1}
+        >
+          <Box
+            justifyContent="space-between"
+            marginBottom={1}
+            width="100%"
+            paddingX={1}
+          >
+            <Text bold color="cyan" wrap="truncate-end">
+              📍 {language === 'es' ? 'Ubicación de System Prompts' : 'System Prompt Locations'}
+            </Text>
+            <Text dimColor wrap="truncate-end">
+              {language === 'es' ? 'Esc volver al menú' : 'Esc back to menu'}
+            </Text>
+          </Box>
+
+          <Box flexDirection="column" paddingX={1} marginBottom={1}>
+            {resolutions.map((res) => {
+              const agent = AVAILABLE_AGENTS.find((a) => a.role === res.role);
+              const icon = agent?.icon ?? '🤖';
+              const title = agent?.title ?? res.displayName;
+              const statusColor = res.isOverride
+                ? 'green'
+                : res.isFallback
+                  ? 'yellow'
+                  : 'cyan';
+
+              return (
+                <Box key={res.role} flexDirection="column" marginBottom={1}>
+                  <Box justifyContent="space-between" width="100%">
+                    <Text bold color="white">
+                      {icon} {title}
+                    </Text>
+                    <Text bold color={statusColor}>
+                      [{res.statusLabel[language === 'es' ? 'es' : 'en']}]
+                    </Text>
+                  </Box>
+                  <Box
+                    paddingLeft={3}
+                    flexDirection="row"
+                    justifyContent="space-between"
+                    width="100%"
+                  >
+                    <Box flexShrink={1}>
+                      <Text dimColor wrap="truncate-end">
+                        {res.resolvedPath
+                          ? res.resolvedPath.replace(os.homedir(), '~')
+                          : (language === 'es'
+                            ? 'Ninguno (In-memory fallback predefinido)'
+                            : 'None (Predefined in-memory fallback)')}
+                      </Text>
+                    </Box>
+                    <Box flexShrink={0} paddingLeft={2}>
+                      <Text color={res.isFallback ? 'yellow' : 'green'} bold>
+                        {res.isFallback ? '⚠ LOADED' : '✔ LOADED'}
+                      </Text>
+                    </Box>
+                  </Box>
+                </Box>
+              );
+            })}
+          </Box>
+
+          <Box
+            flexDirection="column"
+            borderStyle="single"
+            borderColor="gray"
+            paddingX={1}
+            paddingY={0}
+            marginBottom={1}
+          >
+            <Text color="yellow" bold>
+              {language === 'es' ? 'Jerarquía de resolución:' : 'Resolution hierarchy:'}
+            </Text>
+            <Text dimColor>
+              1. {language === 'es' ? 'Override de usuario:' : 'User override:'} ~/.pocli/behavior/system/{'<role>'}.md
+            </Text>
+            <Text dimColor>
+              2. {language === 'es' ? 'Paquete compilado:' : 'Bundled package:'} dist/behavior/system/{'<role>'}.md
+            </Text>
+            <Text dimColor>
+              3. {language === 'es' ? 'Repositorio local:' : 'Repository default:'} behavior/system/{'<role>'}.md
+            </Text>
+            <Text dimColor>
+              4. {language === 'es' ? 'Respaldo en memoria:' : 'In-memory fallback:'} FALLBACK_PROMPTS
+            </Text>
+          </Box>
+
+          <Box justifyContent="flex-end" paddingX={1}>
+            <Text dimColor>
+              {language === 'es' ? 'Esc volver al selector' : 'Esc back to selector'}
+            </Text>
+          </Box>
+        </Box>
+      );
+    }
+
+    // 3. Main Selector Menu
+    const menuItems = [
+      ...AVAILABLE_AGENTS.map((item) => {
+        const res = HarnessRegistry.inspectResolution(item.role);
+        return {
+          type: 'agent' as const,
+          role: item.role,
+          icon: item.icon,
+          title: item.title,
+          desc: item.description[language === 'es' ? 'es' : 'en'],
+          statusLabel: res.statusLabel[language === 'es' ? 'es' : 'en'],
+          isOverride: res.isOverride,
+          isFallback: res.isFallback,
+        };
+      }),
+      {
+        type: 'locations' as const,
+        role: undefined,
+        icon: '📍',
+        title: 'System Prompt Locations',
+        desc:
+          language === 'es'
+            ? 'Inspeccionar rutas de archivo, overrides de usuario y fallbacks'
+            : 'Inspect file paths, user overrides, and fallback statuses',
+        statusLabel: language === 'es' ? 'Ubicaciones & Rutas' : 'Locations & Paths',
+        isOverride: false,
+        isFallback: false,
+      },
+    ];
+
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        borderStyle="round"
+        borderColor="cyan"
+        paddingX={1}
+        paddingY={1}
+        marginBottom={1}
+      >
+        <Box
+          justifyContent="space-between"
+          marginBottom={1}
+          width="100%"
+          paddingX={1}
+        >
+          <Text bold color="cyan" wrap="truncate-end">
+            📝 {language === 'es' ? 'System Prompts de los Agentes' : 'Agent System Prompts'}
+          </Text>
+          <Text dimColor wrap="truncate-end">
+            {language === 'es'
+              ? '↑/↓ o 1-5 · Enter ver · Esc cerrar'
+              : '↑/↓ or 1-5 · Enter view · Esc close'}
+          </Text>
+        </Box>
+
+        {menuItems.map((item, idx) => {
+          const isSelected = idx === selectedSystemIdx;
+          const statusColor = item.isOverride
+            ? 'green'
+            : item.isFallback
+              ? 'yellow'
+              : 'cyan';
+
+          return (
+            <Box
+              key={item.title}
+              flexDirection="column"
+              paddingX={1}
+              paddingY={0}
+              marginBottom={idx < menuItems.length - 1 ? 1 : 0}
+            >
+              <Box justifyContent="space-between" width="100%">
+                <Box flexDirection="row" flexShrink={1}>
+                  <Text
+                    bold={isSelected}
+                    color={isSelected ? 'cyan' : 'white'}
+                    wrap="truncate-end"
+                  >
+                    {isSelected ? '❯ ' : '  '}
+                    {item.icon} {item.title}
+                  </Text>
+                </Box>
+                <Box flexShrink={0} paddingLeft={2}>
+                  <Text
+                    bold={item.isOverride || item.isFallback}
+                    color={statusColor}
+                    dimColor={!isSelected && !item.isOverride && !item.isFallback}
+                  >
+                    [{item.statusLabel}]
+                  </Text>
+                </Box>
+              </Box>
+              <Box paddingLeft={5} width="100%">
+                <Text
+                  wrap="truncate-end"
+                  color={isSelected ? 'white' : 'gray'}
+                  dimColor={!isSelected}
+                >
+                  {item.desc}
+                </Text>
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+    );
+  };
+
   // Help Modal Component displaying all available slash commands
   const renderHelpModal = () => (
     <Box
@@ -2288,6 +2707,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     isProjectsModalOpen ||
     isAgentsModalOpen ||
     isModelsModalOpen ||
+    isSystemModalOpen ||
     isExitConfirmOpen ||
     dbModalOutput.length > 0 ||
     projectWizardStep !== 'CLOSED';
@@ -2503,6 +2923,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
             {isProjectsModalOpen && renderProjectsListModal()}
             {isAgentsModalOpen && renderAgentsModal()}
+            {isSystemModalOpen && renderSystemModal()}
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
             {isHelpOpen && renderHelpModal()}
@@ -2643,6 +3064,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
             {isProjectsModalOpen && renderProjectsListModal()}
             {isAgentsModalOpen && renderAgentsModal()}
+            {isSystemModalOpen && renderSystemModal()}
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
             {isHelpOpen && renderHelpModal()}
@@ -2945,6 +3367,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {projectWizardStep !== 'CLOSED' && renderProjectWizardModal()}
           {isProjectsModalOpen && renderProjectsListModal()}
           {isAgentsModalOpen && renderAgentsModal()}
+          {isSystemModalOpen && renderSystemModal()}
           {isModelsModalOpen && renderModelsModal()}
           {dbModalOutput.length > 0 && renderDbModal()}
           {isHelpOpen && renderHelpModal()}

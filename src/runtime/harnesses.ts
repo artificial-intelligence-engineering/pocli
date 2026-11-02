@@ -13,6 +13,17 @@ export interface AgentHarness {
   allowedArtifactTypes: ArtifactType[];
 }
 
+export interface PromptResolutionInfo {
+  role: ActorRole;
+  displayName: string;
+  sourceType: 'user_override' | 'bundle' | 'repo_default' | 'cwd' | 'fallback';
+  statusLabel: { es: string; en: string };
+  resolvedPath?: string;
+  isOverride: boolean;
+  isFallback: boolean;
+  content: string;
+}
+
 const promptCache = new Map<string, string>();
 
 export function getProjectRoot(): string {
@@ -28,10 +39,15 @@ export function getProjectRoot(): string {
   return process.cwd();
 }
 
-export function loadRoleSystemPrompt(role: string, fallbackPrompt: string): string {
-  if (promptCache.has(role)) {
-    return promptCache.get(role)!;
-  }
+export function inspectRolePromptResolution(role: ActorRole): PromptResolutionInfo {
+  const displayNames: Record<string, string> = {
+    architect: 'Software Architect',
+    developer: 'Senior Developer',
+    qa: 'Independent QA Engineer',
+    pm: 'Project Manager (PM)',
+  };
+  const displayName = displayNames[role] ?? role;
+  const fallback = FALLBACK_PROMPTS[role] ?? '';
 
   // 1. User global override: $HOME/.pocli/behavior/system/<role>.md
   const userOverride = path.join(os.homedir(), '.pocli', 'behavior', 'system', `${role}.md`);
@@ -39,8 +55,16 @@ export function loadRoleSystemPrompt(role: string, fallbackPrompt: string): stri
     try {
       const content = fs.readFileSync(userOverride, 'utf8').trim();
       if (content) {
-        promptCache.set(role, content);
-        return content;
+        return {
+          role,
+          displayName,
+          sourceType: 'user_override',
+          statusLabel: { es: 'Override de Usuario', en: 'User Override' },
+          resolvedPath: userOverride,
+          isOverride: true,
+          isFallback: false,
+          content,
+        };
       }
     } catch {
       // ignore
@@ -54,8 +78,16 @@ export function loadRoleSystemPrompt(role: string, fallbackPrompt: string): stri
     if (fs.existsSync(coLocatedPath)) {
       const content = fs.readFileSync(coLocatedPath, 'utf8').trim();
       if (content) {
-        promptCache.set(role, content);
-        return content;
+        return {
+          role,
+          displayName,
+          sourceType: 'bundle',
+          statusLabel: { es: 'Paquete Compilado', en: 'Bundled Package' },
+          resolvedPath: coLocatedPath,
+          isOverride: false,
+          isFallback: false,
+          content,
+        };
       }
     }
   } catch {
@@ -69,8 +101,16 @@ export function loadRoleSystemPrompt(role: string, fallbackPrompt: string): stri
     try {
       const content = fs.readFileSync(repoFile, 'utf8').trim();
       if (content) {
-        promptCache.set(role, content);
-        return content;
+        return {
+          role,
+          displayName,
+          sourceType: 'repo_default',
+          statusLabel: { es: 'Predeterminado (Repo)', en: 'Repository Default' },
+          resolvedPath: repoFile,
+          isOverride: false,
+          isFallback: false,
+          content,
+        };
       }
     } catch {
       // ignore
@@ -83,8 +123,16 @@ export function loadRoleSystemPrompt(role: string, fallbackPrompt: string): stri
     try {
       const content = fs.readFileSync(cwdFile, 'utf8').trim();
       if (content) {
-        promptCache.set(role, content);
-        return content;
+        return {
+          role,
+          displayName,
+          sourceType: 'cwd',
+          statusLabel: { es: 'Directorio de Trabajo', en: 'Working Directory' },
+          resolvedPath: cwdFile,
+          isOverride: false,
+          isFallback: false,
+          content,
+        };
       }
     } catch {
       // ignore
@@ -92,8 +140,27 @@ export function loadRoleSystemPrompt(role: string, fallbackPrompt: string): stri
   }
 
   // 5. Fallback to built-in in-memory string (resilience in bundled single binaries)
-  promptCache.set(role, fallbackPrompt);
-  return fallbackPrompt;
+  return {
+    role,
+    displayName,
+    sourceType: 'fallback',
+    statusLabel: { es: 'In-Memory Fallback', en: 'In-Memory Fallback' },
+    resolvedPath: undefined,
+    isOverride: false,
+    isFallback: true,
+    content: fallback,
+  };
+}
+
+export function loadRoleSystemPrompt(role: string, fallbackPrompt: string): string {
+  if (promptCache.has(role)) {
+    return promptCache.get(role)!;
+  }
+
+  const info = inspectRolePromptResolution(role as ActorRole);
+  const resolved = info.content || fallbackPrompt;
+  promptCache.set(role, resolved);
+  return resolved;
 }
 
 export function clearPromptCache(): void {
@@ -239,5 +306,14 @@ export class HarnessRegistry {
 
   static reloadPrompts(): void {
     clearPromptCache();
+  }
+
+  static inspectResolutions(): PromptResolutionInfo[] {
+    const roles: ActorRole[] = ['architect', 'developer', 'qa', 'pm'];
+    return roles.map((r) => inspectRolePromptResolution(r));
+  }
+
+  static inspectResolution(role: ActorRole): PromptResolutionInfo {
+    return inspectRolePromptResolution(role);
   }
 }

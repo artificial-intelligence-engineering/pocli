@@ -211,6 +211,7 @@ npm run build
   * `/accept` — Final project acceptance by the Product Owner.
   * `/notebooks` — Re-index and inspect linked RAG Notebooks.
   * `/compact` — Execute **Pi-inspired Context Window Compaction** (`/compact` for the active agent or `/compact all` for all 4 core agents), condensing older conversation turns into a structured SQLite `context_compactions` checkpoint while preserving the full Session Tree (`parent_id` DAG) and cache-friendly 3-tier prompt assembly (`Tier 1: Normative Artifacts` → `Tier 2: 4-Layer Memory & Compaction Checkpoint` → `Tier 3: Active Uncompacted Turns`).
+  * `/system` — Open the interactive **System Prompts Inspector** dialog to view the read-only prompt for any specialist (`Architect`, `Developer`, `QA`, `PM`) or inspect `System Prompt Locations` to see active file paths, user overrides (`$HOME/.pocli/behavior/system/`), and in-memory fallbacks.
   * `/db` — Inspect the SQLite database directly inside the TUI (`/db`, `/db .tables`, `/db .experts`, or `/db SELECT ...`), complementing the standalone `pocli db` REPL.
   * `/settings` — Open the interactive Settings modal or configure UI language (`/settings lang en|es`) and the **Central Working & Artifacts Directory** (`/settings dir <path>`, which defaults to `$HOME/.pocli/` and stores all CLI customizations, LLM-generated Python helper scripts in `artifacts/scripts/`, spreadsheets and Project Manager outputs in `artifacts/outputs/`, and mirrored project artifacts).
   * `/help` — Display all available commands and keyboard shortcuts.

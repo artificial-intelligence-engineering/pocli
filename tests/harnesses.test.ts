@@ -28,5 +28,17 @@ describe('HarnessRegistry & Behavior System Prompts', () => {
       expect(h.allowedArtifactTypes.length).toBeGreaterThan(0);
     }
   });
+
+  it('inspects prompt resolutions and reports locations', () => {
+    const resolutions = HarnessRegistry.inspectResolutions();
+    expect(resolutions.length).toBe(4);
+
+    for (const res of resolutions) {
+      expect(['architect', 'developer', 'qa', 'pm']).toContain(res.role);
+      expect(res.content.length).toBeGreaterThan(20);
+      expect(res.statusLabel).toBeDefined();
+      expect(['user_override', 'bundle', 'repo_default', 'cwd', 'fallback']).toContain(res.sourceType);
+    }
+  });
 });
 

@@ -239,6 +239,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         description: 'Switch active agent (Architect, Developer, QA, PM)',
       },
       {
+        command: '/system',
+        description: 'Inspect agent system prompts and behavior location overrides',
+      },
+      {
         command: '/project',
         description: 'Create a new project (prompts for name & filesystem directory)',
         phaseHint: 'Phase 1',
@@ -479,6 +483,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/agents',
         description: 'Cambiar de agente activo (Architect, Developer, QA, PM)',
+      },
+      {
+        command: '/system',
+        description: 'Inspeccionar system prompts de los agentes y overrides de ubicación',
       },
       {
         command: '/project',
