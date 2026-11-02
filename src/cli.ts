@@ -3,6 +3,7 @@ import React from 'react';
 import { render } from 'ink';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { resolveDefaultWorkDir } from './core/i18n.js';
 import { PoCliDatabase } from './storage/database.js';
 import {
@@ -16,6 +17,7 @@ import {
   resolveModelSpec,
 } from './runtime/llm-gateway.js';
 import { Logger } from './core/logger.js';
+import { AuthStorage } from './core/auth.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
 
 function enterFullscreenTerminal(): void {
@@ -202,6 +204,86 @@ async function main(): Promise<void> {
     return;
   }
 
+  // OpenCode & Pi-style `pocli auth` command:
+  //   - `pocli auth` / `pocli auth status` -> lists configured provider keys & sources
+  //   - `pocli auth set <provider> <key>` -> saves key to ~/.pocli/auth.json (mode 0600)
+  //   - `pocli auth remove <provider>` -> deletes key from auth.json
+  //   - `pocli auth path` -> prints path to auth.json
+  if (subcommand === 'auth') {
+    const authArgs = args.slice(1);
+    const action = authArgs[0] ?? 'status';
+
+    if (action === 'path') {
+      console.log(AuthStorage.getAuthFilePath());
+      storage.close();
+      return;
+    }
+
+    if (action === 'set') {
+      const provider = authArgs[1];
+      const key = authArgs[2];
+      if (!provider || !key) {
+        console.error('Usage: pocli auth set <provider> <api-key>');
+        console.error('Supported providers: anthropic, openai, gemini, groq, openrouter, cerebras, opencode (zen)');
+        storage.close();
+        process.exit(1);
+      }
+      try {
+        AuthStorage.setApiKey(provider, key);
+        console.log(`✔ API key for '${provider.toLowerCase()}' securely saved to ${AuthStorage.getAuthFilePath()} (mode 0600).`);
+      } catch (err) {
+        console.error(`Error saving API key: ${(err as Error).message}`);
+        storage.close();
+        process.exit(1);
+      }
+      storage.close();
+      return;
+    }
+
+    if (action === 'remove' || action === 'delete' || action === 'logout') {
+      const provider = authArgs[1];
+      if (!provider) {
+        console.error('Usage: pocli auth remove <provider>');
+        storage.close();
+        process.exit(1);
+      }
+      const removed = AuthStorage.removeApiKey(provider);
+      if (removed) {
+        console.log(`✔ Removed persisted API key for '${provider.toLowerCase()}'.`);
+      } else {
+        console.log(`ℹ No persisted API key found for '${provider.toLowerCase()}' in ${AuthStorage.getAuthFilePath()}.`);
+      }
+      storage.close();
+      return;
+    }
+
+    if (action === 'status' || action === 'list') {
+      const providers = AuthStorage.listProviders();
+      console.log(`\n=== PO CLI — LLM Provider Authentication Status (${AuthStorage.getAuthFilePath()}) ===\n`);
+      for (const p of providers) {
+        const idCol = p.id.padEnd(12, ' ');
+        const nameCol = p.name.padEnd(30, ' ');
+        if (p.status === 'CONFIGURED') {
+          const sourceTag = p.source === 'env' ? `(env: ${p.envVar})` : `(file: ${AuthStorage.getAuthFilePath().replace(os.homedir(), '~')})`;
+          console.log(`  • ${idCol} ${nameCol} [CONFIGURED]     ${p.maskedKey} ${sourceTag}`);
+        } else {
+          console.log(`  • ${idCol} ${nameCol} [NOT CONFIGURED] (env: ${p.envVar})`);
+        }
+      }
+      console.log('\nCommands:');
+      console.log('  pocli auth set <provider> <key>    Save API key securely to disk');
+      console.log('  pocli auth remove <provider>       Remove persisted API key');
+      console.log('  pocli auth path                    Print credentials file path');
+      storage.close();
+      return;
+    }
+
+    console.error(`Unknown auth action: ${action}`);
+    console.error('Usage: pocli auth [status|set|remove|path]');
+    storage.close();
+    process.exit(1);
+  }
+
   if (subcommand === 'tui' || subcommand === 'pocli') {
     let project = storage.getActiveProject();
     if (!project) {
@@ -334,6 +416,8 @@ async function main(): Promise<void> {
     [
       'Product Owner CLI (pocli) — Available commands:',
       '  pocli / npm run pocli               Launch the fullscreen Command Center (Ink TUI)',
+      '  pocli auth [status|set|remove|path] Manage LLM provider API keys ($HOME/.pocli/auth.json)',
+      '  pocli models [agent] [model]        List or assign LLM models for roles',
       '  pocli db                            Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)',
       '  pocli db path                       Print the active SQLite database file path',
       '  pocli db "<sql>" [--format json]    Execute a SQL query or dot-command (.tables, .stats)',

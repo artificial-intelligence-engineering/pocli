@@ -196,6 +196,50 @@
     "contextWindow": "128K",
     "recommendedFor": "Local Air-Gapped Architecture",
     "defaultTemperature": 0.2
+  },
+  {
+    "provider": "opencode",
+    "vendor": "OPENCODE",
+    "providerLabel": "OpenCode Zen",
+    "modelId": "claude-3-7-sonnet",
+    "displayName": "Claude 3.7 Sonnet (Zen)",
+    "isFree": false,
+    "contextWindow": "200K",
+    "recommendedFor": "OpenCode Zen Architecture & Thinking",
+    "defaultTemperature": 0.1
+  },
+  {
+    "provider": "opencode",
+    "vendor": "OPENCODE",
+    "providerLabel": "OpenCode Zen",
+    "modelId": "claude-3-5-sonnet",
+    "displayName": "Claude 3.5 Sonnet (Zen)",
+    "isFree": false,
+    "contextWindow": "200K",
+    "recommendedFor": "OpenCode Zen Implementation",
+    "defaultTemperature": 0.1
+  },
+  {
+    "provider": "opencode",
+    "vendor": "OPENCODE",
+    "providerLabel": "OpenCode Zen",
+    "modelId": "gpt-4o",
+    "displayName": "GPT-4o (Zen)",
+    "isFree": false,
+    "contextWindow": "128K",
+    "recommendedFor": "OpenCode Zen General Engineering",
+    "defaultTemperature": 0.1
+  },
+  {
+    "provider": "opencode",
+    "vendor": "OPENCODE",
+    "providerLabel": "OpenCode Zen",
+    "modelId": "qwen-2.5-coder-32b",
+    "displayName": "Qwen 2.5 Coder 32B (Zen)",
+    "isFree": false,
+    "contextWindow": "128K",
+    "recommendedFor": "OpenCode Zen Fast Code Specialist",
+    "defaultTemperature": 0.1
   }
 ]
 

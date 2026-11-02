@@ -326,6 +326,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
           'OpenCode-style model picker to configure LLM model per agent (/models [agent] [provider/model])',
       },
       {
+        command: '/auth',
+        description:
+          'OpenCode & Pi-style modal to manage LLM provider API keys securely in ~/.pocli/auth.json',
+      },
+      {
         command: '/db',
         description:
           'Inspect SQLite database or run query (/db [.stats|.tables|.experts|<sql>])',
@@ -575,6 +580,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         command: '/models',
         description:
           'Selector de modelos estilo OpenCode para configurar el LLM por agente (/models [agente] [proveedor/modelo])',
+      },
+      {
+        command: '/auth',
+        description:
+          'Modal estilo OpenCode y Pi para gestionar claves de proveedores LLM en ~/.pocli/auth.json',
       },
       {
         command: '/db',

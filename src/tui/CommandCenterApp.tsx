@@ -14,6 +14,7 @@ import { executeDbCommandOrQuery } from '../storage/db-repl.js';
 import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
 import { Logger } from '../core/logger.js';
+import { AuthStorage } from '../core/auth.js';
 import {
   AVAILABLE_MODELS_CATALOG,
   getModelVendorLabel,
@@ -261,6 +262,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [selectedModelIdx, setSelectedModelIdx] = useState<number>(0);
   const [roleConfigVersion, setRoleConfigVersion] = useState<number>(0);
 
+  // Interactive OpenCode & Pi-style LLM Authentication Modal (/auth)
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [selectedAuthIdx, setSelectedAuthIdx] = useState<number>(0);
+  const [isEditingAuthKey, setIsEditingAuthKey] = useState<boolean>(false);
+  const [authKeyDraft, setAuthKeyDraft] = useState<string>('');
+
   // Prompt input, slash command menu & mouse scroll state
   const [inputValue, setInputValue] = useState<string>('');
   const [selectedSlashIdx, setSelectedSlashIdx] = useState<number>(0);
@@ -397,6 +404,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsModelsModalOpen(false);
     setIsSystemModalOpen(false);
     setIsLogsModalOpen(false);
+    setIsAuthModalOpen(false);
+    setIsEditingAuthKey(false);
+    setAuthKeyDraft('');
     setSystemViewDetail('menu');
     setSystemPromptScrollOffset(0);
     setLogScrollOffset(0);
@@ -564,6 +574,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     !isModelsModalOpen &&
     !isSystemModalOpen &&
     !isLogsModalOpen &&
+    !isAuthModalOpen &&
     !isHelpOpen &&
     !isSettingsOpen &&
     !isExitConfirmOpen;
@@ -749,6 +760,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         }
         setLogScrollOffset(0);
         setIsLogsModalOpen(true);
+        return;
+      }
+      if (cmdToken === '/auth') {
+        closeAllModals();
+        setIsAuthModalOpen(true);
+        setSelectedAuthIdx(0);
+        setIsEditingAuthKey(false);
+        setAuthKeyDraft('');
         return;
       }
       if (cmdToken === '/clear') {
@@ -1131,6 +1150,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setLogScrollOffset((prev) => (isUp ? Math.max(0, prev - 2) : prev + 2));
         return;
       }
+      if (isAuthModalOpen && !isEditingAuthKey) {
+        const count = AuthStorage.listProviders().length;
+        setSelectedAuthIdx((prev) =>
+          isUp ? (prev > 0 ? prev - 1 : count - 1) : prev < count - 1 ? prev + 1 : 0,
+        );
+        return;
+      }
       if (isSettingsOpen && !isEditingWorkDir) {
         setSettingsRowIdx((prev) => (prev === 0 ? 1 : 0));
         return;
@@ -1173,11 +1199,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
 
-      // Interactive Help, DB, or Exit Confirm modal: click closes modal
-      if (isHelpOpen || dbModalOutput.length > 0 || isExitConfirmOpen) {
+      // Interactive Help, DB, Auth, or Exit Confirm modal: click closes modal
+      if (isHelpOpen || dbModalOutput.length > 0 || isExitConfirmOpen || (isAuthModalOpen && !isEditingAuthKey)) {
         setIsHelpOpen(false);
         setDbModalOutput('');
         setIsExitConfirmOpen(false);
+        setIsAuthModalOpen(false);
         return;
       }
 
@@ -1686,6 +1713,84 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (!key.ctrl && !key.meta && input) {
         setModelsFilterQuery((prev) => prev + input);
         setSelectedModelIdx(0);
+      }
+      return;
+    }
+
+    // 2f. Handle Interactive LLM Authentication Modal (/auth)
+    if (isAuthModalOpen) {
+      const providers = AuthStorage.listProviders();
+      const count = providers.length;
+
+      if (isEditingAuthKey) {
+        if (key.escape) {
+          setIsEditingAuthKey(false);
+          setAuthKeyDraft('');
+          return;
+        }
+        if (key.return) {
+          const targetProv = providers[selectedAuthIdx];
+          if (targetProv && authKeyDraft.trim().length > 0) {
+            AuthStorage.setApiKey(targetProv.id, authKeyDraft.trim());
+            setStatusBanner(
+              language === 'es'
+                ? `✔ Clave guardada para ${targetProv.name}`
+                : `✔ Saved API key for ${targetProv.name}`,
+            );
+          }
+          setIsEditingAuthKey(false);
+          setAuthKeyDraft('');
+          return;
+        }
+        if (key.backspace || key.delete) {
+          setAuthKeyDraft((prev) => prev.slice(0, -1));
+          return;
+        }
+        if (input && !key.ctrl && !key.meta) {
+          setAuthKeyDraft((prev) => prev + input);
+          return;
+        }
+        return;
+      }
+
+      if (key.escape || input === 'q') {
+        setIsAuthModalOpen(false);
+        setIsEditingAuthKey(false);
+        setAuthKeyDraft('');
+        return;
+      }
+      if (key.upArrow && count > 0) {
+        setSelectedAuthIdx((prev) => (prev > 0 ? prev - 1 : count - 1));
+        return;
+      }
+      if (key.downArrow && count > 0) {
+        setSelectedAuthIdx((prev) => (prev < count - 1 ? prev + 1 : 0));
+        return;
+      }
+      if (key.return || input === 'e') {
+        const targetProv = providers[selectedAuthIdx];
+        if (targetProv) {
+          const currentKey = AuthStorage.getApiKey(targetProv.id);
+          setAuthKeyDraft(currentKey || '');
+          setIsEditingAuthKey(true);
+        }
+        return;
+      }
+      if (input === 'd' || input === 'x' || key.delete) {
+        const targetProv = providers[selectedAuthIdx];
+        if (targetProv) {
+          const removed = AuthStorage.removeApiKey(targetProv.id);
+          setStatusBanner(
+            removed
+              ? (language === 'es'
+                  ? `✔ Clave eliminada para ${targetProv.name}`
+                  : `✔ Removed API key for ${targetProv.name}`)
+              : (language === 'es'
+                  ? `ℹ No había clave guardada en disco`
+                  : `ℹ No stored file key to remove`),
+          );
+        }
+        return;
       }
       return;
     }
@@ -2964,6 +3069,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     isModelsModalOpen ||
     isSystemModalOpen ||
     isLogsModalOpen ||
+    isAuthModalOpen ||
     isExitConfirmOpen ||
     dbModalOutput.length > 0 ||
     projectWizardStep !== 'CLOSED';
@@ -3138,6 +3244,136 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             [Esc] {language === 'es' ? 'Cerrar' : 'Close'}
           </Text>
         </Box>
+      </Box>
+    );
+  };
+
+  // Interactive LLM Authentication Modal (/auth)
+  const renderAuthModal = () => {
+    const modalWidth = Math.min(94, Math.max(76, dimensions.columns - 4));
+    const providers = AuthStorage.listProviders();
+    const activeProv = providers[selectedAuthIdx] ?? providers[0];
+
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        borderStyle="round"
+        borderColor="cyan"
+        paddingX={1}
+        paddingY={1}
+        marginBottom={1}
+      >
+        <Box
+          justifyContent="space-between"
+          marginBottom={1}
+          width="100%"
+          paddingX={1}
+        >
+          <Text bold color="cyan" wrap="truncate-end">
+            🔑 {language === 'es' ? 'Autenticación de Proveedores LLM (/auth)' : 'LLM Provider Authentication (/auth)'}
+          </Text>
+          <Text dimColor wrap="truncate-end">
+            {AuthStorage.getAuthFilePath().replace(os.homedir(), '~')} (chmod 0600)
+          </Text>
+        </Box>
+
+        <Box paddingX={1} marginBottom={1}>
+          <Text dimColor wrap="truncate-end">
+            {language === 'es'
+              ? 'Configuración de API keys en almacenamiento persistente con permisos POSIX 0600.'
+              : 'Secure persistent storage for proprietary LLM provider API keys (chmod 0600).'}
+          </Text>
+        </Box>
+
+        <Box flexDirection="column" paddingX={1} marginBottom={1}>
+          {providers.map((p, idx) => {
+            const isSelected = idx === selectedAuthIdx;
+            const isConfigured = p.status === 'CONFIGURED';
+            return (
+              <Box
+                key={p.id}
+                flexDirection="row"
+                justifyContent="space-between"
+                width="100%"
+              >
+                <Box flexDirection="row">
+                  <Text bold={isSelected} color={isSelected ? 'cyan' : undefined}>
+                    {isSelected ? '❯ ' : '  '}
+                    {p.name.padEnd(28, ' ')}
+                  </Text>
+                  <Text color={isConfigured ? 'green' : 'gray'} bold={isConfigured}>
+                    {isConfigured ? '[CONFIGURED]    ' : '[NOT CONFIGURED]'}
+                  </Text>
+                  {p.maskedKey && (
+                    <Text dimColor>  {p.maskedKey.padEnd(16, ' ')}</Text>
+                  )}
+                </Box>
+                <Text dimColor wrap="truncate-end">
+                  {p.source === 'env'
+                    ? `(env: ${p.envVar})`
+                    : p.source === 'file'
+                      ? '(auth.json)'
+                      : `(${p.envVar})`}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+
+        {isEditingAuthKey ? (
+          <Box
+            flexDirection="column"
+            borderStyle="single"
+            borderColor="green"
+            paddingX={1}
+            paddingY={0}
+            marginBottom={1}
+          >
+            <Text bold color="green">
+              {language === 'es'
+                ? `Ingresar API Key para ${activeProv?.name ?? 'Proveedor'}:`
+                : `Enter API Key for ${activeProv?.name ?? 'Provider'}:`}
+            </Text>
+            <Box flexDirection="row" marginTop={0}>
+              <Text color="cyan">❯ </Text>
+              <Text bold>
+                {authKeyDraft.length > 0 ? (
+                  AuthStorage.maskApiKey(authKeyDraft)
+                ) : (
+                  <Text dimColor>
+                    {language === 'es' ? 'Escribe o pega la clave...' : 'Type or paste API key...'}
+                  </Text>
+                )}
+              </Text>
+            </Box>
+            <Box marginTop={0} justifyContent="space-between">
+              <Text dimColor>
+                {language === 'es'
+                  ? 'Presiona [Enter] para guardar · [Esc] para cancelar'
+                  : 'Press [Enter] to save · [Esc] to cancel'}
+              </Text>
+              <Text dimColor>({authKeyDraft.length} chars)</Text>
+            </Box>
+          </Box>
+        ) : (
+          <Box
+            borderStyle="single"
+            borderColor="gray"
+            paddingX={1}
+            justifyContent="space-between"
+          >
+            <Text dimColor>
+              <Text bold color="cyan">↑/↓</Text> {language === 'es' ? 'Navegar' : 'Navigate'}  ·  
+              <Text bold color="green"> Enter / e</Text> {language === 'es' ? 'Editar' : 'Edit'}  ·  
+              <Text bold color="red"> d</Text> {language === 'es' ? 'Borrar' : 'Delete'}  ·  
+              <Text bold color="yellow"> Esc / q</Text> {language === 'es' ? 'Cerrar' : 'Close'}
+            </Text>
+            <Text dimColor>
+              {language === 'es' ? 'Prioridad: ENV > auth.json' : 'Precedence: ENV > auth.json'}
+            </Text>
+          </Box>
+        )}
       </Box>
     );
   };
@@ -3337,6 +3573,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
             {isLogsModalOpen && renderLogsModal()}
+            {isAuthModalOpen && renderAuthModal()}
             {isHelpOpen && renderHelpModal()}
             {isSettingsOpen && renderSettingsModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
@@ -3479,6 +3716,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
             {isLogsModalOpen && renderLogsModal()}
+            {isAuthModalOpen && renderAuthModal()}
             {isHelpOpen && renderHelpModal()}
             {isSettingsOpen && renderSettingsModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
@@ -3783,6 +4021,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {isModelsModalOpen && renderModelsModal()}
           {dbModalOutput.length > 0 && renderDbModal()}
           {isLogsModalOpen && renderLogsModal()}
+          {isAuthModalOpen && renderAuthModal()}
           {isHelpOpen && renderHelpModal()}
           {isSettingsOpen && renderSettingsModal()}
           {isExitConfirmOpen && renderExitConfirmModal()}

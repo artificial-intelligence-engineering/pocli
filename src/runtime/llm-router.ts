@@ -11,6 +11,7 @@
  */
 
 import { Logger } from '../core/logger.js';
+import { AuthStorage } from '../core/auth.js';
 
 export type RoutingStrategy = 'auto:smart' | 'auto:fast' | 'auto:balanced' | 'auto:reliable' | 'custom';
 
@@ -498,12 +499,13 @@ export function buildDefaultFreeProviders(): ProviderConfig[] {
     },
   ];
 
-  if (process.env.GROQ_API_KEY) {
+  const groqKey = AuthStorage.getApiKey('groq');
+  if (groqKey) {
     providers.push({
       id: 'groq-free',
       name: 'Groq Free Tier',
       endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-      apiKey: process.env.GROQ_API_KEY,
+      apiKey: groqKey,
       defaultModel: 'llama-3.3-70b-versatile',
       supportedModels: [
         'llama-3.3-70b-versatile',
@@ -517,12 +519,13 @@ export function buildDefaultFreeProviders(): ProviderConfig[] {
     });
   }
 
-  if (process.env.GEMINI_API_KEY) {
+  const geminiKey = AuthStorage.getApiKey('gemini');
+  if (geminiKey) {
     providers.push({
       id: 'gemini-free',
       name: 'Google Gemini Free',
       endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-      apiKey: process.env.GEMINI_API_KEY,
+      apiKey: geminiKey,
       defaultModel: 'gemini-2.0-flash',
       supportedModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-pro'],
       limits: { rpm: 15, rpd: 1500 },
@@ -531,12 +534,13 @@ export function buildDefaultFreeProviders(): ProviderConfig[] {
     });
   }
 
-  if (process.env.OPENROUTER_API_KEY) {
+  const openrouterKey = AuthStorage.getApiKey('openrouter');
+  if (openrouterKey) {
     providers.push({
       id: 'openrouter-free',
       name: 'OpenRouter Free Tier',
       endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-      apiKey: process.env.OPENROUTER_API_KEY,
+      apiKey: openrouterKey,
       defaultModel: 'openrouter/free',
       supportedModels: [
         'openrouter/free',
@@ -547,6 +551,26 @@ export function buildDefaultFreeProviders(): ProviderConfig[] {
       limits: { rpm: 20, rpd: 200 },
       intelligenceScore: 0.85,
       speedScore: 0.8,
+    });
+  }
+
+  const opencodeKey = AuthStorage.getApiKey('opencode');
+  if (opencodeKey) {
+    providers.push({
+      id: 'opencode-zen',
+      name: 'OpenCode Zen (Pay-per-use)',
+      endpoint: 'https://opencode.ai/zen/v1/chat/completions',
+      apiKey: opencodeKey,
+      defaultModel: 'claude-3-7-sonnet',
+      supportedModels: [
+        'claude-3-7-sonnet',
+        'claude-3-5-sonnet',
+        'gpt-4o',
+        'qwen-2.5-coder-32b',
+      ],
+      limits: { rpm: 60, rpd: 50000 },
+      intelligenceScore: 0.98,
+      speedScore: 0.95,
     });
   }
 

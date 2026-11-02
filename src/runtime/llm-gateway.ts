@@ -8,8 +8,9 @@ import {
   RoleModelConfig,
   WorkflowPhase,
 } from '../core/contracts.js';
+import { AuthStorage } from '../core/auth.js';
 import { NotebookRagEngine } from './notebook-rag.js';
-import { DEFAULT_FREE_PROVIDERS, LLMRouter } from './llm-router.js';
+import { buildDefaultFreeProviders, DEFAULT_FREE_PROVIDERS, LLMRouter } from './llm-router.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -248,6 +249,40 @@ function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
       recommendedFor: 'Local Air-Gapped Architecture',
       defaultTemperature: 0.2,
     },
+    // OpenCode Zen
+    {
+      provider: 'opencode',
+      vendor: 'OPENCODE',
+      providerLabel: 'OpenCode Zen',
+      modelId: 'claude-3-7-sonnet',
+      displayName: 'Claude 3.7 Sonnet (Zen)',
+      isFree: false,
+      contextWindow: '200K',
+      recommendedFor: 'OpenCode Zen Architecture & Thinking',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'opencode',
+      vendor: 'OPENCODE',
+      providerLabel: 'OpenCode Zen',
+      modelId: 'gpt-4o',
+      displayName: 'GPT-4o (Zen)',
+      isFree: false,
+      contextWindow: '128K',
+      recommendedFor: 'OpenCode Zen General Engineering',
+      defaultTemperature: 0.1,
+    },
+    {
+      provider: 'opencode',
+      vendor: 'OPENCODE',
+      providerLabel: 'OpenCode Zen',
+      modelId: 'qwen-2.5-coder-32b',
+      displayName: 'Qwen 2.5 Coder 32B (Zen)',
+      isFree: false,
+      contextWindow: '128K',
+      recommendedFor: 'OpenCode Zen Fast Code Specialist',
+      defaultTemperature: 0.1,
+    },
   ];
 }
 
@@ -380,7 +415,7 @@ export class LlmGateway {
 
   constructor() {
     this.freeRouter = new LLMRouter({
-      providers: DEFAULT_FREE_PROVIDERS,
+      providers: buildDefaultFreeProviders(),
       strategy: 'auto:smart',
       fallbackEnabled: true,
       requestTimeoutMs: 90000,
@@ -392,10 +427,11 @@ export class LlmGateway {
   ): Promise<AgentTurnOutput> {
     const { provider, modelId, temperature } = input.modelConfig;
 
-    if (provider === 'openai' && process.env.OPENAI_API_KEY) {
+    const openAiKey = AuthStorage.getApiKey('openai');
+    if (provider === 'openai' && openAiKey) {
       return this.callOpenAiCompatible(
         'https://api.openai.com/v1/chat/completions',
-        process.env.OPENAI_API_KEY,
+        openAiKey,
         modelId,
         temperature,
         input,
@@ -415,9 +451,10 @@ export class LlmGateway {
       );
     }
 
-    if (provider === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
+    const anthropicKey = AuthStorage.getApiKey('anthropic');
+    if (provider === 'anthropic' && anthropicKey) {
       return this.callAnthropic(
-        process.env.ANTHROPIC_API_KEY,
+        anthropicKey,
         modelId,
         temperature,
         input,
@@ -425,9 +462,22 @@ export class LlmGateway {
       );
     }
 
-    if (provider === 'gemini' && process.env.GEMINI_API_KEY) {
+    const geminiKey = AuthStorage.getApiKey('gemini');
+    if (provider === 'gemini' && geminiKey) {
       return this.callGemini(
-        process.env.GEMINI_API_KEY,
+        geminiKey,
+        modelId,
+        temperature,
+        input,
+        onStreamToken,
+      );
+    }
+
+    const opencodeKey = AuthStorage.getApiKey('opencode');
+    if ((provider === 'opencode' || (provider as string) === 'opencode-zen') && opencodeKey) {
+      return this.callOpenAiCompatible(
+        'https://opencode.ai/zen/v1/chat/completions',
+        opencodeKey,
         modelId,
         temperature,
         input,
