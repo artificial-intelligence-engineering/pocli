@@ -22,6 +22,7 @@ import {
   SOLARIZED_COLORS,
   SupportedThemeSchema,
   THEME_PALETTES,
+  wrapTextLines,
 } from '../src/index.js';
 
 describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)', () => {
@@ -1208,5 +1209,43 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
 
     // Physical Delete (\x1b[3~) must NOT trigger navigation
     expect(isNavigationHome('\x1b[3~', '', { backspace: false, delete: true, ctrl: false })).toBe(false);
+  });
+
+  it('Issue #20: verifies OpenCode chat aesthetic with shaded cardBg, dynamic input expansion, and collapse on Enter', () => {
+    // 1. Theme palette defines cardBg (#073642 for solarized-dark and system)
+    expect(THEME_PALETTES['solarized-dark'].cardBg).toBe('#073642');
+    expect(THEME_PALETTES.system.cardBg).toBe('#073642');
+    expect(THEME_PALETTES['solarized-light'].cardBg).toBe('#eee8d5');
+
+    // 2. wrapTextLines handles empty string with 1 line (initial size)
+    expect(wrapTextLines('', 50)).toEqual(['']);
+
+    // 3. wrapTextLines preserves short input as 1 line
+    expect(wrapTextLines('hola', 50)).toEqual(['hola']);
+
+    // 4. wrapTextLines dynamically splits long wrapped lines (box grows)
+    const longText = 'a'.repeat(120);
+    const wrapped = wrapTextLines(longText, 40);
+    expect(wrapped.length).toBe(3);
+    expect(wrapped[0].length).toBe(40);
+    expect(wrapped[1].length).toBe(40);
+    expect(wrapped[2].length).toBe(40);
+
+    // 5. wrapTextLines respects word boundaries when spaces exist
+    const wordsText = 'dsfjalsjfdlasjfdlasjdflasjfdl slfjasldf jkskkkkkkkkkkkkkkkkkkkkkkkkkkk';
+    const wrappedWords = wrapTextLines(wordsText, 30);
+    expect(wrappedWords.length).toBeGreaterThanOrEqual(2);
+    expect(wrappedWords[0]).toBe('dsfjalsjfdlasjfdlasjdflasjfdl');
+
+    // 6. Multi-line input collapses back to 1 line when input is cleared on Enter
+    let currentInput = longText;
+    let renderedLines = wrapTextLines(currentInput, 40);
+    expect(renderedLines.length).toBe(3);
+
+    // Simulate Enter (input reset)
+    currentInput = '';
+    renderedLines = wrapTextLines(currentInput, 40);
+    expect(renderedLines.length).toBe(1);
+    expect(renderedLines[0]).toBe('');
   });
 });
