@@ -4836,8 +4836,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 │{' '}
               </Text>
               <Text
-                color={isPlaceholder ? undefined : themePalette.cyan}
-                dimColor={isPlaceholder}
+                color={isPlaceholder ? 'cyan' : 'white'}
                 bold={!isPlaceholder}
                 backgroundColor={themePalette.cardBg}
               >
@@ -4854,6 +4853,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // RENDER MODE 1: OPENCODE STARTUP SCREEN (CENTERED LOGO + COMPACT PROMPT)
   // ==========================================================================
   if (viewMode === 'startup') {
+    const promptBoxWidth = Math.min(86, Math.max(56, dimensions.columns - 8));
+
     return (
       <Box
         flexDirection="column"
@@ -4909,13 +4910,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Box>
 
             {isSlashMenuOpen && (
-              <Box width={unifiedChatBoxWidth} marginBottom={0}>
-                {renderSlashPopoverMenu(unifiedChatBoxWidth)}
+              <Box width={promptBoxWidth} marginBottom={0}>
+                {renderSlashPopoverMenu(promptBoxWidth)}
               </Box>
             )}
 
             {renderUnifiedPromptBox(
-              unifiedChatBoxWidth,
+              promptBoxWidth,
               language === 'es'
                 ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
                 : 'Ask anything... "/projects to switch project"',
@@ -5048,56 +5049,38 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                               m.content,
                               Math.max(10, chatAreaWidth - 4),
                             );
-                            const minUserMsgHeight = 2;
-                            const displayMsgLines = [...rawMsgLines];
-                            while (displayMsgLines.length < minUserMsgHeight) {
-                              displayMsgLines.push('');
-                            }
 
                             return (
-                              <Box flexDirection="column" marginY={1} width={chatAreaWidth}>
-                                {displayMsgLines.map((line, lIdx) => {
-                                  const queueBadge =
-                                    lIdx === 0 && queuedMessageIds.has(m.id)
-                                      ? language === 'es'
-                                        ? ' [en cola]'
-                                        : ' [queued]'
-                                      : '';
-                                  const textPadLen = Math.max(
-                                    0,
-                                    chatAreaWidth - 3 - queueBadge.length,
-                                  );
-
-                                  return (
-                                    <Box key={lIdx} flexDirection="row" width={chatAreaWidth}>
+                              <Box flexDirection="column" marginY={1}>
+                                {rawMsgLines.map((line, lIdx) => (
+                                  <Box key={lIdx} flexDirection="row">
+                                    <Text
+                                      color="cyan"
+                                      backgroundColor={themePalette.cardBg}
+                                      bold
+                                    >
+                                      │{' '}
+                                    </Text>
+                                    <Text
+                                      color="cyan"
+                                      bold
+                                      backgroundColor={
+                                        isLineSelected ? 'yellow' : themePalette.cardBg
+                                      }
+                                    >
+                                      {line}
+                                    </Text>
+                                    {lIdx === 0 && queuedMessageIds.has(m.id) && (
                                       <Text
-                                        color={themePalette.cyan}
+                                        color={themePalette.yellow}
                                         backgroundColor={themePalette.cardBg}
                                         bold
                                       >
-                                        │{' '}
+                                        {' '}[{language === 'es' ? 'en cola' : 'queued'}]
                                       </Text>
-                                      <Text
-                                        color={themePalette.cyan}
-                                        bold
-                                        backgroundColor={
-                                          isLineSelected ? 'yellow' : themePalette.cardBg
-                                        }
-                                      >
-                                        {line.padEnd(textPadLen, ' ')}
-                                      </Text>
-                                      {queueBadge ? (
-                                        <Text
-                                          color={themePalette.yellow}
-                                          backgroundColor={themePalette.cardBg}
-                                          bold
-                                        >
-                                          {queueBadge}
-                                        </Text>
-                                      ) : null}
-                                    </Box>
-                                  );
-                                })}
+                                    )}
+                                  </Box>
+                                ))}
                               </Box>
                             );
                           })()
