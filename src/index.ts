@@ -7,6 +7,8 @@ export * from './runtime/harnesses.js';
 export * from './runtime/llm-gateway.js';
 export * from './runtime/notebook-rag.js';
 export * from './runtime/process-runner.js';
+export * from './runtime/coordinator.js';
+export * from './runtime/persistent-runtime.js';
 export * from './runtime/mcp-client.js';
 export * from './runtime/orchestrator.js';
 export * from './tui/mouse.js';
