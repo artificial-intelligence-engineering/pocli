@@ -3229,28 +3229,32 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     </Box>
   );
 
-  // Settings Modal Component — Option 4: Master-Detail Split Layout
+  // Settings Modal Component — Option 4: Master-Detail Split Layout with strictly fixed size
   const renderSettingsModal = () => {
-    const modalWidth = Math.min(104, Math.max(84, dimensions.columns - 4));
-    const leftColWidth = Math.max(26, Math.min(32, Math.floor(modalWidth * 0.32)));
-    const rightColWidth = modalWidth - leftColWidth - 4;
+    const modalWidth = Math.min(100, Math.max(80, dimensions.columns - 4));
+    const modalHeight = 15;
+    const leftColWidth = Math.max(26, Math.min(30, Math.floor(modalWidth * 0.3)));
+    const rightColWidth = modalWidth - leftColWidth - 5;
+    const bodyHeight = modalHeight - 4;
 
     return (
       <Box
         flexDirection="column"
         width={modalWidth}
+        height={modalHeight}
         borderStyle="double"
         borderColor={themePalette.modalBorder}
         paddingX={1}
-        paddingY={1}
+        paddingY={0}
         marginBottom={1}
       >
         {/* Header Bar */}
         <Box
           width="100%"
+          height={1}
           justifyContent="space-between"
           paddingX={1}
-          marginBottom={1}
+          marginTop={0}
         >
           <Text bold color={themePalette.yellow}>
             ⚙ {t.settingsTitle}
@@ -3263,11 +3267,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         </Box>
 
         {/* Master-Detail Split Body */}
-        <Box flexDirection="row" width="100%">
+        <Box flexDirection="row" width="100%" height={bodyHeight} marginTop={1}>
           {/* Left Panel: Settings Categories (Master) */}
           <Box
             flexDirection="column"
             width={leftColWidth}
+            height={bodyHeight}
             paddingRight={1}
             borderStyle="single"
             borderTop={false}
@@ -3342,6 +3347,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           <Box
             flexDirection="column"
             width={rightColWidth}
+            height={bodyHeight}
             paddingLeft={2}
             justifyContent="space-between"
           >
