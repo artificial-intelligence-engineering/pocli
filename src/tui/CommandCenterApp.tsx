@@ -4836,8 +4836,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 │{' '}
               </Text>
               <Text
-                color={isPlaceholder ? undefined : 'white'}
+                color={isPlaceholder ? undefined : themePalette.cyan}
                 dimColor={isPlaceholder}
+                bold={!isPlaceholder}
                 backgroundColor={themePalette.cardBg}
               >
                 {lineContent.padEnd(innerWidth, ' ')}
@@ -5055,34 +5056,48 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
                             return (
                               <Box flexDirection="column" marginY={1} width={chatAreaWidth}>
-                                {displayMsgLines.map((line, lIdx) => (
-                                  <Box key={lIdx} flexDirection="row" width={chatAreaWidth}>
-                                    <Text
-                                      color={themePalette.cyan}
-                                      backgroundColor={themePalette.cardBg}
-                                      bold
-                                    >
-                                      │{' '}
-                                    </Text>
-                                    <Text
-                                      color="white"
-                                      backgroundColor={
-                                        isLineSelected ? 'yellow' : themePalette.cardBg
-                                      }
-                                    >
-                                      {line.padEnd(Math.max(0, chatAreaWidth - 3), ' ')}
-                                    </Text>
-                                    {lIdx === 0 && queuedMessageIds.has(m.id) && (
+                                {displayMsgLines.map((line, lIdx) => {
+                                  const queueBadge =
+                                    lIdx === 0 && queuedMessageIds.has(m.id)
+                                      ? language === 'es'
+                                        ? ' [en cola]'
+                                        : ' [queued]'
+                                      : '';
+                                  const textPadLen = Math.max(
+                                    0,
+                                    chatAreaWidth - 3 - queueBadge.length,
+                                  );
+
+                                  return (
+                                    <Box key={lIdx} flexDirection="row" width={chatAreaWidth}>
                                       <Text
-                                        color={themePalette.yellow}
+                                        color={themePalette.cyan}
                                         backgroundColor={themePalette.cardBg}
                                         bold
                                       >
-                                        {' '}[{language === 'es' ? 'en cola' : 'queued'}]
+                                        │{' '}
                                       </Text>
-                                    )}
-                                  </Box>
-                                ))}
+                                      <Text
+                                        color={themePalette.cyan}
+                                        bold
+                                        backgroundColor={
+                                          isLineSelected ? 'yellow' : themePalette.cardBg
+                                        }
+                                      >
+                                        {line.padEnd(textPadLen, ' ')}
+                                      </Text>
+                                      {queueBadge ? (
+                                        <Text
+                                          color={themePalette.yellow}
+                                          backgroundColor={themePalette.cardBg}
+                                          bold
+                                        >
+                                          {queueBadge}
+                                        </Text>
+                                      ) : null}
+                                    </Box>
+                                  );
+                                })}
                               </Box>
                             );
                           })()
