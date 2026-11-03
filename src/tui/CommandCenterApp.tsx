@@ -4865,49 +4865,40 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Box
               flexDirection="column"
               width={promptBoxWidth}
+              borderStyle="round"
+              borderColor={isSlashMenuOpen ? 'blue' : 'cyan'}
+              paddingX={1}
+              paddingY={0}
               marginTop={1}
             >
               {(() => {
-                const startInnerWidth = Math.max(10, promptBoxWidth - 3);
+                const startInnerWidth = Math.max(10, promptBoxWidth - 4);
                 const placeholder =
                   language === 'es'
                     ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
                     : 'Ask anything... "/projects to switch project"';
-                const rawStartLines =
+                const lines =
                   inputValue.length === 0
                     ? [placeholder]
                     : wrapTextLines(inputValue, startInnerWidth);
 
-                const minStartHeight = 3;
-                const displayStartLines = [...rawStartLines];
-                while (displayStartLines.length < minStartHeight) {
-                  displayStartLines.push('');
-                }
-
-                return displayStartLines.map((line, idx) => {
-                  const isPlaceholder = inputValue.length === 0 && idx === 0;
-                  const isLastContentLine = idx === rawStartLines.length - 1;
-                  const lineContent = isPlaceholder
-                    ? line
-                    : inputValue.length > 0 && isLastContentLine
-                      ? `${line}█`
-                      : line;
-
+                return lines.map((line, idx) => {
+                  const isPlaceholder = inputValue.length === 0;
+                  const isLast = idx === lines.length - 1;
                   return (
-                    <Box key={idx} flexDirection="row" width={promptBoxWidth}>
-                      <Text
-                        color={themePalette.cyan}
-                        backgroundColor={themePalette.cardBg}
-                        bold
-                      >
+                    <Box key={idx} flexDirection="row">
+                      <Text color="cyan" bold>
                         │{' '}
                       </Text>
                       <Text
                         color={isPlaceholder ? undefined : 'white'}
                         dimColor={isPlaceholder}
-                        backgroundColor={themePalette.cardBg}
                       >
-                        {lineContent.padEnd(startInnerWidth, ' ')}
+                        {isPlaceholder
+                          ? line
+                          : isLast
+                            ? `${line}█`
+                            : line}
                       </Text>
                     </Box>
                   );
