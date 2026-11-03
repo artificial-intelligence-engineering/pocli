@@ -837,6 +837,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
 
   const isSlashMenuOpen =
+    viewMode === 'startup' &&
     inputValue.startsWith('/') &&
     projectWizardStep === 'CLOSED' &&
     !isProjectsModalOpen &&
@@ -866,6 +867,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // Handle slash commands starting with "/"
     if (trimmed.startsWith('/')) {
+      if (viewMode !== 'startup') {
+        setInputValue('');
+        setStatusBanner(
+          language === 'es'
+            ? 'ℹ Para ejecutar comandos ve a la ventana principal con Esc o Ctrl+H.'
+            : 'ℹ Commands must be executed from the main window. Press Esc or Ctrl+H.',
+        );
+        return;
+      }
       const parts = trimmed.split(/\s+/);
       const cmdToken = parts[0].toLowerCase();
       setInputValue('');
@@ -2523,15 +2533,39 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // Ctrl+H shortcut to return immediately to the main / startup window
+    if (
+      (key.ctrl && (input === 'h' || input === 'H' || input === '\x08')) ||
+      (input === '\x08' && !key.backspace)
+    ) {
+      closeAllModals();
+      setInputValue('');
+      setViewMode('startup');
+      setStatusBanner(
+        language === 'es'
+          ? 'Ventana principal (ejecuta comandos con / o escribe para chatear)'
+          : 'Main window (run commands with / or type to chat)',
+      );
+      return;
+    }
+
     // OpenCode Ctrl+O shortcut to open the Per-Agent Model Picker (/models)
     if (key.ctrl && input === 'o') {
       openModelsModal(activeRole);
       return;
     }
 
-    // OpenCode Ctrl+P shortcut to toggle slash command popover menu
+    // OpenCode Ctrl+P shortcut to toggle slash command popover menu in main window
     if (key.ctrl && input === 'p') {
-      setInputValue((prev) => (prev.startsWith('/') ? '' : '/'));
+      if (viewMode === 'startup') {
+        setInputValue((prev) => (prev.startsWith('/') ? '' : '/'));
+      } else {
+        setStatusBanner(
+          language === 'es'
+            ? 'ℹ Para ejecutar comandos ve a la ventana principal con Esc o Ctrl+H.'
+            : 'ℹ Commands must be executed from the main window. Press Esc or Ctrl+H.',
+        );
+      }
       return;
     }
 
@@ -5017,8 +5051,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   {inputValue.length === 0 ? (
                     <Text dimColor>
                       {language === 'es'
-                        ? 'Pregunta cualquier cosa... ("/" para comandos)'
-                        : 'Ask anything... ("/" for commands)'}
+                        ? 'Escribe un mensaje para el agente... (Esc o Ctrl+H para ventana principal)'
+                        : 'Type a message for the agent... (Esc or Ctrl+H for main window)'}
                     </Text>
                   ) : (
                     <>
@@ -5111,14 +5145,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           </Box>
         )}
 
-        {/* Bottom Footer Bar matching OpenCode screenshot:
-            ■■■···· esc interrupt          ctrl+n cycle   12.2K (1%) · $0.02  ctrl+p commands     ~/HACK/dev/ai.github.io.git:master */}
+        {/* Bottom Footer Bar */}
         <Box width="100%" justifyContent="space-between" height={1}>
           <Box flexDirection="row">
             <Text color={isAnyRoleBusy ? 'cyan' : 'gray'}>
               {isAnyRoleBusy ? '■■■···· ' : '■······ '}
             </Text>
-            <Text color="gray">esc interrupt</Text>
+            <Text color="gray">{language === 'es' ? 'esc / ctrl+h principal' : 'esc / ctrl+h main'}</Text>
           </Box>
           <Box flexDirection="row">
             <Text color="gray">ctrl+n </Text>
@@ -5127,9 +5160,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               {(estimatedTokens / 1000).toFixed(1)}K ({Math.max(1, Math.round((estimatedTokens / 200000) * 100))}%) · {activeModelEntry.isFree ? '$0.00' : '$0.02'}{'  '}
             </Text>
             <Text bold color="white">
-              ctrl+p{' '}
+              ctrl+h{' '}
             </Text>
-            <Text color="gray">commands</Text>
+            <Text color="gray">{language === 'es' ? 'inicio' : 'home'}</Text>
           </Box>
           <Box flexDirection="row">
             <Text color="gray">
