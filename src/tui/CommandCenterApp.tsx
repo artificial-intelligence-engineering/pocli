@@ -4796,12 +4796,63 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // its `outputHeight >= stdout.rows` branch in ink.js:121 which executes a
   // full `ansiEscapes.clearTerminal` (\x1b[2J\x1b[3J\x1b[H) on every keystroke.
 
+  const sidebarWidth = Math.max(
+    26,
+    Math.min(34, Math.floor(dimensions.columns * 0.25)),
+  );
+  const unifiedChatBoxWidth = Math.max(30, dimensions.columns - sidebarWidth - 4);
+
+  const renderUnifiedPromptBox = (boxWidth: number, placeholder: string) => {
+    const innerWidth = Math.max(10, boxWidth - 3);
+    const rawLines =
+      inputValue.length === 0
+        ? [placeholder]
+        : wrapTextLines(inputValue, innerWidth);
+
+    const minPromptHeight = 3;
+    const displayLines = [...rawLines];
+    while (displayLines.length < minPromptHeight) {
+      displayLines.push('');
+    }
+
+    return (
+      <Box flexDirection="column" marginTop={1} width={boxWidth}>
+        {displayLines.map((line, idx) => {
+          const isPlaceholder = inputValue.length === 0 && idx === 0;
+          const isLastContentLine = idx === rawLines.length - 1;
+          const lineContent = isPlaceholder
+            ? line
+            : inputValue.length > 0 && isLastContentLine
+              ? `${line}█`
+              : line;
+
+          return (
+            <Box key={idx} flexDirection="row" width={boxWidth}>
+              <Text
+                color={themePalette.cyan}
+                backgroundColor={themePalette.cardBg}
+                bold
+              >
+                │{' '}
+              </Text>
+              <Text
+                color={isPlaceholder ? undefined : 'white'}
+                dimColor={isPlaceholder}
+                backgroundColor={themePalette.cardBg}
+              >
+                {lineContent.padEnd(innerWidth, ' ')}
+              </Text>
+            </Box>
+          );
+        })}
+      </Box>
+    );
+  };
+
   // ==========================================================================
   // RENDER MODE 1: OPENCODE STARTUP SCREEN (CENTERED LOGO + COMPACT PROMPT)
   // ==========================================================================
   if (viewMode === 'startup') {
-    const promptBoxWidth = Math.min(86, Math.max(56, dimensions.columns - 8));
-
     return (
       <Box
         flexDirection="column"
@@ -4857,54 +4908,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Box>
 
             {isSlashMenuOpen && (
-              <Box width={promptBoxWidth} marginBottom={0}>
-                {renderSlashPopoverMenu(promptBoxWidth)}
+              <Box width={unifiedChatBoxWidth} marginBottom={0}>
+                {renderSlashPopoverMenu(unifiedChatBoxWidth)}
               </Box>
             )}
 
-            <Box
-              flexDirection="column"
-              width={promptBoxWidth}
-              borderStyle="round"
-              borderColor={isSlashMenuOpen ? 'blue' : 'cyan'}
-              paddingX={1}
-              paddingY={0}
-              marginTop={1}
-            >
-              {(() => {
-                const startInnerWidth = Math.max(10, promptBoxWidth - 4);
-                const placeholder =
-                  language === 'es'
-                    ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
-                    : 'Ask anything... "/projects to switch project"';
-                const lines =
-                  inputValue.length === 0
-                    ? [placeholder]
-                    : wrapTextLines(inputValue, startInnerWidth);
-
-                return lines.map((line, idx) => {
-                  const isPlaceholder = inputValue.length === 0;
-                  const isLast = idx === lines.length - 1;
-                  return (
-                    <Box key={idx} flexDirection="row">
-                      <Text color="cyan" bold>
-                        │{' '}
-                      </Text>
-                      <Text
-                        color={isPlaceholder ? undefined : 'white'}
-                        dimColor={isPlaceholder}
-                      >
-                        {isPlaceholder
-                          ? line
-                          : isLast
-                            ? `${line}█`
-                            : line}
-                      </Text>
-                    </Box>
-                  );
-                });
-              })()}
-            </Box>
+            {renderUnifiedPromptBox(
+              unifiedChatBoxWidth,
+              language === 'es'
+                ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
+                : 'Ask anything... "/projects to switch project"',
+            )}
           </Box>
         )}
 
@@ -4937,8 +4951,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // ==========================================================================
   if (viewMode === 'chat') {
     const chatBarWidth = Math.max(40, dimensions.columns - 2);
-    const sidebarWidth = Math.max(26, Math.min(34, Math.floor(dimensions.columns * 0.25)));
-    const chatAreaWidth = Math.max(30, dimensions.columns - sidebarWidth - 4);
+    const chatAreaWidth = unifiedChatBoxWidth;
     const contentHeight = Math.max(8, safeViewportHeight - 3);
 
     return (
@@ -5049,7 +5062,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                                       backgroundColor={themePalette.cardBg}
                                       bold
                                     >
-                                      │{'  '}
+                                      │{' '}
                                     </Text>
                                     <Text
                                       color="white"
@@ -5057,7 +5070,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                                         isLineSelected ? 'yellow' : themePalette.cardBg
                                       }
                                     >
-                                      {line.padEnd(Math.max(0, chatAreaWidth - 4), ' ')}
+                                      {line.padEnd(Math.max(0, chatAreaWidth - 3), ' ')}
                                     </Text>
                                     {lIdx === 0 && queuedMessageIds.has(m.id) && (
                                       <Text
@@ -5179,57 +5192,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               {isSlashMenuOpen && renderSlashPopoverMenu('100%')}
 
               {/* Bottom Prompt / Input Box with dynamic height growth matching OpenCode aesthetic */}
-              {(() => {
-                const promptInnerWidth = Math.max(10, chatAreaWidth - 3);
-                const placeholder =
-                  language === 'es'
-                    ? 'Escribe un mensaje para el agente... (Esc o Ctrl+A para ventana principal)'
-                    : 'Type a message for the agent... (Esc or Ctrl+A for main window)';
-
-                const rawLines =
-                  inputValue.length === 0
-                    ? [placeholder]
-                    : wrapTextLines(inputValue, promptInnerWidth);
-
-                const minPromptHeight = 3;
-                const displayLines = [...rawLines];
-                while (displayLines.length < minPromptHeight) {
-                  displayLines.push('');
-                }
-
-                return (
-                  <Box flexDirection="column" marginTop={1} width={chatAreaWidth}>
-                    {displayLines.map((line, idx) => {
-                      const isPlaceholder = inputValue.length === 0 && idx === 0;
-                      const isLastContentLine = idx === rawLines.length - 1;
-                      const lineContent = isPlaceholder
-                        ? line
-                        : inputValue.length > 0 && isLastContentLine
-                          ? `${line}█`
-                          : line;
-
-                      return (
-                        <Box key={idx} flexDirection="row" width={chatAreaWidth}>
-                          <Text
-                            color={themePalette.cyan}
-                            backgroundColor={themePalette.cardBg}
-                            bold
-                          >
-                            │{' '}
-                          </Text>
-                          <Text
-                            color={isPlaceholder ? undefined : 'white'}
-                            dimColor={isPlaceholder}
-                            backgroundColor={themePalette.cardBg}
-                          >
-                            {lineContent.padEnd(promptInnerWidth, ' ')}
-                          </Text>
-                        </Box>
-                      );
-                    })}
-                  </Box>
-                );
-              })()}
+              {renderUnifiedPromptBox(
+                unifiedChatBoxWidth,
+                language === 'es'
+                  ? 'Escribe un mensaje para el agente... (Esc o Ctrl+A para ventana principal)'
+                  : 'Type a message for the agent... (Esc or Ctrl+A for main window)',
+              )}
             </Box>
 
             {/* Right Column: Project Info & Context Sidebar (OpenCode shaded panel) */}
