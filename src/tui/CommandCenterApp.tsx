@@ -2826,9 +2826,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const lastMessages = sliceWindowedMessages(3);
   const multipanelMessages = sliceWindowedMessages(4);
   const promptLineCount = useMemo(() => {
-    if (!inputValue) return 1;
     const promptInnerWidth = Math.max(20, dimensions.columns - 34);
-    return wrapTextLines(inputValue, promptInnerWidth).length;
+    const contentLines = inputValue
+      ? wrapTextLines(inputValue, promptInnerWidth).length
+      : 1;
+    return Math.max(3, contentLines);
   }, [inputValue, dimensions.columns]);
 
   const openCodeMessages = useMemo(() => {
@@ -4794,6 +4796,59 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // its `outputHeight >= stdout.rows` branch in ink.js:121 which executes a
   // full `ansiEscapes.clearTerminal` (\x1b[2J\x1b[3J\x1b[H) on every keystroke.
 
+  const sidebarWidth = Math.max(
+    26,
+    Math.min(34, Math.floor(dimensions.columns * 0.25)),
+  );
+  const unifiedChatBoxWidth = Math.max(30, dimensions.columns - sidebarWidth - 4);
+
+  const renderUnifiedPromptBox = (boxWidth: number, placeholder: string) => {
+    const innerWidth = Math.max(10, boxWidth - 2);
+    const rawLines =
+      inputValue.length === 0
+        ? [placeholder]
+        : wrapTextLines(inputValue, innerWidth);
+
+    const minPromptHeight = 3;
+    const displayLines = [...rawLines];
+    while (displayLines.length < minPromptHeight) {
+      displayLines.push('');
+    }
+
+    return (
+      <Box flexDirection="column" marginTop={1} width={boxWidth}>
+        {displayLines.map((line, idx) => {
+          const isPlaceholder = inputValue.length === 0 && idx === 0;
+          const isLastContentLine = idx === rawLines.length - 1;
+          const lineContent = isPlaceholder
+            ? line
+            : inputValue.length > 0 && isLastContentLine
+              ? `${line}█`
+              : line;
+
+          return (
+            <Box key={idx} flexDirection="row" width={boxWidth}>
+              <Text
+                color={themePalette.cyan}
+                backgroundColor={themePalette.cardBg}
+                bold
+              >
+                │{' '}
+              </Text>
+              <Text
+                color={isPlaceholder ? 'cyan' : 'white'}
+                bold={!isPlaceholder}
+                backgroundColor={themePalette.cardBg}
+              >
+                {lineContent.padEnd(innerWidth, ' ')}
+              </Text>
+            </Box>
+          );
+        })}
+      </Box>
+    );
+  };
+
   // ==========================================================================
   // RENDER MODE 1: OPENCODE STARTUP SCREEN (CENTERED LOGO + COMPACT PROMPT)
   // ==========================================================================
@@ -4860,52 +4915,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               </Box>
             )}
 
-            <Box
-              flexDirection="column"
-              width={promptBoxWidth}
-              marginTop={1}
-            >
-              {(() => {
-                const startInnerWidth = Math.max(10, promptBoxWidth - 3);
-                const placeholder =
-                  language === 'es'
-                    ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
-                    : 'Ask anything... "/projects to switch project"';
-                const startLines =
-                  inputValue.length === 0
-                    ? [placeholder]
-                    : wrapTextLines(inputValue, startInnerWidth);
-
-                return startLines.map((line, idx) => {
-                  const isLast = idx === startLines.length - 1;
-                  const isPlaceholder = inputValue.length === 0;
-                  const lineContent = isPlaceholder
-                    ? line
-                    : isLast
-                      ? `${line}█`
-                      : line;
-
-                  return (
-                    <Box key={idx} flexDirection="row" width={promptBoxWidth}>
-                      <Text
-                        color={themePalette.cyan}
-                        backgroundColor={themePalette.cardBg}
-                        bold
-                      >
-                        │{' '}
-                      </Text>
-                      <Text
-                        color={isPlaceholder ? undefined : 'white'}
-                        dimColor={isPlaceholder}
-                        backgroundColor={themePalette.cardBg}
-                      >
-                        {lineContent.padEnd(startInnerWidth, ' ')}
-                      </Text>
-                    </Box>
-                  );
-                });
-              })()}
-            </Box>
+            {renderUnifiedPromptBox(
+              promptBoxWidth,
+              language === 'es'
+                ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
+                : 'Ask anything... "/projects to switch project"',
+            )}
           </Box>
         )}
 
@@ -4938,9 +4953,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // ==========================================================================
   if (viewMode === 'chat') {
     const chatBarWidth = Math.max(40, dimensions.columns - 2);
-    const sidebarWidth = Math.max(26, Math.min(34, Math.floor(dimensions.columns * 0.25)));
-    const chatAreaWidth = Math.max(30, dimensions.columns - sidebarWidth - 4);
+    const chatAreaWidth = unifiedChatBoxWidth;
     const contentHeight = Math.max(8, safeViewportHeight - 3);
+    // Height of the bottom prompt box (min 3 lines + 1 line marginTop)
+    const promptBoxLines = Math.max(
+      3,
+      inputValue.length === 0
+        ? 1
+        : wrapTextLines(inputValue, Math.max(10, chatAreaWidth - 2)).length,
+    );
+    const messagesViewportHeight = Math.max(3, contentHeight - (promptBoxLines + 1));
 
     return (
       <Box
@@ -4987,10 +5009,24 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               width={chatAreaWidth}
               height="100%"
               justifyContent="space-between"
-              paddingRight={2}
+              marginRight={2}
             >
-              {/* Scrollable Conversation messages */}
-              <Box flexDirection="column" flexGrow={1} overflowY="hidden">
+              {/* Scrollable Conversation messages.
+                  Fixed-height clipping viewport anchored to the bottom: message
+                  blocks never shrink (flexShrink=0), so they can never overlap;
+                  older content is clipped at the top instead. */}
+              <Box
+                flexDirection="column"
+                height={messagesViewportHeight}
+                flexShrink={0}
+                overflowY="hidden"
+                justifyContent="flex-end"
+              >
+                <Box
+                  flexDirection="column"
+                  flexShrink={0}
+                  minHeight={messagesViewportHeight}
+                >
                 {openCodeMessages.length === 0 && !activeStreamingText ? (
                   <Box flexDirection="column" marginY={1}>
                     <Text dimColor>
@@ -5027,29 +5063,79 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                       selectionRange.endY >= baseRow;
 
                     return (
-                      <Box key={m.id} flexDirection="column" marginY={0}>
+                      <Box
+                        key={m.id}
+                        flexDirection="column"
+                        flexShrink={0}
+                        marginBottom={1}
+                      >
                         {isUser ? (
-                          // User message box with darker shaded background and cyan left bar
-                          <Box flexDirection="column" marginY={1} width={chatAreaWidth}>
-                            {wrapTextLines(m.content, Math.max(10, chatAreaWidth - 4)).map((line, lIdx) => (
-                              <Box key={lIdx} flexDirection="row" width={chatAreaWidth}>
-                                <Text color={themePalette.cyan} backgroundColor={themePalette.cardBg} bold>
-                                  │{'  '}
-                                </Text>
-                                <Text
-                                  color="white"
-                                  backgroundColor={isLineSelected ? 'yellow' : themePalette.cardBg}
-                                >
-                                  {line.padEnd(Math.max(0, chatAreaWidth - 4), ' ')}
-                                </Text>
-                                {lIdx === 0 && queuedMessageIds.has(m.id) && (
-                                  <Text color={themePalette.yellow} backgroundColor={themePalette.cardBg} bold>
-                                    {' '}[{language === 'es' ? 'en cola' : 'queued'}]
-                                  </Text>
-                                )}
+                          // User message card (OpenCode style): full-width shaded
+                          // background, cyan left bar, one padding line above/below
+                          (() => {
+                            const textWidth = Math.max(10, chatAreaWidth - 2);
+                            const queueBadge = queuedMessageIds.has(m.id)
+                              ? language === 'es'
+                                ? ' [en cola]'
+                                : ' [queued]'
+                              : '';
+                            const rawMsgLines = wrapTextLines(
+                              m.content,
+                              Math.max(10, textWidth - queueBadge.length - 1),
+                            );
+                            const cardLines = ['', ...rawMsgLines, ''];
+
+                            return (
+                              <Box
+                                flexDirection="column"
+                                flexShrink={0}
+                                width={chatAreaWidth}
+                              >
+                                {cardLines.map((line, lIdx) => {
+                                  const badge = lIdx === 1 ? queueBadge : '';
+                                  return (
+                                    <Box
+                                      key={lIdx}
+                                      flexDirection="row"
+                                      flexShrink={0}
+                                      width={chatAreaWidth}
+                                    >
+                                      <Text
+                                        color="cyan"
+                                        backgroundColor={themePalette.cardBg}
+                                        bold
+                                      >
+                                        │{' '}
+                                      </Text>
+                                      <Text
+                                        color="cyan"
+                                        bold
+                                        backgroundColor={
+                                          isLineSelected ? 'yellow' : themePalette.cardBg
+                                        }
+                                      >
+                                        {line}
+                                      </Text>
+                                      {badge ? (
+                                        <Text
+                                          color={themePalette.yellow}
+                                          backgroundColor={themePalette.cardBg}
+                                          bold
+                                        >
+                                          {badge}
+                                        </Text>
+                                      ) : null}
+                                      <Text backgroundColor={themePalette.cardBg}>
+                                        {' '.repeat(
+                                          Math.max(0, textWidth - line.length - badge.length),
+                                        )}
+                                      </Text>
+                                    </Box>
+                                  );
+                                })}
                               </Box>
-                            ))}
-                          </Box>
+                            );
+                          })()
                         ) : (
                           // Assistant message + optional tool/RAG step
                           (() => {
@@ -5067,10 +5153,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                             }
 
                             return (
-                              <Box flexDirection="column" marginY={1}>
+                              <Box flexDirection="column" flexShrink={0}>
                                 {citations.length > 0 && (
                                   <>
-                                    <Box flexDirection="row" paddingLeft={1}>
+                                    <Box flexDirection="row" paddingLeft={2}>
                                       <Text dimColor>
                                         → Explored: {citations.length} reads
                                       </Text>
@@ -5090,7 +5176,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                                 )}
                                 {toolCalls.map((tc, tcIdx) => (
                                   <Box key={tcIdx} flexDirection="column" marginY={0}>
-                                    <Box flexDirection="row" paddingLeft={1}>
+                                    <Box flexDirection="row" paddingLeft={2}>
                                       <Text dimColor>
                                         → Tool call: {tc.name}
                                       </Text>
@@ -5106,8 +5192,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                                     </Box>
                                   </Box>
                                 ))}
-                                <Box flexDirection="column" marginTop={0} paddingLeft={1}>
+                                <Box flexDirection="column" flexShrink={0} paddingLeft={2}>
                                   {renderFormattedContent(m.content, isLineSelected)}
+                                </Box>
+                                <Box flexDirection="row" flexShrink={0} marginTop={1} paddingLeft={2}>
+                                  <Text color="cyan" bold>Build</Text>
+                                  <Text dimColor> · {activeRoleDisplayName} · {activeModelEntry.displayName}</Text>
                                 </Box>
                               </Box>
                             );
@@ -5120,7 +5210,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
                 {/* Thinking / Waiting indicator */}
                 {isActiveRoleBusy && !activeStreamingText && (
-                  <Box flexDirection="row" marginY={1} paddingLeft={1}>
+                  <Box flexDirection="row" flexShrink={0} marginBottom={1} paddingLeft={2}>
                     <Text color={activeTheme.accentColor} bold>
                       {activeRoleDisplayName}
                     </Text>
@@ -5140,7 +5230,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
                 {/* Streaming response */}
                 {activeStreamingText && (
-                  <Box flexDirection="column" marginY={1} paddingLeft={1}>
+                  <Box flexDirection="column" flexShrink={0} marginBottom={1} paddingLeft={2}>
                     <Box flexDirection="row" marginBottom={0}>
                       <Text color={activeTheme.accentColor} bold>
                         {activeRoleDisplayName}
@@ -5150,57 +5240,19 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     <Text color="green">{activeStreamingText}█</Text>
                   </Box>
                 )}
+                </Box>
               </Box>
 
               {/* Slash Command Popover Menu when user types "/" */}
               {isSlashMenuOpen && renderSlashPopoverMenu('100%')}
 
               {/* Bottom Prompt / Input Box with dynamic height growth matching OpenCode aesthetic */}
-              {(() => {
-                const promptInnerWidth = Math.max(10, chatAreaWidth - 3);
-                const placeholder =
-                  language === 'es'
-                    ? 'Escribe un mensaje para el agente... (Esc o Ctrl+A para ventana principal)'
-                    : 'Type a message for the agent... (Esc or Ctrl+A for main window)';
-
-                const promptLines =
-                  inputValue.length === 0
-                    ? [placeholder]
-                    : wrapTextLines(inputValue, promptInnerWidth);
-
-                return (
-                  <Box flexDirection="column" marginTop={1} width={chatAreaWidth}>
-                    {promptLines.map((line, idx) => {
-                      const isLast = idx === promptLines.length - 1;
-                      const isPlaceholder = inputValue.length === 0;
-                      const lineContent = isPlaceholder
-                        ? line
-                        : isLast
-                          ? `${line}█`
-                          : line;
-
-                      return (
-                        <Box key={idx} flexDirection="row" width={chatAreaWidth}>
-                          <Text
-                            color={themePalette.cyan}
-                            backgroundColor={themePalette.cardBg}
-                            bold
-                          >
-                            │{' '}
-                          </Text>
-                          <Text
-                            color={isPlaceholder ? undefined : 'white'}
-                            dimColor={isPlaceholder}
-                            backgroundColor={themePalette.cardBg}
-                          >
-                            {lineContent.padEnd(promptInnerWidth, ' ')}
-                          </Text>
-                        </Box>
-                      );
-                    })}
-                  </Box>
-                );
-              })()}
+              {renderUnifiedPromptBox(
+                unifiedChatBoxWidth,
+                language === 'es'
+                  ? 'Escribe un mensaje para el agente... (Esc o Ctrl+A para ventana principal)'
+                  : 'Type a message for the agent... (Esc or Ctrl+A for main window)',
+              )}
             </Box>
 
             {/* Right Column: Project Info & Context Sidebar (OpenCode shaded panel) */}
