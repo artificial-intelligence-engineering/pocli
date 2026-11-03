@@ -458,15 +458,54 @@ export class PersistentAgentRuntime extends EventEmitter {
   }
 
   /**
+   * Pre-warms or ensures all 4 core agents (architect, developer, qa, pm)
+   * are actively initialized in the persistent pool for a project.
+   */
+  public ensureCoreWorkers(projectId: string, workspaceDir: string): WorkerStatusInfo[] {
+    const coreRoles: ActorRole[] = ['architect', 'developer', 'qa', 'pm'];
+    for (const role of coreRoles) {
+      const cfg = this.coordinator?.storage.getRoleConfig(projectId, role) ?? {
+        role,
+        provider: 'anthropic',
+        modelId: 'claude-3-7-sonnet',
+        temperature: 0.2,
+        executionModality: 'LOCAL_PROCESS',
+      };
+      this.getOrCreateWorker(projectId, role, workspaceDir, cfg);
+    }
+    return this.listWorkers(projectId);
+  }
+
+  /**
    * Returns inspection status for all managed workers.
    */
   public listWorkers(projectId?: string): WorkerStatusInfo[] {
     const list: WorkerStatusInfo[] = [];
+    const foundRoles = new Set<string>();
+
     for (const worker of this.workers.values()) {
       if (!projectId || worker.projectId === projectId) {
         list.push(worker.toStatusInfo());
+        foundRoles.add(worker.role);
       }
     }
+
+    if (projectId) {
+      const coreRoles: ActorRole[] = ['architect', 'developer', 'qa', 'pm'];
+      for (const role of coreRoles) {
+        if (!foundRoles.has(role)) {
+          list.push({
+            projectId,
+            role,
+            status: 'stopped',
+            turnsCompleted: 0,
+            tasksCompleted: 0,
+            modality: 'LOCAL_PROCESS',
+          });
+        }
+      }
+    }
+
     return list;
   }
 
@@ -534,3 +573,4 @@ export class PersistentAgentRuntime extends EventEmitter {
     this.workers.clear();
   }
 }
+

@@ -1064,6 +1064,14 @@ export class PoCliOrchestrator extends EventEmitter {
     return this.coordinator.sendInterAgentMessage(params);
   }
 
+  ensureCoreWorkers(projectId?: string): WorkerStatusInfo[] {
+    const pid = projectId ?? this.storage.getSettings().activeProjectId;
+    if (!pid) return [];
+    const project = this.storage.getProject(pid);
+    if (!project) return [];
+    return this.runtime.ensureCoreWorkers(project.id, project.workspaceDir);
+  }
+
   listWorkers(projectId?: string): WorkerStatusInfo[] {
     return this.runtime.listWorkers(projectId);
   }

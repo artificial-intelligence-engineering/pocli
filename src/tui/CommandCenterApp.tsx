@@ -3,7 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Box, Text, useInput, useApp, useStdout, useStdin } from 'ink';
-import { ActorRole, Artifact, Notebook, Project } from '../core/contracts.js';
+import {
+  ActorRole,
+  Artifact,
+  Notebook,
+  Project,
+  WorkerStatusInfo,
+} from '../core/contracts.js';
 import {
   getRoleDisplayName,
   I18N_DICTIONARY,
@@ -433,6 +439,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // Interactive OpenCode & Pi-style LLM Authentication Modal (/auth)
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [selectedAuthIdx, setSelectedAuthIdx] = useState<number>(0);
+
+  // Interactive Persistent Workers Inspector Modal (/workers)
+  const [isWorkersModalOpen, setIsWorkersModalOpen] = useState<boolean>(false);
+  const [workersSelectedIdx, setWorkersSelectedIdx] = useState<number>(0);
+  const [workersList, setWorkersList] = useState<WorkerStatusInfo[]>([]);
   const [isEditingAuthKey, setIsEditingAuthKey] = useState<boolean>(false);
   const [authKeyDraft, setAuthKeyDraft] = useState<string>('');
 
@@ -614,6 +625,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setModelsProviderTab('all');
     setModelsFilterQuery('');
     setDbModalOutput('');
+    setIsWorkersModalOpen(false);
     setProjectWizardStep('CLOSED');
   };
 
@@ -781,6 +793,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     !isSystemModalOpen &&
     !isLogsModalOpen &&
     !isAuthModalOpen &&
+    !isWorkersModalOpen &&
     !isHelpOpen &&
     !isSettingsOpen &&
     !isExitConfirmOpen;
@@ -979,22 +992,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           return;
         }
 
+        // Open interactive Workers Modal
+        orchestrator.ensureCoreWorkers(project.id);
         const workers = orchestrator.listWorkers(project.id);
-        if (workers.length === 0) {
-          setStatusBanner(
-            language === 'es'
-              ? 'No hay trabajadores persistentes activos para este proyecto.'
-              : 'No active persistent workers for this project.',
-          );
-        } else {
-          const summary = workers
-            .map(
-              (w) =>
-                `${w.role}: PID ${w.workerPid} [${w.status.toUpperCase()}, ${w.turnsCompleted} turns]`,
-            )
-            .join(' · ');
-          setStatusBanner(summary);
-        }
+        setWorkersList(workers);
+        setWorkersSelectedIdx(0);
+        closeAllModals();
+        setIsWorkersModalOpen(true);
         return;
       }
       if (cmdToken === '/view') {
@@ -2378,6 +2382,65 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // 6. Handle interactive Persistent Workers modal (/workers)
+    if (isWorkersModalOpen) {
+      if (key.escape || input === 'q') {
+        setIsWorkersModalOpen(false);
+        return;
+      }
+      if (key.upArrow) {
+        setWorkersSelectedIdx((prev) =>
+          prev > 0 ? prev - 1 : Math.max(0, workersList.length - 1),
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setWorkersSelectedIdx((prev) =>
+          prev < workersList.length - 1 ? prev + 1 : 0,
+        );
+        return;
+      }
+      if (input === 'r' || input === 'R' || key.return) {
+        const target = workersList[workersSelectedIdx];
+        if (target) {
+          orchestrator
+            .restartWorker(project.id, target.role)
+            .then(() => {
+              setWorkersList(orchestrator.listWorkers(project.id));
+              setStatusBanner(
+                language === 'es'
+                  ? `Trabajador '${target.role}' reiniciado.`
+                  : `Worker '${target.role}' restarted.`,
+              );
+            })
+            .catch((err) => {
+              setStatusBanner(`Error: ${(err as Error).message}`);
+            });
+        }
+        return;
+      }
+      if (input === 's' || input === 'S') {
+        const target = workersList[workersSelectedIdx];
+        if (target) {
+          orchestrator
+            .stopWorker(project.id, target.role)
+            .then(() => {
+              setWorkersList(orchestrator.listWorkers(project.id));
+              setStatusBanner(
+                language === 'es'
+                  ? `Trabajador '${target.role}' detenido.`
+                  : `Worker '${target.role}' stopped.`,
+              );
+            })
+            .catch((err) => {
+              setStatusBanner(`Error: ${(err as Error).message}`);
+            });
+        }
+        return;
+      }
+      return;
+    }
+
     // OpenCode Ctrl+O shortcut to open the Per-Agent Model Picker (/models)
     if (key.ctrl && input === 'o') {
       openModelsModal(activeRole);
@@ -3576,6 +3639,173 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     );
   };
 
+  // Interactive Workers Modal Component (/workers)
+  const renderWorkersModal = () => {
+    const modalWidth = Math.min(108, Math.max(88, dimensions.columns - 4));
+    const modalHeight = 16;
+
+    const roleLabels: Record<string, string> = {
+      architect: 'Lead Architect',
+      developer: 'Senior Developer',
+      qa: 'Independent QA',
+      pm: 'Project Manager',
+    };
+
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        height={modalHeight}
+        borderStyle="double"
+        borderColor={themePalette.modalBorder}
+        paddingX={1}
+        paddingY={0}
+        marginBottom={1}
+      >
+        {/* Header Bar */}
+        <Box width="100%" height={1} justifyContent="space-between" paddingX={1}>
+          <Text bold color={themePalette.yellow}>
+            ⚙ {language === 'es'
+              ? 'Trabajadores Concurrentes Persistentes (/workers)'
+              : 'Persistent Concurrent Agent Workers (/workers)'}
+          </Text>
+          <Text dimColor>
+            {language === 'es'
+              ? '↑/↓ elegir · r reiniciar · s detener · Esc cerrar'
+              : '↑/↓ select · r restart · s stop · Esc close'}
+          </Text>
+        </Box>
+
+        {/* Table Header */}
+        <Box
+          flexDirection="row"
+          width="100%"
+          paddingX={1}
+          marginTop={1}
+          borderStyle="single"
+          borderTop={false}
+          borderLeft={false}
+          borderRight={false}
+          borderBottom={true}
+          borderColor={themePalette.dim}
+        >
+          <Box width="26%">
+            <Text bold color={themePalette.header}>
+              {language === 'es' ? 'ROL / AGENTE' : 'ROLE / AGENT'}
+            </Text>
+          </Box>
+          <Box width="18%">
+            <Text bold color={themePalette.header}>STATUS</Text>
+          </Box>
+          <Box width="12%">
+            <Text bold color={themePalette.header}>PID</Text>
+          </Box>
+          <Box width="20%">
+            <Text bold color={themePalette.header}>MODALITY</Text>
+          </Box>
+          <Box width="12%">
+            <Text bold color={themePalette.header}>
+              {language === 'es' ? 'TURNOS' : 'TURNS'}
+            </Text>
+          </Box>
+          <Box width="12%">
+            <Text bold color={themePalette.header}>
+              {language === 'es' ? 'ACCIÓN' : 'ACTION'}
+            </Text>
+          </Box>
+        </Box>
+
+        {/* Worker Rows */}
+        <Box flexDirection="column" width="100%" height={6} marginTop={1}>
+          {workersList.map((w, idx) => {
+            const isSelected = workersSelectedIdx === idx;
+            const displayName = roleLabels[w.role] ?? w.role;
+            const statusColor =
+              w.status === 'idle'
+                ? themePalette.green
+                : w.status === 'busy'
+                  ? themePalette.yellow
+                  : w.status === 'failed'
+                    ? themePalette.red
+                    : 'gray';
+            const statusIcon =
+              w.status === 'idle'
+                ? '● IDLE'
+                : w.status === 'busy'
+                  ? '● BUSY'
+                  : w.status === 'failed'
+                    ? '✖ FAILED'
+                    : '○ STOPPED';
+
+            return (
+              <Box
+                key={w.role}
+                flexDirection="row"
+                width="100%"
+                paddingX={1}
+                height={1}
+              >
+                <Box width="26%">
+                  <Text
+                    bold={isSelected}
+                    color={isSelected ? themePalette.cyan : themePalette.fg}
+                  >
+                    {isSelected ? '❯ ' : '  '}
+                    {displayName}
+                  </Text>
+                </Box>
+                <Box width="18%">
+                  <Text color={statusColor} bold>
+                    {statusIcon}
+                  </Text>
+                </Box>
+                <Box width="12%">
+                  <Text color={w.workerPid ? themePalette.fg : 'gray'}>
+                    {w.workerPid ? String(w.workerPid) : '—'}
+                  </Text>
+                </Box>
+                <Box width="20%">
+                  <Text dimColor>{w.modality}</Text>
+                </Box>
+                <Box width="12%">
+                  <Text color={themePalette.fg}>{w.turnsCompleted} turns</Text>
+                </Box>
+                <Box width="12%">
+                  <Text dimColor>
+                    {isSelected ? '[r/s]' : ''}
+                  </Text>
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+
+        {/* Footer / Shortcut bar */}
+        <Box
+          width="100%"
+          justifyContent="space-between"
+          paddingX={1}
+          marginTop={1}
+          borderStyle="single"
+          borderTop={true}
+          borderLeft={false}
+          borderRight={false}
+          borderBottom={false}
+          borderColor={themePalette.dim}
+        >
+          <Text dimColor>
+            {language === 'es'
+              ? 'r/Enter: Reiniciar · s: Detener · Esc: Cerrar'
+              : 'r/Enter: Restart · s: Stop · Esc: Close'}
+          </Text>
+          <Text color={themePalette.cyan} bold>
+            {workersList.filter((w) => w.status === 'idle' || w.status === 'busy').length} active
+          </Text>
+        </Box>
+      </Box>
+    );
+  };
+
   // OpenCode-style Interactive Per-Agent Model Picker Modal (/models or Ctrl+O)
   const renderModelsModal = () => {
     const targetOptions = [
@@ -3874,6 +4104,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const anyModalOpen =
     isHelpOpen ||
     isSettingsOpen ||
+    isWorkersModalOpen ||
     isProjectsModalOpen ||
     isAgentsModalOpen ||
     isModelsModalOpen ||
@@ -4386,6 +4617,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isAuthModalOpen && renderAuthModal()}
             {isHelpOpen && renderHelpModal()}
             {isSettingsOpen && renderSettingsModal()}
+            {isWorkersModalOpen && renderWorkersModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
           </Box>
         ) : (
@@ -4531,6 +4763,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isAuthModalOpen && renderAuthModal()}
             {isHelpOpen && renderHelpModal()}
             {isSettingsOpen && renderSettingsModal()}
+            {isWorkersModalOpen && renderWorkersModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
           </Box>
         ) : (
@@ -4883,6 +5116,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {isAuthModalOpen && renderAuthModal()}
           {isHelpOpen && renderHelpModal()}
           {isSettingsOpen && renderSettingsModal()}
+          {isWorkersModalOpen && renderWorkersModal()}
           {isExitConfirmOpen && renderExitConfirmModal()}
         </Box>
       ) : (
