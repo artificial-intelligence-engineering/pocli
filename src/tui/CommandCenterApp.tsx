@@ -619,8 +619,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   }, [stdout]);
 
   const cycleNextAgentRef = useRef<() => void>(() => {});
+  const goToStartupWindowRef = useRef<() => void>(() => {});
+  const lastRawInputRef = useRef<string>('');
 
-  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab or Ctrl+N sequences via Ink's internal_eventEmitter
+  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab, Ctrl+N, Ctrl+H sequences via Ink's internal_eventEmitter
   // (avoids attaching a competing 'data' listener on stdin that conflicts with Ink's 'readable' loop)
   useEffect(() => {
     const emitter = internal_eventEmitter ?? stdin;
@@ -628,6 +630,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const eventName = internal_eventEmitter ? 'input' : 'data';
     const onRawData = (data: Buffer | string) => {
       const seq = typeof data === 'string' ? data : data.toString('utf8');
+      lastRawInputRef.current = seq;
+
       if (
         seq === '\x0e' ||         // Ctrl+N raw
         seq === '\x1b[27;5;9~' || // xterm modifyOtherKeys Ctrl+Tab
@@ -635,6 +639,26 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         seq === '\x1b[1;5I'       // VTE / GNOME Terminal Ctrl+Tab
       ) {
         cycleNextAgentRef.current();
+        return;
+      }
+
+      // Check Ctrl+H / Ctrl+h across all terminal encodings:
+      // - '\x08': standard ASCII BS (^H) produced by pressing Ctrl+h in Linux terminals
+      // - '\x1b[104;5u': Kitty / CSI-u Ctrl+h (104 is lowercase 'h', 5 is Ctrl modifier)
+      // - '\x1b[27;5;104~': xterm modifyOtherKeys mode 2 Ctrl+h
+      // - '\x1b[104;5~': xterm Ctrl+h variant
+      // - '\x1b[72;5u': Kitty / CSI-u Ctrl+H
+      // - '\x1b[27;5;72~': xterm modifyOtherKeys Ctrl+H
+      if (
+        seq === '\x08' ||
+        seq === '\x1b[104;5u' ||
+        seq === '\x1b[27;5;104~' ||
+        seq === '\x1b[104;5~' ||
+        seq === '\x1b[72;5u' ||
+        seq === '\x1b[27;5;72~'
+      ) {
+        goToStartupWindowRef.current();
+        return;
       }
     };
     emitter.on(eventName, onRawData);
@@ -680,6 +704,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsWorkersModalOpen(false);
     setProjectWizardStep('CLOSED');
   };
+
+  const goToStartupWindow = () => {
+    closeAllModals();
+    setInputValue('');
+    setViewMode('startup');
+    setStatusBanner(
+      language === 'es'
+        ? 'Ventana principal (ejecuta comandos con / o escribe para chatear)'
+        : 'Main window (run commands with / or type to chat)',
+    );
+  };
+  goToStartupWindowRef.current = goToStartupWindow;
 
   const openModelsModal = (targetRole?: ActorRole | 'all') => {
     const resolvedTarget = targetRole ?? activeRole;
@@ -1942,6 +1978,25 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // Ctrl+H (or raw \x08 / CSI-u 104;5u / modifyOtherKeys) shortcut to return immediately to the main / startup window
+    const rawSeq = lastRawInputRef.current;
+    const isCtrlH =
+      rawSeq === '\x08' ||
+      rawSeq === '\x1b[104;5u' ||
+      rawSeq === '\x1b[27;5;104~' ||
+      rawSeq === '\x1b[104;5~' ||
+      rawSeq === '\x1b[72;5u' ||
+      rawSeq === '\x1b[27;5;72~' ||
+      (key.ctrl && (input === 'h' || input === 'H' || input === '\x08')) ||
+      (key.backspace && !key.delete) ||
+      (input === '\x08');
+
+    if (isCtrlH) {
+      lastRawInputRef.current = '';
+      goToStartupWindow();
+      return;
+    }
+
     // 1. Handle New Project Creation Wizard (/project)
     if (projectWizardStep !== 'CLOSED') {
       if (key.escape) {
@@ -2530,22 +2585,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         }
         return;
       }
-      return;
-    }
-
-    // Ctrl+H shortcut to return immediately to the main / startup window
-    if (
-      (key.ctrl && (input === 'h' || input === 'H' || input === '\x08')) ||
-      (input === '\x08' && !key.backspace)
-    ) {
-      closeAllModals();
-      setInputValue('');
-      setViewMode('startup');
-      setStatusBanner(
-        language === 'es'
-          ? 'Ventana principal (ejecuta comandos con / o escribe para chatear)'
-          : 'Main window (run commands with / or type to chat)',
-      );
       return;
     }
 
