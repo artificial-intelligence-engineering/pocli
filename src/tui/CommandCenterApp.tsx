@@ -73,6 +73,37 @@ export const SOLARIZED_COLORS = {
   green: '#859900',
 } as const;
 
+/**
+ * Utility to split text into wrapped lines up to maxCols characters,
+ * respecting explicit newlines and word boundaries.
+ */
+export const wrapTextLines = (text: string, maxCols: number): string[] => {
+  if (!text) return [''];
+  const safeCols = Math.max(10, maxCols);
+  const result: string[] = [];
+  const paragraphs = text.split('\n');
+
+  for (const para of paragraphs) {
+    if (para.length <= safeCols) {
+      result.push(para);
+    } else {
+      let remaining = para;
+      while (remaining.length > safeCols) {
+        let breakIdx = remaining.lastIndexOf(' ', safeCols);
+        if (breakIdx <= 0) {
+          result.push(remaining.slice(0, safeCols));
+          remaining = remaining.slice(safeCols);
+        } else {
+          result.push(remaining.slice(0, breakIdx));
+          remaining = remaining.slice(breakIdx + 1);
+        }
+      }
+      result.push(remaining);
+    }
+  }
+  return result;
+};
+
 export interface RoleColorTheme {
   bgColor: string;
   fgColor: string;
@@ -82,6 +113,7 @@ export interface RoleColorTheme {
 export interface ThemePalette {
   theme: SupportedTheme;
   bg?: string;
+  cardBg: string;
   fg: string;
   dim: string;
   header: string;
@@ -102,6 +134,7 @@ export const THEME_PALETTES: Record<SupportedTheme, ThemePalette> = {
   system: {
     theme: 'system',
     bg: undefined,
+    cardBg: '#073642',
     fg: 'white',
     dim: 'gray',
     header: 'white',
@@ -125,6 +158,7 @@ export const THEME_PALETTES: Record<SupportedTheme, ThemePalette> = {
   'solarized-dark': {
     theme: 'solarized-dark',
     bg: SOLARIZED_COLORS.base03,
+    cardBg: SOLARIZED_COLORS.base02,
     fg: SOLARIZED_COLORS.base0,
     dim: SOLARIZED_COLORS.base01,
     header: SOLARIZED_COLORS.base1,
@@ -164,6 +198,7 @@ export const THEME_PALETTES: Record<SupportedTheme, ThemePalette> = {
   'solarized-light': {
     theme: 'solarized-light',
     bg: SOLARIZED_COLORS.base3,
+    cardBg: SOLARIZED_COLORS.base2,
     fg: SOLARIZED_COLORS.base00,
     dim: SOLARIZED_COLORS.base1,
     header: SOLARIZED_COLORS.base01,
@@ -2790,14 +2825,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
   const lastMessages = sliceWindowedMessages(3);
   const multipanelMessages = sliceWindowedMessages(4);
+  const promptLineCount = useMemo(() => {
+    if (!inputValue) return 1;
+    const promptInnerWidth = Math.max(20, dimensions.columns - 34);
+    return wrapTextLines(inputValue, promptInnerWidth).length;
+  }, [inputValue, dimensions.columns]);
+
   const openCodeMessages = useMemo(() => {
-    const maxVisible = Math.max(4, Math.floor((safeViewportHeight - 10) / 3));
+    const maxVisible = Math.max(2, Math.floor((safeViewportHeight - 8 - promptLineCount) / 3));
     if (messages.length <= maxVisible) return messages;
     const maxOffset = Math.max(0, messages.length - maxVisible);
     const clamped = Math.min(messageScrollOffset, maxOffset);
     const endIdx = messages.length - clamped;
     return messages.slice(Math.max(0, endIdx - maxVisible), endIdx);
-  }, [messages, safeViewportHeight, messageScrollOffset]);
+  }, [messages, safeViewportHeight, messageScrollOffset, promptLineCount]);
 
   const gitBranch = useMemo(() => {
     try {
@@ -4822,28 +4863,48 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Box
               flexDirection="column"
               width={promptBoxWidth}
-              borderStyle="round"
-              borderColor={isSlashMenuOpen ? 'blue' : 'cyan'}
-              paddingX={1}
-              paddingY={0}
+              marginTop={1}
             >
-              <Box flexDirection="row">
-                <Text color="cyan" bold>
-                  │{' '}
-                </Text>
-                {inputValue.length === 0 ? (
-                  <Text dimColor>
-                    {language === 'es'
-                      ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
-                      : 'Ask anything... "/projects to switch project"'}
-                  </Text>
-                ) : (
-                  <>
-                    <Text color="white">{inputValue}</Text>
-                    <Text color="cyan">█</Text>
-                  </>
-                )}
-              </Box>
+              {(() => {
+                const startInnerWidth = Math.max(10, promptBoxWidth - 3);
+                const placeholder =
+                  language === 'es'
+                    ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
+                    : 'Ask anything... "/projects to switch project"';
+                const startLines =
+                  inputValue.length === 0
+                    ? [placeholder]
+                    : wrapTextLines(inputValue, startInnerWidth);
+
+                return startLines.map((line, idx) => {
+                  const isLast = idx === startLines.length - 1;
+                  const isPlaceholder = inputValue.length === 0;
+                  const lineContent = isPlaceholder
+                    ? line
+                    : isLast
+                      ? `${line}█`
+                      : line;
+
+                  return (
+                    <Box key={idx} flexDirection="row" width={promptBoxWidth}>
+                      <Text
+                        color={themePalette.cyan}
+                        backgroundColor={themePalette.cardBg}
+                        bold
+                      >
+                        │{' '}
+                      </Text>
+                      <Text
+                        color={isPlaceholder ? undefined : 'white'}
+                        dimColor={isPlaceholder}
+                        backgroundColor={themePalette.cardBg}
+                      >
+                        {lineContent.padEnd(startInnerWidth, ' ')}
+                      </Text>
+                    </Box>
+                  );
+                });
+              })()}
             </Box>
           </Box>
         )}
@@ -4968,22 +5029,26 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     return (
                       <Box key={m.id} flexDirection="column" marginY={0}>
                         {isUser ? (
-                          // User message with left vertical cyan bar
-                          <Box flexDirection="row" marginY={1}>
-                            <Text color="cyan" bold>
-                              │{'  '}
-                            </Text>
-                            <Text
-                              color="cyan"
-                              backgroundColor={isLineSelected ? 'yellow' : undefined}
-                            >
-                              {m.content}
-                            </Text>
-                            {queuedMessageIds.has(m.id) && (
-                              <Text color={themePalette.yellow} bold>
-                                {' '}[{language === 'es' ? 'en cola' : 'queued'}]
-                              </Text>
-                            )}
+                          // User message box with darker shaded background and cyan left bar
+                          <Box flexDirection="column" marginY={1} width={chatAreaWidth}>
+                            {wrapTextLines(m.content, Math.max(10, chatAreaWidth - 4)).map((line, lIdx) => (
+                              <Box key={lIdx} flexDirection="row" width={chatAreaWidth}>
+                                <Text color={themePalette.cyan} backgroundColor={themePalette.cardBg} bold>
+                                  │{'  '}
+                                </Text>
+                                <Text
+                                  color="white"
+                                  backgroundColor={isLineSelected ? 'yellow' : themePalette.cardBg}
+                                >
+                                  {line.padEnd(Math.max(0, chatAreaWidth - 4), ' ')}
+                                </Text>
+                                {lIdx === 0 && queuedMessageIds.has(m.id) && (
+                                  <Text color={themePalette.yellow} backgroundColor={themePalette.cardBg} bold>
+                                    {' '}[{language === 'es' ? 'en cola' : 'queued'}]
+                                  </Text>
+                                )}
+                              </Box>
+                            ))}
                           </Box>
                         ) : (
                           // Assistant message + optional tool/RAG step
@@ -5090,113 +5155,119 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               {/* Slash Command Popover Menu when user types "/" */}
               {isSlashMenuOpen && renderSlashPopoverMenu('100%')}
 
-              {/* Bottom Prompt / Input Box */}
-              <Box
-                flexDirection="column"
-                borderStyle="round"
-                borderColor={isSlashMenuOpen ? 'blue' : 'cyan'}
-                paddingX={1}
-                paddingY={0}
-                marginTop={0}
-              >
-                <Box flexDirection="row">
-                  <Text color="cyan" bold>
-                    │{' '}
-                  </Text>
-                  {inputValue.length === 0 ? (
-                    <Text dimColor>
-                      {language === 'es'
-                        ? 'Escribe un mensaje para el agente... (Esc o Ctrl+A para ventana principal)'
-                        : 'Type a message for the agent... (Esc or Ctrl+A for main window)'}
+              {/* Bottom Prompt / Input Box with dynamic height growth matching OpenCode aesthetic */}
+              {(() => {
+                const promptInnerWidth = Math.max(10, chatAreaWidth - 3);
+                const placeholder =
+                  language === 'es'
+                    ? 'Escribe un mensaje para el agente... (Esc o Ctrl+A para ventana principal)'
+                    : 'Type a message for the agent... (Esc or Ctrl+A for main window)';
+
+                const promptLines =
+                  inputValue.length === 0
+                    ? [placeholder]
+                    : wrapTextLines(inputValue, promptInnerWidth);
+
+                return (
+                  <Box flexDirection="column" marginTop={1} width={chatAreaWidth}>
+                    {promptLines.map((line, idx) => {
+                      const isLast = idx === promptLines.length - 1;
+                      const isPlaceholder = inputValue.length === 0;
+                      const lineContent = isPlaceholder
+                        ? line
+                        : isLast
+                          ? `${line}█`
+                          : line;
+
+                      return (
+                        <Box key={idx} flexDirection="row" width={chatAreaWidth}>
+                          <Text
+                            color={themePalette.cyan}
+                            backgroundColor={themePalette.cardBg}
+                            bold
+                          >
+                            │{' '}
+                          </Text>
+                          <Text
+                            color={isPlaceholder ? undefined : 'white'}
+                            dimColor={isPlaceholder}
+                            backgroundColor={themePalette.cardBg}
+                          >
+                            {lineContent.padEnd(promptInnerWidth, ' ')}
+                          </Text>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                );
+              })()}
+            </Box>
+
+            {/* Right Column: Project Info & Context Sidebar (OpenCode shaded panel) */}
+            {(() => {
+              const sidebarLines: Array<{ text: string; color?: string; bold?: boolean; dimColor?: boolean }> = [
+                { text: project.name || 'pocli', bold: true, color: 'white' },
+                { text: '' },
+                { text: 'Context', bold: true, color: 'white' },
+                { text: `${estimatedTokens.toLocaleString()} tokens`, dimColor: true },
+                { text: `${Math.max(1, Math.round((estimatedTokens / 200000) * 100))}% used`, dimColor: true },
+                { text: activeModelEntry.isFree ? '$0.00 spent' : '$0.02 spent', dimColor: true },
+                { text: '' },
+                { text: language === 'es' ? 'Proyecto' : 'Project', bold: true, color: 'white' },
+                { text: project.name, color: 'white' },
+                { text: `v${project.approvedArchitectureVersion} (${project.phase.replace('PHASE_', '')})`, dimColor: true },
+                { text: '' },
+                { text: language === 'es' ? 'Especialista' : 'Specialist', bold: true, color: 'white' },
+                { text: activeRoleDisplayName, color: activeTheme.accentColor, bold: true },
+                { text: activeModelEntry.displayName, dimColor: true },
+                { text: '' },
+                { text: language === 'es' ? 'Artefactos' : 'Artifacts', bold: true, color: 'white' },
+                { text: `${artifacts.length} ${language === 'es' ? 'activos' : 'active'}`, dimColor: true },
+              ];
+
+              if (isAnyRoleBusy) {
+                sidebarLines.push({ text: '' });
+                sidebarLines.push({
+                  text: language === 'es' ? 'Agentes en curso' : 'Active Agents',
+                  bold: true,
+                  color: 'yellow',
+                });
+                for (const item of AVAILABLE_AGENTS) {
+                  if (!busyRoles[item.role]) continue;
+                  const rTheme = getRoleTheme(item.role, theme);
+                  const isStreamingThis = Boolean(streamingByRole[item.role]);
+                  const statusLabel = isStreamingThis
+                    ? 'streaming'
+                    : language === 'es'
+                      ? 'pensando'
+                      : 'thinking';
+                  sidebarLines.push({
+                    text: `${thinkingSpinner} ${getRoleDisplayName(item.role, language)} (${statusLabel})`,
+                    color: rTheme.accentColor,
+                  });
+                }
+              }
+
+              while (sidebarLines.length < contentHeight) {
+                sidebarLines.push({ text: '' });
+              }
+
+              return (
+                <Box flexDirection="column" width={sidebarWidth} height={contentHeight}>
+                  {sidebarLines.slice(0, contentHeight).map((line, idx) => (
+                    <Text
+                      key={idx}
+                      color={line.color ?? 'white'}
+                      bold={line.bold ?? false}
+                      dimColor={line.dimColor ?? false}
+                      backgroundColor={themePalette.cardBg}
+                    >
+                      {` ${line.text}`.padEnd(sidebarWidth, ' ').slice(0, sidebarWidth)}
                     </Text>
-                  ) : (
-                    <>
-                      <Text color="white">{inputValue}</Text>
-                      <Text color="cyan">█</Text>
-                    </>
-                  )}
+                  ))}
                 </Box>
-              </Box>
-            </Box>
-
-            {/* Right Column: Project Info & Context Sidebar */}
-            <Box
-              flexDirection="column"
-              width={sidebarWidth}
-              paddingLeft={2}
-              borderStyle="single"
-              borderLeft
-              borderRight={false}
-              borderTop={false}
-              borderBottom={false}
-              borderColor="gray"
-            >
-              <Text bold color="cyan">
-                {language === 'es' ? 'Información del proyecto' : 'Project Information'}
-              </Text>
-              <Box height={1} />
-              <Text bold color="white">
-                Context
-              </Text>
-              <Text dimColor>
-                {estimatedTokens.toLocaleString()} tokens
-              </Text>
-              <Text dimColor>
-                {Math.max(1, Math.round((estimatedTokens / 200000) * 100))}% used
-              </Text>
-              <Text dimColor>
-                {activeModelEntry.isFree ? '$0.00 spent' : '$0.02 spent'}
-              </Text>
-
-              <Box height={1} />
-              <Text bold color="white">
-                {language === 'es' ? 'Proyecto' : 'Project'}
-              </Text>
-              <Text color="white">{project.name}</Text>
-              <Text dimColor>
-                v{project.approvedArchitectureVersion} ({project.phase.replace('PHASE_', '')})
-              </Text>
-
-              <Box height={1} />
-              <Text bold color="white">
-                {language === 'es' ? 'Especialista' : 'Specialist'}
-              </Text>
-              <Text color={activeTheme.accentColor}>
-                {activeRoleDisplayName}
-              </Text>
-              <Text dimColor>{activeModelEntry.displayName}</Text>
-
-              <Box height={1} />
-              <Text bold color="white">
-                {language === 'es' ? 'Artefactos' : 'Artifacts'}
-              </Text>
-              <Text dimColor>
-                {artifacts.length} {language === 'es' ? 'activos' : 'active'}
-              </Text>
-
-              {isAnyRoleBusy && (
-                <>
-                  <Box height={1} />
-                  <Text bold color="yellow">
-                    {language === 'es' ? 'Agentes en curso' : 'Active Agents'}
-                  </Text>
-                  {AVAILABLE_AGENTS.map((item) => {
-                    if (!busyRoles[item.role]) return null;
-                    const rTheme = getRoleTheme(item.role, theme);
-                    const isStreamingThis = Boolean(streamingByRole[item.role]);
-                    return (
-                      <Text key={item.role} color={rTheme.accentColor}>
-                        {thinkingSpinner}{' '}
-                        {getRoleDisplayName(item.role, language)}{' '}
-                        <Text dimColor>
-                          ({isStreamingThis ? 'streaming' : language === 'es' ? 'pensando' : 'thinking'})
-                        </Text>
-                      </Text>
-                    );
-                  })}
-                </>
-              )}
-            </Box>
+              );
+            })()}
           </Box>
         )}
 
