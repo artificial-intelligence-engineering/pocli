@@ -3231,9 +3231,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   // Settings Modal Component — Option 4: Master-Detail Split Layout with strictly fixed size
   const renderSettingsModal = () => {
-    const modalWidth = Math.min(100, Math.max(80, dimensions.columns - 4));
+    const modalWidth = Math.min(108, Math.max(88, dimensions.columns - 4));
     const modalHeight = 15;
-    const leftColWidth = Math.max(26, Math.min(30, Math.floor(modalWidth * 0.3)));
+    const leftColWidth = Math.max(38, Math.min(44, Math.floor(modalWidth * 0.38)));
     const rightColWidth = modalWidth - leftColWidth - 5;
     const bodyHeight = modalHeight - 4;
 
