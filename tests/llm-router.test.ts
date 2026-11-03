@@ -137,7 +137,8 @@ describe('LLMRouter Unit & Failover Engine', () => {
 
     expect(result.text).toBeTruthy();
     expect(result.text.length).toBeGreaterThan(0);
-    expect(['pollinations', 'aihorde', 'ollama-local']).toContain(result.providerId);
+    const validProviderIds = DEFAULT_FREE_PROVIDERS.map((p) => p.id);
+    expect(validProviderIds).toContain(result.providerId);
   }, 45000);
 });
 
