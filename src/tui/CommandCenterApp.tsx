@@ -4955,6 +4955,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const chatBarWidth = Math.max(40, dimensions.columns - 2);
     const chatAreaWidth = unifiedChatBoxWidth;
     const contentHeight = Math.max(8, safeViewportHeight - 3);
+    // Height of the bottom prompt box (min 3 lines + 1 line marginTop)
+    const promptBoxLines = Math.max(
+      3,
+      inputValue.length === 0
+        ? 1
+        : wrapTextLines(inputValue, Math.max(10, chatAreaWidth - 2)).length,
+    );
+    const messagesViewportHeight = Math.max(3, contentHeight - (promptBoxLines + 1));
 
     return (
       <Box
@@ -5003,8 +5011,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               justifyContent="space-between"
               marginRight={2}
             >
-              {/* Scrollable Conversation messages */}
-              <Box flexDirection="column" flexGrow={1} overflowY="hidden">
+              {/* Scrollable Conversation messages.
+                  Fixed-height clipping viewport anchored to the bottom: message
+                  blocks never shrink (flexShrink=0), so they can never overlap;
+                  older content is clipped at the top instead. */}
+              <Box
+                flexDirection="column"
+                height={messagesViewportHeight}
+                flexShrink={0}
+                overflowY="hidden"
+                justifyContent="flex-end"
+              >
+                <Box
+                  flexDirection="column"
+                  flexShrink={0}
+                  minHeight={messagesViewportHeight}
+                >
                 {openCodeMessages.length === 0 && !activeStreamingText ? (
                   <Box flexDirection="column" marginY={1}>
                     <Text dimColor>
@@ -5041,46 +5063,76 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                       selectionRange.endY >= baseRow;
 
                     return (
-                      <Box key={m.id} flexDirection="column" marginY={1}>
+                      <Box
+                        key={m.id}
+                        flexDirection="column"
+                        flexShrink={0}
+                        marginBottom={1}
+                      >
                         {isUser ? (
-                          // User message box with darker shaded background and cyan left bar
+                          // User message card (OpenCode style): full-width shaded
+                          // background, cyan left bar, one padding line above/below
                           (() => {
+                            const textWidth = Math.max(10, chatAreaWidth - 2);
+                            const queueBadge = queuedMessageIds.has(m.id)
+                              ? language === 'es'
+                                ? ' [en cola]'
+                                : ' [queued]'
+                              : '';
                             const rawMsgLines = wrapTextLines(
                               m.content,
-                              Math.max(10, chatAreaWidth - 4),
+                              Math.max(10, textWidth - queueBadge.length - 1),
                             );
+                            const cardLines = ['', ...rawMsgLines, ''];
 
                             return (
-                              <Box flexDirection="column" marginY={1}>
-                                {rawMsgLines.map((line, lIdx) => (
-                                  <Box key={lIdx} flexDirection="row">
-                                    <Text
-                                      color="cyan"
-                                      backgroundColor={themePalette.cardBg}
-                                      bold
+                              <Box
+                                flexDirection="column"
+                                flexShrink={0}
+                                width={chatAreaWidth}
+                              >
+                                {cardLines.map((line, lIdx) => {
+                                  const badge = lIdx === 1 ? queueBadge : '';
+                                  return (
+                                    <Box
+                                      key={lIdx}
+                                      flexDirection="row"
+                                      flexShrink={0}
+                                      width={chatAreaWidth}
                                     >
-                                      │{' '}
-                                    </Text>
-                                    <Text
-                                      color="cyan"
-                                      bold
-                                      backgroundColor={
-                                        isLineSelected ? 'yellow' : themePalette.cardBg
-                                      }
-                                    >
-                                      {line}
-                                    </Text>
-                                    {lIdx === 0 && queuedMessageIds.has(m.id) && (
                                       <Text
-                                        color={themePalette.yellow}
+                                        color="cyan"
                                         backgroundColor={themePalette.cardBg}
                                         bold
                                       >
-                                        {' '}[{language === 'es' ? 'en cola' : 'queued'}]
+                                        │{' '}
                                       </Text>
-                                    )}
-                                  </Box>
-                                ))}
+                                      <Text
+                                        color="cyan"
+                                        bold
+                                        backgroundColor={
+                                          isLineSelected ? 'yellow' : themePalette.cardBg
+                                        }
+                                      >
+                                        {line}
+                                      </Text>
+                                      {badge ? (
+                                        <Text
+                                          color={themePalette.yellow}
+                                          backgroundColor={themePalette.cardBg}
+                                          bold
+                                        >
+                                          {badge}
+                                        </Text>
+                                      ) : null}
+                                      <Text backgroundColor={themePalette.cardBg}>
+                                        {' '.repeat(
+                                          Math.max(0, textWidth - line.length - badge.length),
+                                        )}
+                                      </Text>
+                                    </Box>
+                                  );
+                                })}
                               </Box>
                             );
                           })()
@@ -5101,7 +5153,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                             }
 
                             return (
-                              <Box flexDirection="column" marginBottom={1}>
+                              <Box flexDirection="column" flexShrink={0}>
                                 {citations.length > 0 && (
                                   <>
                                     <Box flexDirection="row" paddingLeft={2}>
@@ -5140,10 +5192,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                                     </Box>
                                   </Box>
                                 ))}
-                                <Box flexDirection="column" marginTop={0} paddingLeft={2}>
+                                <Box flexDirection="column" flexShrink={0} paddingLeft={2}>
                                   {renderFormattedContent(m.content, isLineSelected)}
                                 </Box>
-                                <Box flexDirection="row" marginTop={1} paddingLeft={2}>
+                                <Box flexDirection="row" flexShrink={0} marginTop={1} paddingLeft={2}>
                                   <Text color="cyan" bold>Build</Text>
                                   <Text dimColor> · {activeRoleDisplayName} · {activeModelEntry.displayName}</Text>
                                 </Box>
@@ -5158,7 +5210,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
                 {/* Thinking / Waiting indicator */}
                 {isActiveRoleBusy && !activeStreamingText && (
-                  <Box flexDirection="row" marginY={1} paddingLeft={1}>
+                  <Box flexDirection="row" flexShrink={0} marginBottom={1} paddingLeft={2}>
                     <Text color={activeTheme.accentColor} bold>
                       {activeRoleDisplayName}
                     </Text>
@@ -5178,7 +5230,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
                 {/* Streaming response */}
                 {activeStreamingText && (
-                  <Box flexDirection="column" marginY={1} paddingLeft={1}>
+                  <Box flexDirection="column" flexShrink={0} marginBottom={1} paddingLeft={2}>
                     <Box flexDirection="row" marginBottom={0}>
                       <Text color={activeTheme.accentColor} bold>
                         {activeRoleDisplayName}
@@ -5188,6 +5240,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     <Text color="green">{activeStreamingText}█</Text>
                   </Box>
                 )}
+                </Box>
               </Box>
 
               {/* Slash Command Popover Menu when user types "/" */}
