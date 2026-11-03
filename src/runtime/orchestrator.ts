@@ -42,12 +42,76 @@ export interface HandoffBundle {
   markdownSummary: string;
 }
 
+export interface QueuedChatTurn {
+  id: string;
+  projectId: string;
+  targetRole: ActorRole;
+  message: string;
+  alreadyRecorded?: boolean;
+  onStreamChunk?: (chunk: string) => void;
+  resolve: (value: {
+    reply: string;
+    workerPid: number;
+    modalityUsed: string;
+    createdArtifacts: Artifact[];
+    citations: RagCitation[];
+    project: Project;
+  }) => void;
+  reject: (reason?: any) => void;
+  queuedAt: string;
+}
+
 export class PoCliOrchestrator extends EventEmitter {
   public readonly rag: NotebookRagEngine;
   public readonly processRunner: LinuxAgentProcessRunner;
   public readonly mcp: McpRegistry;
   public readonly coordinator: PoCliCoordinator;
   public readonly runtime: PersistentAgentRuntime;
+
+  private roleQueues = new Map<string, QueuedChatTurn[]>();
+  private activeTurns = new Set<string>();
+
+  private getQueueKey(projectId: string, role: ActorRole): string {
+    return `${projectId}:${role}`;
+  }
+
+  public isRoleBusy(projectId: string, role: ActorRole): boolean {
+    const key = this.getQueueKey(projectId, role);
+    return this.activeTurns.has(key);
+  }
+
+  public getQueuedMessages(
+    projectId: string,
+    role: ActorRole,
+  ): Array<{ id: string; message: string; queuedAt: string }> {
+    const key = this.getQueueKey(projectId, role);
+    const queue = this.roleQueues.get(key) || [];
+    return queue.map((t) => ({ id: t.id, message: t.message, queuedAt: t.queuedAt }));
+  }
+
+  public getAllQueuedMessages(
+    projectId: string,
+  ): Record<string, Array<{ id: string; message: string; queuedAt: string }>> {
+    const result: Record<string, Array<{ id: string; message: string; queuedAt: string }>> = {};
+    for (const [key, queue] of this.roleQueues.entries()) {
+      if (key.startsWith(`${projectId}:`)) {
+        const role = key.split(':')[1];
+        result[role] = queue.map((t) => ({ id: t.id, message: t.message, queuedAt: t.queuedAt }));
+      }
+    }
+    return result;
+  }
+
+  public clearQueues(projectId?: string): void {
+    for (const [key, queue] of this.roleQueues.entries()) {
+      if (!projectId || key.startsWith(`${projectId}:`)) {
+        for (const item of queue) {
+          item.reject(new Error('Queue cleared'));
+        }
+        this.roleQueues.delete(key);
+      }
+    }
+  }
 
   constructor(public readonly storage: PoCliDatabase) {
     super();
@@ -92,6 +156,108 @@ export class PoCliOrchestrator extends EventEmitter {
   // ==========================================================================
 
   async chatWithProfessional(params: {
+    projectId: string;
+    targetRole: ActorRole;
+    message: string;
+    messageId?: string;
+    alreadyRecorded?: boolean;
+    onStreamChunk?: (chunk: string) => void;
+  }): Promise<{
+    reply: string;
+    workerPid: number;
+    modalityUsed: string;
+    createdArtifacts: Artifact[];
+    citations: RagCitation[];
+    project: Project;
+  }> {
+    const project = this.storage.getProject(params.projectId);
+    if (!project) throw new Error(`Project ${params.projectId} not found.`);
+
+    const key = this.getQueueKey(params.projectId, params.targetRole);
+
+    if (this.activeTurns.has(key)) {
+      const turnId =
+        params.messageId ||
+        `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+      return new Promise((resolve, reject) => {
+        const queue = this.roleQueues.get(key) || [];
+        queue.push({
+          id: turnId,
+          projectId: params.projectId,
+          targetRole: params.targetRole,
+          message: params.message,
+          alreadyRecorded: params.alreadyRecorded,
+          onStreamChunk: params.onStreamChunk,
+          resolve,
+          reject,
+          queuedAt: new Date().toISOString(),
+        });
+        this.roleQueues.set(key, queue);
+
+        Logger.info(
+          'ORCHESTRATOR',
+          `Turn for '${params.targetRole}' queued (queue depth: ${queue.length})`,
+          {
+            projectId: params.projectId,
+            role: params.targetRole,
+            queueDepth: queue.length,
+          },
+        );
+
+        this.emit('agent:messageQueued', {
+          projectId: params.projectId,
+          role: params.targetRole,
+          messageId: turnId,
+          queueLength: queue.length,
+        });
+      });
+    }
+
+    this.activeTurns.add(key);
+    try {
+      return await this.executeTurnInternal(params);
+    } finally {
+      void this.checkAndProcessNextQueuedTurn(key);
+    }
+  }
+
+  private async checkAndProcessNextQueuedTurn(key: string): Promise<void> {
+    const queue = this.roleQueues.get(key);
+    if (queue && queue.length > 0) {
+      const nextTurn = queue.shift()!;
+      if (queue.length === 0) {
+        this.roleQueues.delete(key);
+      }
+      this.emit('agent:messageDequeued', {
+        projectId: nextTurn.projectId,
+        role: nextTurn.targetRole,
+        messageId: nextTurn.id,
+        remainingQueueLength: queue.length,
+      });
+
+      try {
+        const result = await this.executeTurnInternal({
+          projectId: nextTurn.projectId,
+          targetRole: nextTurn.targetRole,
+          message: nextTurn.message,
+          alreadyRecorded: nextTurn.alreadyRecorded,
+          onStreamChunk: nextTurn.onStreamChunk,
+        });
+        nextTurn.resolve(result);
+      } catch (err) {
+        nextTurn.reject(err);
+      } finally {
+        void this.checkAndProcessNextQueuedTurn(key);
+      }
+    } else {
+      this.activeTurns.delete(key);
+      const [projectId, role] = key.split(':') as [string, ActorRole];
+      this.emit('agent:idle', { projectId, role });
+    }
+  }
+
+  private async executeTurnInternal(params: {
     projectId: string;
     targetRole: ActorRole;
     message: string;
