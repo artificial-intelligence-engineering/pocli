@@ -4755,25 +4755,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   </>
                 )}
               </Box>
-              <Box height={1} />
-              <Box flexDirection="row">
-                <Text color="cyan" bold>
-                  │{' '}
-                </Text>
-                <Text dimColor>Current session: </Text>
-                <Text color="white" bold>
-                  {project.name}
-                </Text>
-                <Text dimColor> · </Text>
-                <Text bold color="cyan">
-                  {activeRoleDisplayName}
-                </Text>
-                <Text dimColor> · </Text>
-                <Text color="white">{activeModelEntry.displayName}</Text>
-                <Text dimColor>
-                  {' '}{activeModelEntry.isFree ? 'Default' : 'Pro'} / {activeModelEntry.vendor}
-                </Text>
-              </Box>
             </Box>
           </Box>
         )}
@@ -5020,10 +5001,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               {/* Slash Command Popover Menu when user types "/" */}
               {isSlashMenuOpen && renderSlashPopoverMenu('100%')}
 
-              {/* Bottom Prompt / Input Box matching OpenCode screenshot:
-                  │ [input text]█
-                  │
-                  │ Build · Claude Sonnet 5.5 Default / OpenCode */}
+              {/* Bottom Prompt / Input Box */}
               <Box
                 flexDirection="column"
                 borderStyle="round"
@@ -5036,22 +5014,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   <Text color="cyan" bold>
                     │{' '}
                   </Text>
-                  <Text color="white">{inputValue}</Text>
-                  <Text color="cyan">█</Text>
-                </Box>
-                <Box height={1} />
-                <Box flexDirection="row">
-                  <Text color="cyan" bold>
-                    │{' '}
-                  </Text>
-                  <Text bold color="cyan">
-                    {activeRoleDisplayName}
-                  </Text>
-                  <Text dimColor> · </Text>
-                  <Text color="white">{activeModelEntry.displayName}</Text>
-                  <Text dimColor>
-                    {' '}{activeModelEntry.isFree ? 'Default' : 'Pro'} / {activeModelEntry.vendor}
-                  </Text>
+                  {inputValue.length === 0 ? (
+                    <Text dimColor>
+                      {language === 'es'
+                        ? 'Pregunta cualquier cosa... ("/" para comandos)'
+                        : 'Ask anything... ("/" for commands)'}
+                    </Text>
+                  ) : (
+                    <>
+                      <Text color="white">{inputValue}</Text>
+                      <Text color="cyan">█</Text>
+                    </>
+                  )}
                 </Box>
               </Box>
             </Box>
