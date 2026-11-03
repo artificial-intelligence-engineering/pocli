@@ -21,7 +21,7 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 /**
  * Resolves the command and arguments to run the agent-worker process in Linux.
  */
-function resolveWorkerNodeArgs(): { executable: string; args: string[]; rootDir: string } {
+export function resolveWorkerNodeArgs(): { executable: string; args: string[]; rootDir: string } {
   const jsWorker = path.resolve(currentDir, 'agent-worker.js');
   const tsWorker = path.resolve(currentDir, 'agent-worker.ts');
   const rootDir = path.resolve(currentDir, '..', '..');
@@ -85,7 +85,7 @@ export class LinuxAgentProcessRunner {
     onStreamChunk?: (chunk: string) => void,
   ): Promise<WorkerExecutionResult> {
     const requestedModality = input.modelConfig.executionModality;
-    const { child, effectiveModality } = this.spawnWorkerProcess(
+    const { child, effectiveModality } = LinuxAgentProcessRunner.spawnWorkerProcess(
       requestedModality,
       workspaceDir,
     );
@@ -176,7 +176,7 @@ export class LinuxAgentProcessRunner {
         }
       });
 
-      child.on('error', (err) => {
+      child.on('error', (err: Error) => {
         if (!settled) {
           settled = true;
           clearTimeout(timer);
@@ -184,7 +184,7 @@ export class LinuxAgentProcessRunner {
         }
       });
 
-      child.on('exit', (code) => {
+      child.on('exit', (code: number | null) => {
         if (!settled) {
           settled = true;
           clearTimeout(timer);
@@ -207,7 +207,7 @@ export class LinuxAgentProcessRunner {
     });
   }
 
-  private spawnWorkerProcess(
+  public static spawnWorkerProcess(
     modality: ExecutionModality,
     workspaceDir: string,
   ): { child: ChildProcessWithoutNullStreams; effectiveModality: ExecutionModality } {

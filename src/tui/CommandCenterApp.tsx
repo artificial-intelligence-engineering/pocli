@@ -806,7 +806,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       setInputValue('');
 
       if (cmdToken === '/exit' || cmdToken === '/quit' || cmdToken === '/q') {
-        exit();
+        orchestrator.stopAllWorkers().finally(() => exit());
         return;
       }
       if (cmdToken === '/help' || cmdToken === '/h' || cmdToken === '/?') {
@@ -942,6 +942,59 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setWorkDirDraft(workDir);
         setSettingsRowIdx(0);
         setIsSettingsOpen(nextState);
+        return;
+      }
+      if (cmdToken === '/workers') {
+        const subCmd = parts[1]?.toLowerCase();
+        if (subCmd === 'restart') {
+          const targetRole = (parts[2]?.toLowerCase() ?? activeRole) as ActorRole;
+          orchestrator
+            .restartWorker(project.id, targetRole)
+            .then((info) => {
+              setStatusBanner(
+                language === 'es'
+                  ? `Trabajador '${targetRole}' reiniciado (PID ${info.workerPid})`
+                  : `Worker '${targetRole}' restarted (PID ${info.workerPid})`,
+              );
+            })
+            .catch((err) => {
+              setStatusBanner(`Error: ${(err as Error).message}`);
+            });
+          return;
+        }
+        if (subCmd === 'stop') {
+          const targetRole = (parts[2]?.toLowerCase() ?? activeRole) as ActorRole;
+          orchestrator
+            .stopWorker(project.id, targetRole)
+            .then(() => {
+              setStatusBanner(
+                language === 'es'
+                  ? `Trabajador '${targetRole}' detenido.`
+                  : `Worker '${targetRole}' stopped.`,
+              );
+            })
+            .catch((err) => {
+              setStatusBanner(`Error: ${(err as Error).message}`);
+            });
+          return;
+        }
+
+        const workers = orchestrator.listWorkers(project.id);
+        if (workers.length === 0) {
+          setStatusBanner(
+            language === 'es'
+              ? 'No hay trabajadores persistentes activos para este proyecto.'
+              : 'No active persistent workers for this project.',
+          );
+        } else {
+          const summary = workers
+            .map(
+              (w) =>
+                `${w.role}: PID ${w.workerPid} [${w.status.toUpperCase()}, ${w.turnsCompleted} turns]`,
+            )
+            .join(' · ');
+          setStatusBanner(summary);
+        }
         return;
       }
       if (cmdToken === '/view') {

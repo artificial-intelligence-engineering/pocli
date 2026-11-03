@@ -7,6 +7,9 @@ import {
   ApprovalRecord,
   ArchitecturalConsultation,
   Artifact,
+  CoordinatorAuditLogEntry,
+  InterAgentMessage,
+  InterAgentMessageType,
   Notebook,
   PmAgentInquiryEntry,
   PmConsolidationReport,
@@ -15,6 +18,7 @@ import {
   QaDefect,
   QaReportPayload,
   RagCitation,
+  WorkerStatusInfo,
 } from '../core/contracts.js';
 import { AuthorityGuard } from '../core/workflow.js';
 import { CompactionCheckpoint, PoCliDatabase } from '../storage/database.js';
@@ -24,6 +28,8 @@ import { McpRegistry } from './mcp-client.js';
 import { IndexResult, NotebookRagEngine } from './notebook-rag.js';
 import { LinuxAgentProcessRunner, WorkerExecutionResult } from './process-runner.js';
 import { Logger } from '../core/logger.js';
+import { PoCliCoordinator } from './coordinator.js';
+import { PersistentAgentRuntime } from './persistent-runtime.js';
 
 export interface HandoffBundle {
   projectId: string;
@@ -40,12 +46,25 @@ export class PoCliOrchestrator extends EventEmitter {
   public readonly rag: NotebookRagEngine;
   public readonly processRunner: LinuxAgentProcessRunner;
   public readonly mcp: McpRegistry;
+  public readonly coordinator: PoCliCoordinator;
+  public readonly runtime: PersistentAgentRuntime;
 
   constructor(public readonly storage: PoCliDatabase) {
     super();
     this.rag = new NotebookRagEngine(storage);
     this.processRunner = new LinuxAgentProcessRunner();
     this.mcp = new McpRegistry();
+    this.coordinator = new PoCliCoordinator(storage);
+    this.runtime = new PersistentAgentRuntime(this.coordinator);
+
+    const settings = storage.getSettings();
+    this.runtime.isPersistent = settings.persistentWorkers ?? true;
+
+    // Route inter-agent messages between coordinator and persistent runtime
+    this.coordinator.on('inter-agent-message', (msg: InterAgentMessage) => {
+      this.runtime.routeInterAgentMessage(msg);
+      this.emit('inter-agent-message', msg);
+    });
   }
 
   // ==========================================================================
@@ -121,8 +140,8 @@ export class PoCliOrchestrator extends EventEmitter {
       params.targetRole,
     );
 
-    // Execute turn inside isolated Linux process via JSON-RPC 2.0 over stdio
-    const turnResult: WorkerExecutionResult = await this.processRunner.executeTurnInProcess(
+    // Execute turn inside persistent worker (or process runner if persistent mode is disabled)
+    const turnResult: WorkerExecutionResult = await this.runtime.executeTurn(
       {
         projectId: project.id,
         projectName: project.name,
@@ -138,8 +157,8 @@ export class PoCliOrchestrator extends EventEmitter {
       params.onStreamChunk,
     );
 
-    // Execute tool calls emitted by the specialist
-    const createdArtifacts = this.executeAgentToolCalls(
+    // Execute tool calls emitted by the specialist via centralized coordinator
+    const createdArtifacts = await this.executeAgentToolCalls(
       project.id,
       params.targetRole,
       turnResult.toolCalls,
@@ -673,7 +692,7 @@ export class PoCliOrchestrator extends EventEmitter {
 
       // Read-only inquiry: we do NOT execute state-mutating toolCalls so PM never
       // directs, modifies, or interrupts the agents' ongoing engineering work.
-      const res = await this.processRunner.executeTurnInProcess(
+      const res = await this.runtime.executeTurn(
         {
           projectId: project.id,
           projectName: project.name,
@@ -908,123 +927,113 @@ export class PoCliOrchestrator extends EventEmitter {
       .join('\n');
   }
 
-  private executeAgentToolCalls(
+  private async executeAgentToolCalls(
     projectId: string,
     role: ActorRole,
     toolCalls: AgentToolCallRequest[],
-  ): Artifact[] {
+  ): Promise<Artifact[]> {
     const created: Artifact[] = [];
     const project = this.storage.getProject(projectId)!;
 
     for (const call of toolCalls) {
       const args = call.arguments;
       if (call.name === 'propose_requirement') {
-        created.push(
-          this.storage.saveArtifact({
-            projectId,
-            code: String(args.code ?? 'REQ-001'),
-            type: 'REQUIREMENT',
-            title: String(args.title ?? 'Functional Requirements'),
-            content: String(args.content ?? ''),
-            authorRole: role,
-            status: 'DRAFT',
-            citations: (args.citations as string[]) ?? [],
-          }),
-        );
+        const art = await this.coordinator.saveArtifact({
+          projectId,
+          role,
+          code: String(args.code ?? 'REQ-001'),
+          type: 'REQUIREMENT',
+          title: String(args.title ?? 'Functional Requirements'),
+          content: String(args.content ?? ''),
+          citations: (args.citations as string[]) ?? [],
+        });
+        created.push(art);
       } else if (call.name === 'record_adr') {
-        created.push(
-          this.storage.saveArtifact({
-            projectId,
-            code: String(args.code ?? 'ADR-001'),
-            type: 'ADR',
-            title: String(args.title ?? 'Architectural Decision Record'),
-            content: String(args.content ?? ''),
-            authorRole: role,
-            status: 'DRAFT',
-            tracesTo: (args.tracesTo as string[]) ?? [],
-            citations: (args.citations as string[]) ?? [],
-          }),
-        );
+        const art = await this.coordinator.saveArtifact({
+          projectId,
+          role,
+          code: String(args.code ?? 'ADR-001'),
+          type: 'ADR',
+          title: String(args.title ?? 'Architectural Decision Record'),
+          content: String(args.content ?? ''),
+          tracesTo: (args.tracesTo as string[]) ?? [],
+          citations: (args.citations as string[]) ?? [],
+        });
+        created.push(art);
       } else if (call.name === 'write_architecture_doc') {
-        created.push(
-          this.storage.saveArtifact({
-            projectId,
-            code: String(args.code ?? 'ARCH-001'),
-            type: 'ARCHITECTURE',
-            title: String(args.title ?? 'Technical Architecture'),
-            content: String(args.content ?? ''),
-            authorRole: role,
-            status: 'PENDING_APPROVAL',
-            tracesTo: (args.tracesTo as string[]) ?? [],
-            citations: (args.citations as string[]) ?? [],
-          }),
-        );
+        const art = await this.coordinator.saveArtifact({
+          projectId,
+          role,
+          code: String(args.code ?? 'ARCH-001'),
+          type: 'ARCHITECTURE',
+          title: String(args.title ?? 'Technical Architecture'),
+          content: String(args.content ?? ''),
+          tracesTo: (args.tracesTo as string[]) ?? [],
+          citations: (args.citations as string[]) ?? [],
+        });
+        created.push(art);
       } else if (call.name === 'write_specification') {
-        created.push(
-          this.storage.saveArtifact({
-            projectId,
-            code: String(args.code ?? 'SPEC-001'),
-            type: 'SPECIFICATION',
-            title: String(args.title ?? 'Technical Specification'),
-            content: String(args.content ?? ''),
-            authorRole: role,
-            status: 'DRAFT',
-            tracesTo: (args.tracesTo as string[]) ?? [],
-            citations: (args.citations as string[]) ?? [],
-          }),
-        );
+        const art = await this.coordinator.saveArtifact({
+          projectId,
+          role,
+          code: String(args.code ?? 'SPEC-001'),
+          type: 'SPECIFICATION',
+          title: String(args.title ?? 'Technical Specification'),
+          content: String(args.content ?? ''),
+          tracesTo: (args.tracesTo as string[]) ?? [],
+          citations: (args.citations as string[]) ?? [],
+        });
+        created.push(art);
       } else if (call.name === 'request_po_approval') {
         if (project.phase === 'PHASE_2_ARCHITECT_ANALYSIS') {
-          this.storage.transitionPhase(projectId, 'PHASE_3_ARCHITECTURE_APPROVAL');
+          await this.coordinator.transitionPhase({
+            projectId,
+            role,
+            targetPhase: 'PHASE_3_ARCHITECTURE_APPROVAL',
+          });
         }
       } else if (call.name === 'write_implementation_plan') {
-        created.push(
-          this.storage.saveArtifact({
-            projectId,
-            code: String(args.code ?? 'PLAN-001'),
-            type: 'IMPLEMENTATION_PLAN',
-            title: String(args.title ?? 'Implementation Plan'),
-            content: String(args.content ?? ''),
-            authorRole: role,
-            status: 'APPROVED',
-            tracesTo: (args.tracesTo as string[]) ?? [],
-            citations: (args.citations as string[]) ?? [],
-          }),
-        );
+        const art = await this.coordinator.saveArtifact({
+          projectId,
+          role,
+          code: String(args.code ?? 'PLAN-001'),
+          type: 'IMPLEMENTATION_PLAN',
+          title: String(args.title ?? 'Implementation Plan'),
+          content: String(args.content ?? ''),
+          tracesTo: (args.tracesTo as string[]) ?? [],
+          citations: (args.citations as string[]) ?? [],
+        });
+        created.push(art);
       } else if (call.name === 'write_source_file') {
         const relFilePath = String(args.relFilePath ?? 'src/app-module.js');
-        created.push(
-          this.storage.saveArtifact({
-            projectId,
-            code: String(args.code ?? 'CODE-001'),
-            type: 'SOURCE_CODE',
-            title: `Source Code (${relFilePath})`,
-            content: String(args.content ?? ''),
-            authorRole: role,
-            status: 'DRAFT',
-            customRelPath: relFilePath,
-            tracesTo: (args.tracesTo as string[]) ?? [],
-            citations: (args.citations as string[]) ?? [],
-          }),
-        );
+        const art = await this.coordinator.saveArtifact({
+          projectId,
+          role,
+          code: String(args.code ?? 'CODE-001'),
+          type: 'SOURCE_CODE',
+          title: `Source Code (${relFilePath})`,
+          content: String(args.content ?? ''),
+          customRelPath: relFilePath,
+          tracesTo: (args.tracesTo as string[]) ?? [],
+          citations: (args.citations as string[]) ?? [],
+        });
+        created.push(art);
       } else if (call.name === 'write_llm_artifact') {
         const relFilePath = String(
           args.relFilePath ?? 'outputs/llm_generated_output.txt',
         );
-        created.push(
-          this.storage.saveArtifact({
-            projectId,
-            code: String(args.code ?? 'OUT-001'),
-            type: 'LLM_OUTPUT',
-            title: String(args.title ?? `LLM Output (${relFilePath})`),
-            content: String(args.content ?? ''),
-            authorRole: role,
-            status: 'APPROVED',
-            customRelPath: relFilePath,
-            tracesTo: (args.tracesTo as string[]) ?? [],
-            citations: (args.citations as string[]) ?? [],
-          }),
-        );
+        const art = await this.coordinator.saveArtifact({
+          projectId,
+          role,
+          code: String(args.code ?? 'OUT-001'),
+          type: 'LLM_OUTPUT',
+          title: String(args.title ?? `LLM Output (${relFilePath})`),
+          content: String(args.content ?? ''),
+          customRelPath: relFilePath,
+          tracesTo: (args.tracesTo as string[]) ?? [],
+          citations: (args.citations as string[]) ?? [],
+        });
+        created.push(art);
       } else if (call.name === 'consult_architect') {
         this.storage.createConsultation({
           projectId,
@@ -1038,5 +1047,51 @@ export class PoCliOrchestrator extends EventEmitter {
     }
 
     return created;
+  }
+
+  // ==========================================================================
+  // PERSISTENT WORKER MANAGEMENT & INTER-AGENT COMMUNICATION (ISSUE #10)
+  // ==========================================================================
+
+  async sendInterAgentMessage(params: {
+    projectId: string;
+    fromRole: ActorRole;
+    toRole: ActorRole | 'broadcast';
+    type: InterAgentMessageType;
+    payload: Record<string, unknown> | string;
+    requestId?: string;
+  }): Promise<InterAgentMessage> {
+    return this.coordinator.sendInterAgentMessage(params);
+  }
+
+  listWorkers(projectId?: string): WorkerStatusInfo[] {
+    return this.runtime.listWorkers(projectId);
+  }
+
+  getWorkerStatus(projectId: string, role: ActorRole): WorkerStatusInfo | undefined {
+    return this.runtime.getWorkerStatus(projectId, role);
+  }
+
+  async stopWorker(projectId: string, role: ActorRole): Promise<void> {
+    return this.runtime.stopWorker(projectId, role);
+  }
+
+  async restartWorker(projectId: string, role: ActorRole): Promise<WorkerStatusInfo> {
+    const project = this.storage.getProject(projectId);
+    if (!project) throw new Error(`Project ${projectId} not found.`);
+    const modelConfig = this.storage.getRoleConfig(projectId, role);
+    return this.runtime.restartWorker(projectId, role, project.workspaceDir, modelConfig);
+  }
+
+  async stopAllWorkers(): Promise<void> {
+    return this.runtime.stopAllWorkers();
+  }
+
+  getAuditLog(
+    projectId: string,
+    role?: ActorRole,
+    limit = 100,
+  ): CoordinatorAuditLogEntry[] {
+    return this.coordinator.getAuditLog(projectId, role, limit);
   }
 }

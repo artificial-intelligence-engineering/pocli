@@ -86,6 +86,33 @@ rl.on('line', async (line) => {
       return;
     }
 
+    if (req.method === 'agent.health') {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          status: 'healthy',
+          pid: process.pid,
+          uptime: process.uptime(),
+          platform: process.platform,
+        },
+      });
+      return;
+    }
+
+    if (req.method === 'agent.interAgentMessage') {
+      sendJsonRpc({
+        jsonrpc: '2.0',
+        id: req.id,
+        result: {
+          received: true,
+          workerPid: process.pid,
+          messageId: (req.params as Record<string, unknown> | undefined)?.id,
+        },
+      });
+      return;
+    }
+
     if (req.method === 'agent.shutdown') {
       sendJsonRpc({
         jsonrpc: '2.0',

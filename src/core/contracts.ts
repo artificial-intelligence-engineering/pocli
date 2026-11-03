@@ -308,3 +308,91 @@ export const JsonRpcNotificationSchema = z.object({
 });
 export type JsonRpcNotification = z.infer<typeof JsonRpcNotificationSchema>;
 
+// ============================================================================
+// 8. PERSISTENT CONCURRENT RUNTIME & INTER-AGENT COMMUNICATION (ISSUE #10)
+// ============================================================================
+
+export const InterAgentMessageTypeSchema = z.enum([
+  'STATUS_UPDATE',
+  'BLOCKER',
+  'TASK_REQUEST',
+  'TASK_HANDOFF',
+  'CONSULTATION',
+  'QA_VERDICT',
+  'INQUIRY',
+]);
+export type InterAgentMessageType = z.infer<typeof InterAgentMessageTypeSchema>;
+
+export const InterAgentMessageSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  requestId: z.string().optional(),
+  fromRole: ActorRoleSchema,
+  toRole: z.union([ActorRoleSchema, z.literal('broadcast')]),
+  type: InterAgentMessageTypeSchema,
+  payload: z.union([z.record(z.unknown()), z.string()]),
+  status: z.enum(['DELIVERED', 'PROCESSED', 'ACKNOWLEDGED']).default('DELIVERED'),
+  createdAt: z.string(),
+});
+export type InterAgentMessage = z.infer<typeof InterAgentMessageSchema>;
+
+export const CoordinatorAuditLogEntrySchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  agentRole: ActorRoleSchema,
+  operationType: z.enum(['READ', 'WRITE']),
+  action: z.string(),
+  requestId: z.string().optional(),
+  status: z.enum(['ACCEPTED', 'REJECTED', 'DUPLICATE']),
+  details: z.record(z.unknown()).default({}),
+  createdAt: z.string(),
+});
+export type CoordinatorAuditLogEntry = z.infer<typeof CoordinatorAuditLogEntrySchema>;
+
+export const WorkerLifecycleStatusSchema = z.enum([
+  'idle',
+  'busy',
+  'stopped',
+  'failed',
+]);
+export type WorkerLifecycleStatus = z.infer<typeof WorkerLifecycleStatusSchema>;
+
+export const WorkerStatusInfoSchema = z.object({
+  projectId: z.string(),
+  role: ActorRoleSchema,
+  status: WorkerLifecycleStatusSchema,
+  workerPid: z.number().int().optional(),
+  startedAt: z.string().optional(),
+  lastActiveAt: z.string().optional(),
+  turnsCompleted: z.number().int().nonnegative().default(0),
+  tasksCompleted: z.number().int().nonnegative().default(0),
+  modality: ExecutionModalitySchema.default('LOCAL_PROCESS'),
+  error: z.string().optional(),
+});
+export type WorkerStatusInfo = z.infer<typeof WorkerStatusInfoSchema>;
+
+export class StaleArtifactVersionError extends Error {
+  constructor(
+    public readonly artifactCode: string,
+    public readonly expectedVersion: number,
+    public readonly currentVersion: number,
+  ) {
+    super(
+      `Optimistic Concurrency Conflict: Artifact '${artifactCode}' has version ${currentVersion}, but expected version was ${expectedVersion}.`,
+    );
+    this.name = 'StaleArtifactVersionError';
+  }
+}
+
+export class CoordinatorAuthorityError extends Error {
+  constructor(
+    public readonly role: ActorRole,
+    public readonly operation: string,
+    reason: string,
+  ) {
+    super(`Coordinator Authority Violation for '${role}' on '${operation}': ${reason}`);
+    this.name = 'CoordinatorAuthorityError';
+  }
+}
+
+

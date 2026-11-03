@@ -14,7 +14,10 @@ import {
   ArtifactStatus,
   ArtifactType,
   ConsultationStatus,
+  CoordinatorAuditLogEntry,
   ExecutionModality,
+  InterAgentMessage,
+  InterAgentMessageType,
   LlmProviderType,
   MemoryEntry,
   MemoryLayer,
@@ -24,6 +27,8 @@ import {
   QaReportPayload,
   RagCitation,
   RoleModelConfig,
+  StaleArtifactVersionError,
+  WorkerStatusInfo,
   WorkflowPhase,
 } from '../core/contracts.js';
 import {
@@ -406,6 +411,42 @@ export class PoCliDatabase {
         updated_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS coordinator_audit_log (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        agent_role TEXT NOT NULL,
+        operation_type TEXT NOT NULL,
+        action TEXT NOT NULL,
+        request_id TEXT,
+        status TEXT NOT NULL,
+        details_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS inter_agent_messages (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        request_id TEXT,
+        from_role TEXT NOT NULL,
+        to_role TEXT NOT NULL,
+        type TEXT NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'DELIVERED',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS coordinator_idempotency (
+        request_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        agent_role TEXT NOT NULL,
+        action TEXT NOT NULL,
+        response_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+
       CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
         memory_id UNINDEXED,
         project_id UNINDEXED,
@@ -597,6 +638,11 @@ export class PoCliDatabase {
     const activeProjRow = this.db
       .prepare(`SELECT value FROM settings WHERE key = 'active_project_id'`)
       .get() as { value: string } | undefined;
+    const persistentWorkersRow = this.db
+      .prepare(`SELECT value FROM settings WHERE key = 'persistent_workers'`)
+      .get() as { value: string } | undefined;
+    const persistentWorkers =
+      persistentWorkersRow ? persistentWorkersRow.value === 'true' : true;
     const lang: SupportedLanguage =
       langRow?.value === 'es' ? 'es' : 'en';
     const theme: SupportedTheme =
@@ -611,6 +657,7 @@ export class PoCliDatabase {
       language: lang,
       theme,
       workDir,
+      persistentWorkers,
       activeProjectId: activeProjRow?.value,
     };
   }
@@ -662,6 +709,17 @@ export class PoCliDatabase {
              updated_at = excluded.updated_at`,
         )
         .run(partial.activeProjectId, now);
+    }
+    if (partial.persistentWorkers !== undefined) {
+      this.db
+        .prepare(
+          `INSERT INTO settings (key, value, updated_at)
+           VALUES ('persistent_workers', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = excluded.updated_at`,
+        )
+        .run(partial.persistentWorkers ? 'true' : 'false', now);
     }
     const updated = this.getSettings();
     this.syncSettingsFiles(updated);
@@ -935,7 +993,15 @@ export class PoCliDatabase {
     content: string;
     parentId?: string;
     metadata?: Record<string, unknown>;
+    requestId?: string;
   }): StoredMessage {
+    if (params.requestId) {
+      const cached = this.getIdempotentResult<StoredMessage>(params.requestId);
+      if (cached) {
+        return cached;
+      }
+    }
+
     const project = this.getProject(params.projectId);
     if (!project) throw new Error(`Project ${params.projectId} not found.`);
     if (!AuthorityGuard.canCommunicate(params.fromRole, params.toRole, project.phase)) {
@@ -1005,7 +1071,7 @@ export class PoCliDatabase {
       this.refreshExpertChatSummaryInSqlite(params.projectId, expertRole);
     }
 
-    return {
+    const stored: StoredMessage = {
       id: msgId,
       projectId: params.projectId,
       sessionId: sessionRow.id,
@@ -1017,6 +1083,18 @@ export class PoCliDatabase {
       metadataJson,
       createdAt: now,
     };
+
+    if (params.requestId) {
+      this.saveIdempotentResult(
+        params.requestId,
+        params.projectId,
+        params.fromRole,
+        'recordMessage',
+        stored,
+      );
+    }
+
+    return stored;
   }
 
   private refreshExpertChatSummaryInSqlite(
@@ -1549,7 +1627,16 @@ export class PoCliDatabase {
     tracesTo?: string[];
     citations?: string[];
     customRelPath?: string;
+    expectedVersion?: number;
+    requestId?: string;
   }): Artifact {
+    if (params.requestId) {
+      const cached = this.getIdempotentResult<Artifact>(params.requestId);
+      if (cached) {
+        return cached;
+      }
+    }
+
     AuthorityGuard.assertCanWriteArtifact(params.authorRole, params.type);
     const project = this.getProject(params.projectId);
     if (!project) throw new Error(`Project ${params.projectId} not found.`);
@@ -1559,6 +1646,15 @@ export class PoCliDatabase {
         `SELECT id, version FROM artifacts WHERE project_id = ? AND code = ? ORDER BY version DESC LIMIT 1`,
       )
       .get(params.projectId, params.code) as { id: string; version: number } | undefined;
+
+    const currentVersion = latest ? latest.version : 0;
+    if (params.expectedVersion !== undefined && params.expectedVersion !== currentVersion) {
+      throw new StaleArtifactVersionError(
+        params.code,
+        params.expectedVersion,
+        currentVersion,
+      );
+    }
 
     const nextVersion = latest ? latest.version + 1 : 1;
     if (latest) {
@@ -1650,7 +1746,17 @@ export class PoCliDatabase {
         now,
       );
 
-    return this.getArtifactById(id)!;
+    const saved = this.getArtifactById(id)!;
+    if (params.requestId) {
+      this.saveIdempotentResult(
+        params.requestId,
+        params.projectId,
+        params.authorRole,
+        'saveArtifact',
+        saved,
+      );
+    }
+    return saved;
   }
 
   getArtifactById(id: string): Artifact | null {
@@ -2313,6 +2419,182 @@ export class PoCliDatabase {
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     }));
+  }
+
+  // ==========================================================================
+  // COORDINATOR AUDIT LOG, INTER-AGENT MESSAGES & IDEMPOTENCY (ISSUE #10)
+  // ==========================================================================
+
+  getIdempotentResult<T>(requestId: string): T | null {
+    const row = this.db
+      .prepare(`SELECT response_json FROM coordinator_idempotency WHERE request_id = ?`)
+      .get(requestId) as { response_json: string } | undefined;
+    if (!row) return null;
+    try {
+      return JSON.parse(row.response_json) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  saveIdempotentResult(
+    requestId: string,
+    projectId: string,
+    role: ActorRole,
+    action: string,
+    result: unknown,
+  ): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO coordinator_idempotency (
+          request_id, project_id, agent_role, action, response_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(requestId, projectId, role, action, JSON.stringify(result), now);
+  }
+
+  recordAuditLogEntry(
+    entry: Omit<CoordinatorAuditLogEntry, 'id' | 'createdAt'>,
+  ): CoordinatorAuditLogEntry {
+    const id = `aud_${crypto.randomUUID().slice(0, 8)}`;
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO coordinator_audit_log (
+          id, project_id, agent_role, operation_type, action, request_id, status, details_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        entry.projectId,
+        entry.agentRole,
+        entry.operationType,
+        entry.action,
+        entry.requestId ?? null,
+        entry.status,
+        JSON.stringify(entry.details ?? {}),
+        now,
+      );
+
+    return {
+      id,
+      projectId: entry.projectId,
+      agentRole: entry.agentRole,
+      operationType: entry.operationType,
+      action: entry.action,
+      requestId: entry.requestId,
+      status: entry.status,
+      details: entry.details ?? {},
+      createdAt: now,
+    };
+  }
+
+  listAuditLogEntries(
+    projectId: string,
+    role?: ActorRole,
+    limit = 100,
+  ): CoordinatorAuditLogEntry[] {
+    let sql = `SELECT * FROM coordinator_audit_log WHERE project_id = ?`;
+    const args: (string | number)[] = [projectId];
+    if (role) {
+      sql += ` AND agent_role = ?`;
+      args.push(role);
+    }
+    sql += ` ORDER BY created_at DESC LIMIT ?`;
+    args.push(limit);
+
+    const rows = this.db.prepare(sql).all(...args) as Record<string, unknown>[];
+    return rows.map((r) => ({
+      id: String(r.id),
+      projectId: String(r.project_id),
+      agentRole: r.agent_role as ActorRole,
+      operationType: r.operation_type as 'READ' | 'WRITE',
+      action: String(r.action),
+      requestId: r.request_id ? String(r.request_id) : undefined,
+      status: r.status as 'ACCEPTED' | 'REJECTED' | 'DUPLICATE',
+      details: r.details_json ? JSON.parse(String(r.details_json)) : {},
+      createdAt: String(r.created_at),
+    }));
+  }
+
+  saveInterAgentMessage(
+    msg: Omit<InterAgentMessage, 'id' | 'createdAt'>,
+  ): InterAgentMessage {
+    const id = `iam_${crypto.randomUUID().slice(0, 8)}`;
+    const now = new Date().toISOString();
+    const payloadJson =
+      typeof msg.payload === 'string'
+        ? msg.payload
+        : JSON.stringify(msg.payload ?? {});
+
+    this.db
+      .prepare(
+        `INSERT INTO inter_agent_messages (
+          id, project_id, request_id, from_role, to_role, type, payload_json, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        msg.projectId,
+        msg.requestId ?? null,
+        msg.fromRole,
+        msg.toRole,
+        msg.type,
+        payloadJson,
+        msg.status ?? 'DELIVERED',
+        now,
+      );
+
+    return {
+      id,
+      projectId: msg.projectId,
+      requestId: msg.requestId,
+      fromRole: msg.fromRole,
+      toRole: msg.toRole,
+      type: msg.type,
+      payload: msg.payload,
+      status: msg.status ?? 'DELIVERED',
+      createdAt: now,
+    };
+  }
+
+  listInterAgentMessages(
+    projectId: string,
+    filter?: { role?: ActorRole; type?: InterAgentMessageType },
+  ): InterAgentMessage[] {
+    let sql = `SELECT * FROM inter_agent_messages WHERE project_id = ?`;
+    const args: string[] = [projectId];
+    if (filter?.role) {
+      sql += ` AND (from_role = ? OR to_role = ? OR to_role = 'broadcast')`;
+      args.push(filter.role, filter.role);
+    }
+    if (filter?.type) {
+      sql += ` AND type = ?`;
+      args.push(filter.type);
+    }
+    sql += ` ORDER BY created_at ASC`;
+
+    const rows = this.db.prepare(sql).all(...args) as Record<string, unknown>[];
+    return rows.map((r) => {
+      let payload: Record<string, unknown> | string = String(r.payload_json ?? '');
+      try {
+        payload = JSON.parse(payload) as Record<string, unknown>;
+      } catch {
+        // Keep as string
+      }
+      return {
+        id: String(r.id),
+        projectId: String(r.project_id),
+        requestId: r.request_id ? String(r.request_id) : undefined,
+        fromRole: r.from_role as ActorRole,
+        toRole: r.to_role as ActorRole | 'broadcast',
+        type: r.type as InterAgentMessageType,
+        payload,
+        status: (r.status as 'DELIVERED' | 'PROCESSED' | 'ACKNOWLEDGED') ?? 'DELIVERED',
+        createdAt: String(r.created_at),
+      };
+    });
   }
 
   close(): void {

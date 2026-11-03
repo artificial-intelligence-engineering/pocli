@@ -26,6 +26,7 @@ export const AppSettingsSchema = z.object({
   theme: SupportedThemeSchema.default('system'),
   workDir: z.string().default(DEFAULT_POCLI_HOME_DIR),
   activeProjectId: z.string().optional(),
+  persistentWorkers: z.boolean().default(true),
 });
 export type AppSettings = z.infer<typeof AppSettingsSchema>;
 
@@ -371,6 +372,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
           'Open settings or change language/theme/working dir (/settings lang en|es · /settings theme system|solarized-light|solarized-dark · /settings dir <path>)',
       },
       {
+        command: '/workers',
+        description:
+          'Inspect, restart, or manage persistent concurrent agent workers (/workers [status|restart|stop])',
+      },
+      {
         command: '/view',
         description: 'Toggle between clean view (OpenCode) and Multipanel (Tab)',
       },
@@ -635,6 +641,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         command: '/settings',
         description:
           'Abrir ajustes o cambiar idioma/tema/directorio de trabajo (/settings lang en|es · /settings theme system|solarized-light|solarized-dark · /settings dir <ruta>)',
+      },
+      {
+        command: '/workers',
+        description:
+          'Inspeccionar, reiniciar o gestionar trabajadores concurrentes persistentes (/workers [status|restart|stop])',
       },
       {
         command: '/view',
