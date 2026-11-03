@@ -32,8 +32,8 @@ function enterFullscreenTerminal(): void {
 
 function exitFullscreenTerminal(): void {
   if (process.stdout.isTTY) {
-    // Disable modifyOtherKeys and restore primary screen buffer
-    process.stdout.write('\x1b[>4;0m\x1b[?1049l');
+    // Reset OSC background/foreground colors, disable modifyOtherKeys, and restore primary screen buffer
+    process.stdout.write('\x1b]111\x07\x1b]110\x07\x1b[>4;0m\x1b[?1049l');
   }
 }
 
