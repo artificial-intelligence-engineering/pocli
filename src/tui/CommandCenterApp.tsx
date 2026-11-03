@@ -2826,9 +2826,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const lastMessages = sliceWindowedMessages(3);
   const multipanelMessages = sliceWindowedMessages(4);
   const promptLineCount = useMemo(() => {
-    if (!inputValue) return 1;
     const promptInnerWidth = Math.max(20, dimensions.columns - 34);
-    return wrapTextLines(inputValue, promptInnerWidth).length;
+    const contentLines = inputValue
+      ? wrapTextLines(inputValue, promptInnerWidth).length
+      : 1;
+    return Math.max(3, contentLines);
   }, [inputValue, dimensions.columns]);
 
   const openCodeMessages = useMemo(() => {
@@ -4871,17 +4873,23 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   language === 'es'
                     ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
                     : 'Ask anything... "/projects to switch project"';
-                const startLines =
+                const rawStartLines =
                   inputValue.length === 0
                     ? [placeholder]
                     : wrapTextLines(inputValue, startInnerWidth);
 
-                return startLines.map((line, idx) => {
-                  const isLast = idx === startLines.length - 1;
-                  const isPlaceholder = inputValue.length === 0;
+                const minStartHeight = 3;
+                const displayStartLines = [...rawStartLines];
+                while (displayStartLines.length < minStartHeight) {
+                  displayStartLines.push('');
+                }
+
+                return displayStartLines.map((line, idx) => {
+                  const isPlaceholder = inputValue.length === 0 && idx === 0;
+                  const isLastContentLine = idx === rawStartLines.length - 1;
                   const lineContent = isPlaceholder
                     ? line
-                    : isLast
+                    : inputValue.length > 0 && isLastContentLine
                       ? `${line}█`
                       : line;
 
@@ -5030,26 +5038,50 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                       <Box key={m.id} flexDirection="column" marginY={0}>
                         {isUser ? (
                           // User message box with darker shaded background and cyan left bar
-                          <Box flexDirection="column" marginY={1} width={chatAreaWidth}>
-                            {wrapTextLines(m.content, Math.max(10, chatAreaWidth - 4)).map((line, lIdx) => (
-                              <Box key={lIdx} flexDirection="row" width={chatAreaWidth}>
-                                <Text color={themePalette.cyan} backgroundColor={themePalette.cardBg} bold>
-                                  │{'  '}
-                                </Text>
-                                <Text
-                                  color="white"
-                                  backgroundColor={isLineSelected ? 'yellow' : themePalette.cardBg}
-                                >
-                                  {line.padEnd(Math.max(0, chatAreaWidth - 4), ' ')}
-                                </Text>
-                                {lIdx === 0 && queuedMessageIds.has(m.id) && (
-                                  <Text color={themePalette.yellow} backgroundColor={themePalette.cardBg} bold>
-                                    {' '}[{language === 'es' ? 'en cola' : 'queued'}]
-                                  </Text>
-                                )}
+                          (() => {
+                            const rawMsgLines = wrapTextLines(
+                              m.content,
+                              Math.max(10, chatAreaWidth - 4),
+                            );
+                            const minUserMsgHeight = 2;
+                            const displayMsgLines = [...rawMsgLines];
+                            while (displayMsgLines.length < minUserMsgHeight) {
+                              displayMsgLines.push('');
+                            }
+
+                            return (
+                              <Box flexDirection="column" marginY={1} width={chatAreaWidth}>
+                                {displayMsgLines.map((line, lIdx) => (
+                                  <Box key={lIdx} flexDirection="row" width={chatAreaWidth}>
+                                    <Text
+                                      color={themePalette.cyan}
+                                      backgroundColor={themePalette.cardBg}
+                                      bold
+                                    >
+                                      │{'  '}
+                                    </Text>
+                                    <Text
+                                      color="white"
+                                      backgroundColor={
+                                        isLineSelected ? 'yellow' : themePalette.cardBg
+                                      }
+                                    >
+                                      {line.padEnd(Math.max(0, chatAreaWidth - 4), ' ')}
+                                    </Text>
+                                    {lIdx === 0 && queuedMessageIds.has(m.id) && (
+                                      <Text
+                                        color={themePalette.yellow}
+                                        backgroundColor={themePalette.cardBg}
+                                        bold
+                                      >
+                                        {' '}[{language === 'es' ? 'en cola' : 'queued'}]
+                                      </Text>
+                                    )}
+                                  </Box>
+                                ))}
                               </Box>
-                            ))}
-                          </Box>
+                            );
+                          })()
                         ) : (
                           // Assistant message + optional tool/RAG step
                           (() => {
@@ -5163,19 +5195,25 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     ? 'Escribe un mensaje para el agente... (Esc o Ctrl+A para ventana principal)'
                     : 'Type a message for the agent... (Esc or Ctrl+A for main window)';
 
-                const promptLines =
+                const rawLines =
                   inputValue.length === 0
                     ? [placeholder]
                     : wrapTextLines(inputValue, promptInnerWidth);
 
+                const minPromptHeight = 3;
+                const displayLines = [...rawLines];
+                while (displayLines.length < minPromptHeight) {
+                  displayLines.push('');
+                }
+
                 return (
                   <Box flexDirection="column" marginTop={1} width={chatAreaWidth}>
-                    {promptLines.map((line, idx) => {
-                      const isLast = idx === promptLines.length - 1;
-                      const isPlaceholder = inputValue.length === 0;
+                    {displayLines.map((line, idx) => {
+                      const isPlaceholder = inputValue.length === 0 && idx === 0;
+                      const isLastContentLine = idx === rawLines.length - 1;
                       const lineContent = isPlaceholder
                         ? line
-                        : isLast
+                        : inputValue.length > 0 && isLastContentLine
                           ? `${line}█`
                           : line;
 

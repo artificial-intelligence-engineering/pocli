@@ -1248,4 +1248,54 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(renderedLines.length).toBe(1);
     expect(renderedLines[0]).toBe('');
   });
+
+  it('Issue #22: verifies default minimum height of 3 lines for chat box and dynamic expansion', () => {
+    const getPromptDisplayLines = (input: string, innerWidth: number, minHeight = 3) => {
+      const placeholder = 'Escribe un mensaje para el agente...';
+      const raw = input ? wrapTextLines(input, innerWidth) : [placeholder];
+      const display = [...raw];
+      while (display.length < minHeight) {
+        display.push('');
+      }
+      return display;
+    };
+
+    // 1. Empty input defaults to at least 3 lines
+    const emptyDisplay = getPromptDisplayLines('', 50);
+    expect(emptyDisplay.length).toBe(3);
+    expect(emptyDisplay[0]).toBe('Escribe un mensaje para el agente...');
+    expect(emptyDisplay[1]).toBe('');
+    expect(emptyDisplay[2]).toBe('');
+
+    // 2. Short 1-line input defaults to at least 3 lines
+    const shortDisplay = getPromptDisplayLines('hola mundo', 50);
+    expect(shortDisplay.length).toBe(3);
+    expect(shortDisplay[0]).toBe('hola mundo');
+    expect(shortDisplay[1]).toBe('');
+    expect(shortDisplay[2]).toBe('');
+
+    // 3. 2-line input defaults to at least 3 lines
+    const twoLineText = 'linea 1\nlinea 2';
+    const twoLineDisplay = getPromptDisplayLines(twoLineText, 50);
+    expect(twoLineDisplay.length).toBe(3);
+    expect(twoLineDisplay[0]).toBe('linea 1');
+    expect(twoLineDisplay[1]).toBe('linea 2');
+    expect(twoLineDisplay[2]).toBe('');
+
+    // 4. Input exceeding 3 lines grows beyond 3 lines
+    const fourLineText = 'a\nb\nc\nd';
+    const fourLineDisplay = getPromptDisplayLines(fourLineText, 50);
+    expect(fourLineDisplay.length).toBe(4);
+    expect(fourLineDisplay).toEqual(['a', 'b', 'c', 'd']);
+
+    // 5. Resetting input collapses back to default 3 lines
+    let activeInput = fourLineText;
+    let lines = getPromptDisplayLines(activeInput, 50);
+    expect(lines.length).toBe(4);
+
+    activeInput = '';
+    lines = getPromptDisplayLines(activeInput, 50);
+    expect(lines.length).toBe(3);
+    expect(lines[0]).toBe('Escribe un mensaje para el agente...');
+  });
 });
