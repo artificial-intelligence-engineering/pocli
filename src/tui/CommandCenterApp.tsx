@@ -5045,61 +5045,42 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                         {isUser ? (
                           // User message box with darker shaded background and cyan left bar
                           (() => {
-                            const innerWidth = Math.max(10, chatAreaWidth - 2);
                             const rawMsgLines = wrapTextLines(
                               m.content,
-                              innerWidth - 1,
+                              Math.max(10, chatAreaWidth - 4),
                             );
-                            const minUserMsgHeight = 2;
-                            const displayMsgLines = [...rawMsgLines];
-                            while (displayMsgLines.length < minUserMsgHeight) {
-                              displayMsgLines.push('');
-                            }
 
                             return (
-                              <Box flexDirection="column" width={chatAreaWidth} marginBottom={1}>
-                                {displayMsgLines.map((line, lIdx) => {
-                                  const queueBadge =
-                                    lIdx === 0 && queuedMessageIds.has(m.id)
-                                      ? language === 'es'
-                                        ? ' [en cola]'
-                                        : ' [queued]'
-                                      : '';
-                                  const textPadLen = Math.max(
-                                    0,
-                                    innerWidth - queueBadge.length,
-                                  );
-
-                                  return (
-                                    <Box key={lIdx} flexDirection="row" width={chatAreaWidth}>
+                              <Box flexDirection="column" marginY={1}>
+                                {rawMsgLines.map((line, lIdx) => (
+                                  <Box key={lIdx} flexDirection="row">
+                                    <Text
+                                      color="cyan"
+                                      backgroundColor={themePalette.cardBg}
+                                      bold
+                                    >
+                                      │{' '}
+                                    </Text>
+                                    <Text
+                                      color="cyan"
+                                      bold
+                                      backgroundColor={
+                                        isLineSelected ? 'yellow' : themePalette.cardBg
+                                      }
+                                    >
+                                      {line}
+                                    </Text>
+                                    {lIdx === 0 && queuedMessageIds.has(m.id) && (
                                       <Text
-                                        color={themePalette.cyan}
+                                        color={themePalette.yellow}
                                         backgroundColor={themePalette.cardBg}
                                         bold
                                       >
-                                        │{' '}
+                                        {' '}[{language === 'es' ? 'en cola' : 'queued'}]
                                       </Text>
-                                      <Text
-                                        color="cyan"
-                                        bold
-                                        backgroundColor={
-                                          isLineSelected ? 'yellow' : themePalette.cardBg
-                                        }
-                                      >
-                                        {line.padEnd(textPadLen, ' ')}
-                                      </Text>
-                                      {queueBadge ? (
-                                        <Text
-                                          color={themePalette.yellow}
-                                          backgroundColor={themePalette.cardBg}
-                                          bold
-                                        >
-                                          {queueBadge}
-                                        </Text>
-                                      ) : null}
-                                    </Box>
-                                  );
-                                })}
+                                    )}
+                                  </Box>
+                                ))}
                               </Box>
                             );
                           })()
