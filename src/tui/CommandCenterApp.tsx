@@ -619,8 +619,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   }, [stdout]);
 
   const cycleNextAgentRef = useRef<() => void>(() => {});
+  const goToStartupWindowRef = useRef<() => void>(() => {});
+  const lastRawInputRef = useRef<string>('');
 
-  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab or Ctrl+N sequences via Ink's internal_eventEmitter
+  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab, Ctrl+N, Ctrl+A, Ctrl+H sequences via Ink's internal_eventEmitter
   // (avoids attaching a competing 'data' listener on stdin that conflicts with Ink's 'readable' loop)
   useEffect(() => {
     const emitter = internal_eventEmitter ?? stdin;
@@ -628,6 +630,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const eventName = internal_eventEmitter ? 'input' : 'data';
     const onRawData = (data: Buffer | string) => {
       const seq = typeof data === 'string' ? data : data.toString('utf8');
+      lastRawInputRef.current = seq;
+
       if (
         seq === '\x0e' ||         // Ctrl+N raw
         seq === '\x1b[27;5;9~' || // xterm modifyOtherKeys Ctrl+Tab
@@ -635,6 +639,36 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         seq === '\x1b[1;5I'       // VTE / GNOME Terminal Ctrl+Tab
       ) {
         cycleNextAgentRef.current();
+        return;
+      }
+
+      // Check Ctrl+A / Ctrl+H across all terminal encodings (supports tmux, standard Linux, Kitty, xterm):
+      // - '\x01': standard ASCII SOH produced by pressing Ctrl+a
+      // - '\x1b[97;5u': Kitty / CSI-u Ctrl+a (97 is lowercase 'a', 5 is Ctrl modifier)
+      // - '\x1b[27;5;97~': xterm modifyOtherKeys mode 2 Ctrl+a
+      // - '\x1b[65;5u': Kitty / CSI-u Ctrl+A
+      // - '\x1b[27;5;65~': xterm modifyOtherKeys Ctrl+A
+      // - '\x08': standard ASCII BS (^H) produced by pressing Ctrl+h in Linux terminals
+      // - '\x1b[104;5u': Kitty / CSI-u Ctrl+h (104 is lowercase 'h', 5 is Ctrl modifier)
+      // - '\x1b[27;5;104~': xterm modifyOtherKeys mode 2 Ctrl+h
+      // - '\x1b[104;5~': xterm Ctrl+h variant
+      // - '\x1b[72;5u': Kitty / CSI-u Ctrl+H
+      // - '\x1b[27;5;72~': xterm modifyOtherKeys Ctrl+H
+      if (
+        seq === '\x01' ||
+        seq === '\x1b[97;5u' ||
+        seq === '\x1b[27;5;97~' ||
+        seq === '\x1b[65;5u' ||
+        seq === '\x1b[27;5;65~' ||
+        seq === '\x08' ||
+        seq === '\x1b[104;5u' ||
+        seq === '\x1b[27;5;104~' ||
+        seq === '\x1b[104;5~' ||
+        seq === '\x1b[72;5u' ||
+        seq === '\x1b[27;5;72~'
+      ) {
+        goToStartupWindowRef.current();
+        return;
       }
     };
     emitter.on(eventName, onRawData);
@@ -680,6 +714,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setIsWorkersModalOpen(false);
     setProjectWizardStep('CLOSED');
   };
+
+  const goToStartupWindow = () => {
+    closeAllModals();
+    setInputValue('');
+    setViewMode('startup');
+    setStatusBanner(
+      language === 'es'
+        ? 'Ventana principal (ejecuta comandos con / o escribe para chatear)'
+        : 'Main window (run commands with / or type to chat)',
+    );
+  };
+  goToStartupWindowRef.current = goToStartupWindow;
 
   const openModelsModal = (targetRole?: ActorRole | 'all') => {
     const resolvedTarget = targetRole ?? activeRole;
@@ -837,6 +883,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
 
   const isSlashMenuOpen =
+    viewMode === 'startup' &&
     inputValue.startsWith('/') &&
     projectWizardStep === 'CLOSED' &&
     !isProjectsModalOpen &&
@@ -866,6 +913,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // Handle slash commands starting with "/"
     if (trimmed.startsWith('/')) {
+      if (viewMode !== 'startup') {
+        setInputValue('');
+        setStatusBanner(
+          language === 'es'
+            ? 'ℹ Para ejecutar comandos ve a la ventana principal con Esc o Ctrl+A.'
+            : 'ℹ Commands must be executed from the main window. Press Esc or Ctrl+A.',
+        );
+        return;
+      }
       const parts = trimmed.split(/\s+/);
       const cmdToken = parts[0].toLowerCase();
       setInputValue('');
@@ -1932,6 +1988,31 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // Ctrl+A / Ctrl+H (or raw \x01 / \x08 / CSI-u / modifyOtherKeys) shortcut to return immediately to the main / startup window
+    const rawSeq = lastRawInputRef.current;
+    const isNavigationHome =
+      rawSeq === '\x01' ||
+      rawSeq === '\x1b[97;5u' ||
+      rawSeq === '\x1b[27;5;97~' ||
+      rawSeq === '\x1b[65;5u' ||
+      rawSeq === '\x1b[27;5;65~' ||
+      (key.ctrl && (input === 'a' || input === 'A' || input === '\x01')) ||
+      rawSeq === '\x08' ||
+      rawSeq === '\x1b[104;5u' ||
+      rawSeq === '\x1b[27;5;104~' ||
+      rawSeq === '\x1b[104;5~' ||
+      rawSeq === '\x1b[72;5u' ||
+      rawSeq === '\x1b[27;5;72~' ||
+      (key.ctrl && (input === 'h' || input === 'H' || input === '\x08')) ||
+      (key.backspace && !key.delete) ||
+      (input === '\x08');
+
+    if (isNavigationHome) {
+      lastRawInputRef.current = '';
+      goToStartupWindow();
+      return;
+    }
+
     // 1. Handle New Project Creation Wizard (/project)
     if (projectWizardStep !== 'CLOSED') {
       if (key.escape) {
@@ -2529,9 +2610,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // OpenCode Ctrl+P shortcut to toggle slash command popover menu
+    // OpenCode Ctrl+P shortcut to toggle slash command popover menu in main window
     if (key.ctrl && input === 'p') {
-      setInputValue((prev) => (prev.startsWith('/') ? '' : '/'));
+      if (viewMode === 'startup') {
+        setInputValue((prev) => (prev.startsWith('/') ? '' : '/'));
+      } else {
+        setStatusBanner(
+          language === 'es'
+            ? 'ℹ Para ejecutar comandos ve a la ventana principal con Esc o Ctrl+A.'
+            : 'ℹ Commands must be executed from the main window. Press Esc or Ctrl+A.',
+        );
+      }
       return;
     }
 
@@ -4755,25 +4844,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   </>
                 )}
               </Box>
-              <Box height={1} />
-              <Box flexDirection="row">
-                <Text color="cyan" bold>
-                  │{' '}
-                </Text>
-                <Text dimColor>Current session: </Text>
-                <Text color="white" bold>
-                  {project.name}
-                </Text>
-                <Text dimColor> · </Text>
-                <Text bold color="cyan">
-                  {activeRoleDisplayName}
-                </Text>
-                <Text dimColor> · </Text>
-                <Text color="white">{activeModelEntry.displayName}</Text>
-                <Text dimColor>
-                  {' '}{activeModelEntry.isFree ? 'Default' : 'Pro'} / {activeModelEntry.vendor}
-                </Text>
-              </Box>
             </Box>
           </Box>
         )}
@@ -5020,10 +5090,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               {/* Slash Command Popover Menu when user types "/" */}
               {isSlashMenuOpen && renderSlashPopoverMenu('100%')}
 
-              {/* Bottom Prompt / Input Box matching OpenCode screenshot:
-                  │ [input text]█
-                  │
-                  │ Build · Claude Sonnet 5.5 Default / OpenCode */}
+              {/* Bottom Prompt / Input Box */}
               <Box
                 flexDirection="column"
                 borderStyle="round"
@@ -5036,22 +5103,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   <Text color="cyan" bold>
                     │{' '}
                   </Text>
-                  <Text color="white">{inputValue}</Text>
-                  <Text color="cyan">█</Text>
-                </Box>
-                <Box height={1} />
-                <Box flexDirection="row">
-                  <Text color="cyan" bold>
-                    │{' '}
-                  </Text>
-                  <Text bold color="cyan">
-                    {activeRoleDisplayName}
-                  </Text>
-                  <Text dimColor> · </Text>
-                  <Text color="white">{activeModelEntry.displayName}</Text>
-                  <Text dimColor>
-                    {' '}{activeModelEntry.isFree ? 'Default' : 'Pro'} / {activeModelEntry.vendor}
-                  </Text>
+                  {inputValue.length === 0 ? (
+                    <Text dimColor>
+                      {language === 'es'
+                        ? 'Escribe un mensaje para el agente... (Esc o Ctrl+A para ventana principal)'
+                        : 'Type a message for the agent... (Esc or Ctrl+A for main window)'}
+                    </Text>
+                  ) : (
+                    <>
+                      <Text color="white">{inputValue}</Text>
+                      <Text color="cyan">█</Text>
+                    </>
+                  )}
                 </Box>
               </Box>
             </Box>
@@ -5137,14 +5200,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           </Box>
         )}
 
-        {/* Bottom Footer Bar matching OpenCode screenshot:
-            ■■■···· esc interrupt          ctrl+n cycle   12.2K (1%) · $0.02  ctrl+p commands     ~/HACK/dev/ai.github.io.git:master */}
+        {/* Bottom Footer Bar */}
         <Box width="100%" justifyContent="space-between" height={1}>
           <Box flexDirection="row">
             <Text color={isAnyRoleBusy ? 'cyan' : 'gray'}>
               {isAnyRoleBusy ? '■■■···· ' : '■······ '}
             </Text>
-            <Text color="gray">esc interrupt</Text>
+            <Text color="gray">{language === 'es' ? 'esc / ctrl+a principal' : 'esc / ctrl+a main'}</Text>
           </Box>
           <Box flexDirection="row">
             <Text color="gray">ctrl+n </Text>
@@ -5153,9 +5215,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               {(estimatedTokens / 1000).toFixed(1)}K ({Math.max(1, Math.round((estimatedTokens / 200000) * 100))}%) · {activeModelEntry.isFree ? '$0.00' : '$0.02'}{'  '}
             </Text>
             <Text bold color="white">
-              ctrl+p{' '}
+              ctrl+a{' '}
             </Text>
-            <Text color="gray">commands</Text>
+            <Text color="gray">{language === 'es' ? 'inicio' : 'home'}</Text>
           </Box>
           <Box flexDirection="row">
             <Text color="gray">
