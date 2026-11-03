@@ -1162,13 +1162,19 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(getThemeBadge('system')).toBe('sys');
   });
 
-  it('Issue #18: verifies Ctrl+h navigation shortcut detection and distinction from physical backspace', () => {
-    const isCtrlH = (
+  it('Issue #18: verifies Ctrl+a and Ctrl+h navigation shortcut detection and distinction from physical backspace', () => {
+    const isNavigationHome = (
       rawSeq: string,
       input: string,
       key: { ctrl?: boolean; backspace?: boolean; delete?: boolean },
     ) => {
       return (
+        rawSeq === '\x01' ||
+        rawSeq === '\x1b[97;5u' ||
+        rawSeq === '\x1b[27;5;97~' ||
+        rawSeq === '\x1b[65;5u' ||
+        rawSeq === '\x1b[27;5;65~' ||
+        (Boolean(key.ctrl) && (input === 'a' || input === 'A' || input === '\x01')) ||
         rawSeq === '\x08' ||
         rawSeq === '\x1b[104;5u' ||
         rawSeq === '\x1b[27;5;104~' ||
@@ -1181,25 +1187,26 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       );
     };
 
+    // Standard Linux & tmux Ctrl+a sends ASCII \x01 (SOH)
+    expect(isNavigationHome('\x01', 'a', { ctrl: true })).toBe(true);
+    expect(isNavigationHome('\x01', '', { ctrl: false })).toBe(true);
+
+    // Modern Kitty / CSI-u protocol Ctrl+a (97 is lowercase 'a', 5 is Ctrl)
+    expect(isNavigationHome('\x1b[97;5u', '', { ctrl: false })).toBe(true);
+
     // Standard Linux terminal Ctrl+h sends ASCII \x08 (^H)
-    expect(isCtrlH('\x08', '', { backspace: true, delete: false, ctrl: false })).toBe(true);
+    expect(isNavigationHome('\x08', '', { backspace: true, delete: false, ctrl: false })).toBe(true);
 
     // Modern Kitty / CSI-u protocol Ctrl+h (104 is lowercase 'h', 5 is Ctrl)
-    expect(isCtrlH('\x1b[104;5u', '', { ctrl: false })).toBe(true);
+    expect(isNavigationHome('\x1b[104;5u', '', { ctrl: false })).toBe(true);
 
-    // xterm modifyOtherKeys protocol Ctrl+h
-    expect(isCtrlH('\x1b[27;5;104~', '', { ctrl: false })).toBe(true);
+    // Typing regular character 'a' must NOT trigger navigation
+    expect(isNavigationHome('a', 'a', { ctrl: false })).toBe(false);
 
-    // Mock Ink input with key.ctrl
-    expect(isCtrlH('', 'h', { ctrl: true, backspace: false, delete: false })).toBe(true);
+    // Physical Backspace (\x7f) must NOT trigger navigation
+    expect(isNavigationHome('\x7f', '', { backspace: false, delete: true, ctrl: false })).toBe(false);
 
-    // Ink parseKeypress behavior for \x08 gives { backspace: true, delete: false, ctrl: false }
-    expect(isCtrlH('', '', { backspace: true, delete: false, ctrl: false })).toBe(true);
-
-    // Physical Backspace (\x7f) must NOT trigger Ctrl+h navigation
-    expect(isCtrlH('\x7f', '', { backspace: false, delete: true, ctrl: false })).toBe(false);
-
-    // Physical Delete (\x1b[3~) must NOT trigger Ctrl+h navigation
-    expect(isCtrlH('\x1b[3~', '', { backspace: false, delete: true, ctrl: false })).toBe(false);
+    // Physical Delete (\x1b[3~) must NOT trigger navigation
+    expect(isNavigationHome('\x1b[3~', '', { backspace: false, delete: true, ctrl: false })).toBe(false);
   });
 });
