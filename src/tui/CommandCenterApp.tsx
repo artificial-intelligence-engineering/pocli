@@ -456,6 +456,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [streamingByRole, setStreamingByRole] = useState<Partial<Record<ActorRole, string>>>({});
   const [roleDrafts, setRoleDrafts] = useState<Partial<Record<ActorRole, string>>>({});
   const [statusBanner, setStatusBanner] = useState<string>(t.initialStatusBanner);
+  const [queuedMessageIds, setQueuedMessageIds] = useState<Set<string>>(new Set());
+
+  const activeRoleQueuedCount = useMemo(() => {
+    return orchestrator.getQueuedMessages(project.id, activeRole).length;
+  }, [orchestrator, project.id, activeRole, queuedMessageIds, messagesVersion]);
 
   const isAnyRoleBusy = useMemo(
     () => Object.values(busyRoles).some(Boolean),
@@ -482,6 +487,53 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     }, 80);
     return () => clearInterval(interval);
   }, [hasAnyThinkingRole]);
+
+  // FIFO Queue event subscriptions
+  useEffect(() => {
+    const onQueued = (payload: {
+      projectId: string;
+      role: ActorRole;
+      messageId: string;
+      queueLength: number;
+    }) => {
+      if (payload.projectId === project.id) {
+        setQueuedMessageIds((prev) => new Set(prev).add(payload.messageId));
+        setBusyRoles((prev) => ({ ...prev, [payload.role]: true }));
+        setMessagesVersion((prev) => prev + 1);
+      }
+    };
+    const onDequeued = (payload: {
+      projectId: string;
+      role: ActorRole;
+      messageId: string;
+      remainingQueueLength: number;
+    }) => {
+      if (payload.projectId === project.id) {
+        setQueuedMessageIds((prev) => {
+          const next = new Set(prev);
+          next.delete(payload.messageId);
+          return next;
+        });
+        setBusyRoles((prev) => ({ ...prev, [payload.role]: true }));
+        setMessagesVersion((prev) => prev + 1);
+      }
+    };
+    const onIdle = (payload: { projectId: string; role: ActorRole }) => {
+      if (payload.projectId === project.id) {
+        setBusyRoles((prev) => ({ ...prev, [payload.role]: false }));
+        setMessagesVersion((prev) => prev + 1);
+      }
+    };
+
+    orchestrator.on('agent:messageQueued', onQueued);
+    orchestrator.on('agent:messageDequeued', onDequeued);
+    orchestrator.on('agent:idle', onIdle);
+    return () => {
+      orchestrator.off('agent:messageQueued', onQueued);
+      orchestrator.off('agent:messageDequeued', onDequeued);
+      orchestrator.off('agent:idle', onIdle);
+    };
+  }, [orchestrator, project.id]);
 
   const thinkingSpinner = SPINNER_FRAMES[spinnerIdx];
 
@@ -1341,15 +1393,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     }
 
     // Normal conversation message sent to the currently active professional
-    if (busyRoles[activeRole]) {
-      setStatusBanner(
-        language === 'es'
-          ? `⏳ ${activeRoleDisplayName} está procesando una respuesta. Espera o cambia de agente con Tab.`
-          : `⏳ ${activeRoleDisplayName} is currently thinking. Please wait or switch agent with Tab.`
-      );
-      return;
-    }
-
     setInputValue('');
     setRoleDrafts((prev) => ({ ...prev, [activeRole]: '' }));
     if (viewMode === 'startup') {
@@ -1389,7 +1432,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const sendChatMessage = async (targetRole: ActorRole, messageText: string) => {
     // 1. Immediately record user prompt to SQLite so it appears in the chat log without delay
-    orchestrator.storage.recordMessage({
+    const userMsg = orchestrator.storage.recordMessage({
       projectId: project.id,
       fromRole: 'product_owner',
       toRole: targetRole,
@@ -1399,21 +1442,52 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setMessagesVersion((prev) => prev + 1);
     refreshState();
 
-    setBusyRoles((prev) => ({ ...prev, [targetRole]: true }));
-    setStreamingByRole((prev) => ({ ...prev, [targetRole]: '' }));
-    setStatusBanner(t.consultingAgentMsg(targetRole));
+    const isBusy = orchestrator.isRoleBusy(project.id, targetRole);
+    if (isBusy) {
+      setQueuedMessageIds((prev) => new Set(prev).add(userMsg.id));
+      const currentQueueLen =
+        orchestrator.getQueuedMessages(project.id, targetRole).length + 1;
+      setStatusBanner(
+        language === 'es'
+          ? `⏳ ${getRoleDisplayName(targetRole, language)} está procesando. Mensaje añadido a la cola (${currentQueueLen} en cola).`
+          : `⏳ ${getRoleDisplayName(targetRole, language)} is thinking. Message added to queue (${currentQueueLen} queued).`,
+      );
+    } else {
+      setBusyRoles((prev) => ({ ...prev, [targetRole]: true }));
+      setStreamingByRole((prev) => ({ ...prev, [targetRole]: '' }));
+      setStatusBanner(t.consultingAgentMsg(targetRole));
+    }
+
     try {
       const res = await orchestrator.chatWithProfessional({
         projectId: project.id,
         targetRole,
         message: messageText,
+        messageId: userMsg.id,
         alreadyRecorded: true,
         onStreamChunk: (chunk) => {
+          setQueuedMessageIds((prev) => {
+            if (prev.has(userMsg.id)) {
+              const next = new Set(prev);
+              next.delete(userMsg.id);
+              return next;
+            }
+            return prev;
+          });
+          setBusyRoles((prev) => ({ ...prev, [targetRole]: true }));
           setStreamingByRole((prev) => ({
             ...prev,
             [targetRole]: (prev[targetRole] || '') + chunk,
           }));
         },
+      });
+      setQueuedMessageIds((prev) => {
+        if (prev.has(userMsg.id)) {
+          const next = new Set(prev);
+          next.delete(userMsg.id);
+          return next;
+        }
+        return prev;
       });
       setStreamingByRole((prev) => {
         const next = { ...prev };
@@ -1431,14 +1505,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       setMessagesVersion((prev) => prev + 1);
       refreshState();
     } catch (err) {
-      setStatusBanner(`✖ Error: ${(err as Error).message}`);
-    } finally {
-      setBusyRoles((prev) => ({ ...prev, [targetRole]: false }));
-      setStreamingByRole((prev) => {
-        const next = { ...prev };
-        delete next[targetRole];
+      setQueuedMessageIds((prev) => {
+        const next = new Set(prev);
+        next.delete(userMsg.id);
         return next;
       });
+      setStatusBanner(`✖ Error: ${(err as Error).message}`);
+    } finally {
+      const stillBusy = orchestrator.isRoleBusy(project.id, targetRole);
+      setBusyRoles((prev) => ({ ...prev, [targetRole]: stillBusy }));
+      if (!stillBusy) {
+        setStreamingByRole((prev) => {
+          const next = { ...prev };
+          delete next[targetRole];
+          return next;
+        });
+      }
     }
   };
 
@@ -4827,6 +4909,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                             >
                               {m.content}
                             </Text>
+                            {queuedMessageIds.has(m.id) && (
+                              <Text color={themePalette.yellow} bold>
+                                {' '}[{language === 'es' ? 'en cola' : 'queued'}]
+                              </Text>
+                            )}
                           </Box>
                         ) : (
                           // Assistant message + optional tool/RAG step
@@ -4906,8 +4993,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                       {' '}
                       {thinkingSpinner}{' '}
                       {language === 'es'
-                        ? '[Pensando respuesta...]'
-                        : '[Thinking...]'}
+                        ? activeRoleQueuedCount > 0
+                          ? `[Pensando respuesta... · ${activeRoleQueuedCount} en cola]`
+                          : '[Pensando respuesta...]'
+                        : activeRoleQueuedCount > 0
+                          ? `[Thinking... · ${activeRoleQueuedCount} queued]`
+                          : '[Thinking...]'}
                     </Text>
                   </Box>
                 )}
@@ -5396,6 +5487,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                         color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
                       >
                         [{m.fromRole} → {m.toRole}]:
+                        {queuedMessageIds.has(m.id) && (
+                          <Text color={themePalette.yellow} bold>
+                            {' '}[{language === 'es' ? 'en cola' : 'queued'}]
+                          </Text>
+                        )}
                       </Text>
                       <Text
                         backgroundColor={isLineSelected ? 'yellow' : undefined}
@@ -5417,8 +5513,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   <Text dimColor italic>
                     {thinkingSpinner}{' '}
                     {language === 'es'
-                      ? '[Pensando respuesta...]'
-                      : '[Thinking...]'}
+                      ? activeRoleQueuedCount > 0
+                        ? `[Pensando respuesta... · ${activeRoleQueuedCount} en cola]`
+                        : '[Pensando respuesta...]'
+                      : activeRoleQueuedCount > 0
+                        ? `[Thinking... · ${activeRoleQueuedCount} queued]`
+                        : '[Thinking...]'}
                   </Text>
                 </Box>
               )}
