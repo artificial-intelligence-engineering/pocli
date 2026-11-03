@@ -2254,6 +2254,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (settingsRowIdx === 0) {
+        if (input === '1') {
+          applyLanguageChange('en');
+          return;
+        }
+        if (input === '2') {
+          applyLanguageChange('es');
+          return;
+        }
         if (key.leftArrow || key.rightArrow || key.return || input === ' ') {
           const nextLang: SupportedLanguage = language === 'en' ? 'es' : 'en';
           applyLanguageChange(nextLang);
@@ -3221,123 +3229,299 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     </Box>
   );
 
-  // Settings Modal Component
-  const renderSettingsModal = () => (
-    <Box
-      flexDirection="column"
-      width={Math.min(92, dimensions.columns - 8)}
-      borderStyle="double"
-      borderColor={themePalette.modalBorder}
-      paddingX={2}
-      paddingY={1}
-      marginBottom={1}
-    >
-      <Text bold color={themePalette.yellow}>
-        ⚙ {t.settingsTitle}
-      </Text>
-      <Text dimColor>{t.settingsSubtitle}</Text>
+  // Settings Modal Component — Option 4: Master-Detail Split Layout with strictly fixed size
+  const renderSettingsModal = () => {
+    const modalWidth = Math.min(108, Math.max(88, dimensions.columns - 4));
+    const modalHeight = 15;
+    const leftColWidth = Math.max(38, Math.min(44, Math.floor(modalWidth * 0.38)));
+    const rightColWidth = modalWidth - leftColWidth - 5;
+    const bodyHeight = modalHeight - 4;
 
-      {/* Row 0: Interface Language */}
-      <Box marginTop={1} justifyContent="space-between">
-        <Box flexDirection="column">
-          <Text
-            bold={settingsRowIdx === 0}
-            color={settingsRowIdx === 0 ? themePalette.cyan : themePalette.fg}
-          >
-            {settingsRowIdx === 0 ? '❯ ' : '  '}
-            {t.settingLanguageLabel}
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        height={modalHeight}
+        borderStyle="double"
+        borderColor={themePalette.modalBorder}
+        paddingX={1}
+        paddingY={0}
+        marginBottom={1}
+      >
+        {/* Header Bar */}
+        <Box
+          width="100%"
+          height={1}
+          justifyContent="space-between"
+          paddingX={1}
+          marginTop={0}
+        >
+          <Text bold color={themePalette.yellow}>
+            ⚙ {t.settingsTitle}
           </Text>
-          <Text dimColor>  {t.settingLanguageDesc}</Text>
+          <Text dimColor>
+            {language === 'es'
+              ? '↑/↓ elegir categoría · Esc cerrar'
+              : '↑/↓ select category · Esc close'}
+          </Text>
         </Box>
-        <Box>
-          <Text
-            bold={language === 'en'}
-            color={language === 'en' ? themePalette.green : themePalette.dim}
-          >
-            [ English (en) ]
-          </Text>
-          <Text> </Text>
-          <Text
-            bold={language === 'es'}
-            color={language === 'es' ? themePalette.green : themePalette.dim}
-          >
-            [ Español (es) ]
-          </Text>
-        </Box>
-      </Box>
 
-      {/* Row 1: Visual Theme (system, solarized-light, solarized-dark) */}
-      <Box marginTop={1} justifyContent="space-between">
-        <Box flexDirection="column">
-          <Text
-            bold={settingsRowIdx === 1}
-            color={settingsRowIdx === 1 ? themePalette.cyan : themePalette.fg}
-          >
-            {settingsRowIdx === 1 ? '❯ ' : '  '}
-            {t.settingThemeLabel}
-          </Text>
-          <Text dimColor>  {t.settingThemeDesc}</Text>
-        </Box>
-        <Box>
-          <Text
-            bold={theme === 'system'}
-            color={theme === 'system' ? themePalette.green : themePalette.dim}
-          >
-            [ system ]
-          </Text>
-          <Text> </Text>
-          <Text
-            bold={theme === 'solarized-light'}
-            color={theme === 'solarized-light' ? themePalette.green : themePalette.dim}
-          >
-            [ solarized-light ]
-          </Text>
-          <Text> </Text>
-          <Text
-            bold={theme === 'solarized-dark'}
-            color={theme === 'solarized-dark' ? themePalette.green : themePalette.dim}
-          >
-            [ solarized-dark ]
-          </Text>
-        </Box>
-      </Box>
-
-      {/* Row 2: Central Working & Artifacts Directory (default $HOME/.pocli/) */}
-      <Box marginTop={1} flexDirection="column">
-        <Box justifyContent="space-between">
-          <Text
-            bold={settingsRowIdx === 2}
-            color={settingsRowIdx === 2 ? themePalette.cyan : themePalette.fg}
-          >
-            {settingsRowIdx === 2 ? '❯ ' : '  '}
-            {t.settingWorkDirLabel}
-          </Text>
-          <Text bold color={themePalette.green}>
-            [{workDir}]
-          </Text>
-        </Box>
-        <Text dimColor>  {t.settingWorkDirDesc}</Text>
-        {isEditingWorkDir && (
+        {/* Master-Detail Split Body */}
+        <Box flexDirection="row" width="100%" height={bodyHeight} marginTop={1}>
+          {/* Left Panel: Settings Categories (Master) */}
           <Box
             flexDirection="column"
-            marginTop={1}
-            borderStyle="round"
-            borderColor={themePalette.green}
-            paddingX={1}
+            width={leftColWidth}
+            height={bodyHeight}
+            paddingRight={1}
+            borderStyle="single"
+            borderTop={false}
+            borderBottom={false}
+            borderLeft={false}
+            borderRight={true}
+            borderColor={themePalette.dim}
           >
-            <Text color={themePalette.yellow}>{t.settingWorkDirEditPrompt}</Text>
-            <Box>
-              <Text bold color={themePalette.green}>
-                ❯{' '}
+            <Text bold color={themePalette.header} dimColor>
+              {language === 'es' ? 'AJUSTES' : 'SETTINGS'}
+            </Text>
+            <Box height={1} />
+
+            {/* Row 0: Language */}
+            <Box
+              flexDirection="row"
+              justifyContent="space-between"
+              paddingX={1}
+            >
+              <Text
+                bold={settingsRowIdx === 0}
+                color={settingsRowIdx === 0 ? themePalette.cyan : themePalette.fg}
+              >
+                {settingsRowIdx === 0 ? '❯ ' : '  '}
+                {t.settingLanguageLabel}
               </Text>
-              <Text color={themePalette.fg}>{workDirDraft}</Text>
-              <Text color={themePalette.green}>█</Text>
+              <Text color={themePalette.green} bold>
+                [{language}]
+              </Text>
+            </Box>
+
+            {/* Row 1: Theme */}
+            <Box
+              flexDirection="row"
+              justifyContent="space-between"
+              paddingX={1}
+              marginTop={1}
+            >
+              <Text
+                bold={settingsRowIdx === 1}
+                color={settingsRowIdx === 1 ? themePalette.cyan : themePalette.fg}
+              >
+                {settingsRowIdx === 1 ? '❯ ' : '  '}
+                {t.settingThemeLabel}
+              </Text>
+              <Text color={themePalette.green} bold>
+                [{theme === 'solarized-dark' ? 'dark' : theme === 'solarized-light' ? 'light' : 'sys'}]
+              </Text>
+            </Box>
+
+            {/* Row 2: Directory */}
+            <Box
+              flexDirection="row"
+              justifyContent="space-between"
+              paddingX={1}
+              marginTop={1}
+            >
+              <Text
+                bold={settingsRowIdx === 2}
+                color={settingsRowIdx === 2 ? themePalette.cyan : themePalette.fg}
+              >
+                {settingsRowIdx === 2 ? '❯ ' : '  '}
+                {language === 'es' ? 'Directorio' : 'Directory'}
+              </Text>
+              <Text color={themePalette.green} bold>
+                [dir]
+              </Text>
             </Box>
           </Box>
-        )}
+
+          {/* Right Panel: Active Setting Detail */}
+          <Box
+            flexDirection="column"
+            width={rightColWidth}
+            height={bodyHeight}
+            paddingLeft={2}
+            justifyContent="space-between"
+          >
+            {settingsRowIdx === 0 && (
+              <Box flexDirection="column">
+                <Text bold color={themePalette.header}>
+                  {t.settingLanguageLabel}
+                </Text>
+                <Text dimColor>{t.settingLanguageDesc}</Text>
+                <Box height={1} />
+
+                <Box flexDirection="row">
+                  <Text
+                    color={language === 'en' ? themePalette.green : themePalette.dim}
+                    bold
+                  >
+                    {language === 'en' ? '  [●] ' : '  [ ] '}
+                  </Text>
+                  <Text
+                    bold={language === 'en'}
+                    color={language === 'en' ? themePalette.fg : themePalette.dim}
+                  >
+                    English (en)
+                  </Text>
+                  <Text dimColor> — {language === 'es' ? 'Interfaz en idioma inglés' : 'English interface'}</Text>
+                </Box>
+
+                <Box flexDirection="row" marginTop={1}>
+                  <Text
+                    color={language === 'es' ? themePalette.green : themePalette.dim}
+                    bold
+                  >
+                    {language === 'es' ? '  [●] ' : '  [ ] '}
+                  </Text>
+                  <Text
+                    bold={language === 'es'}
+                    color={language === 'es' ? themePalette.fg : themePalette.dim}
+                  >
+                    Español (es)
+                  </Text>
+                  <Text dimColor> — {language === 'es' ? 'Interfaz en idioma español' : 'Spanish interface'}</Text>
+                </Box>
+              </Box>
+            )}
+
+            {settingsRowIdx === 1 && (
+              <Box flexDirection="column">
+                <Text bold color={themePalette.header}>
+                  {t.settingThemeLabel}
+                </Text>
+                <Text dimColor>{t.settingThemeDesc}</Text>
+                <Box height={1} />
+
+                <Box flexDirection="row">
+                  <Text
+                    color={theme === 'system' ? themePalette.green : themePalette.dim}
+                    bold
+                  >
+                    {theme === 'system' ? '  [●] ' : '  [ ] '}
+                  </Text>
+                  <Text
+                    bold={theme === 'system'}
+                    color={theme === 'system' ? themePalette.fg : themePalette.dim}
+                  >
+                    system
+                  </Text>
+                  <Text dimColor>
+                    {' '}— {language === 'es' ? 'Colores nativos de tu terminal' : 'Native terminal look & transparent bg'}
+                  </Text>
+                </Box>
+
+                <Box flexDirection="row" marginTop={1}>
+                  <Text
+                    color={theme === 'solarized-light' ? themePalette.green : themePalette.dim}
+                    bold
+                  >
+                    {theme === 'solarized-light' ? '  [●] ' : '  [ ] '}
+                  </Text>
+                  <Text
+                    bold={theme === 'solarized-light'}
+                    color={theme === 'solarized-light' ? themePalette.fg : themePalette.dim}
+                  >
+                    solarized-light
+                  </Text>
+                  <Text dimColor>
+                    {' '}— {language === 'es' ? 'Paleta clara canónica (#fdf6e3)' : 'Canonical light palette (#fdf6e3)'}
+                  </Text>
+                </Box>
+
+                <Box flexDirection="row" marginTop={1}>
+                  <Text
+                    color={theme === 'solarized-dark' ? themePalette.green : themePalette.dim}
+                    bold
+                  >
+                    {theme === 'solarized-dark' ? '  [●] ' : '  [ ] '}
+                  </Text>
+                  <Text
+                    bold={theme === 'solarized-dark'}
+                    color={theme === 'solarized-dark' ? themePalette.fg : themePalette.dim}
+                  >
+                    solarized-dark
+                  </Text>
+                  <Text dimColor>
+                    {' '}— {language === 'es' ? 'Paleta oscura canónica (#002b36)' : 'Canonical dark palette (#002b36)'}
+                  </Text>
+                </Box>
+              </Box>
+            )}
+
+            {settingsRowIdx === 2 && (
+              <Box flexDirection="column">
+                <Text bold color={themePalette.header}>
+                  {t.settingWorkDirLabel}
+                </Text>
+                <Text dimColor>{t.settingWorkDirDesc}</Text>
+                <Box height={1} />
+
+                <Box flexDirection="row">
+                  <Text color={themePalette.green} bold>
+                    {language === 'es' ? 'Ruta: ' : 'Path: '}
+                  </Text>
+                  <Text color={themePalette.fg} wrap="truncate-middle">
+                    {workDir}
+                  </Text>
+                </Box>
+
+                {isEditingWorkDir ? (
+                  <Box
+                    flexDirection="column"
+                    marginTop={1}
+                    borderStyle="round"
+                    borderColor={themePalette.green}
+                    paddingX={1}
+                  >
+                    <Text color={themePalette.yellow}>
+                      {t.settingWorkDirEditPrompt}
+                    </Text>
+                    <Box>
+                      <Text bold color={themePalette.green}>
+                        ❯{' '}
+                      </Text>
+                      <Text color={themePalette.fg}>{workDirDraft}</Text>
+                      <Text color={themePalette.green}>█</Text>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Box marginTop={1}>
+                    <Text dimColor>
+                      {language === 'es'
+                        ? 'Pulsa Enter o \'e\' para editar la ruta'
+                        : 'Press Enter or \'e\' to edit path'}
+                    </Text>
+                  </Box>
+                )}
+              </Box>
+            )}
+
+            {/* Bottom Contextual Helper Hint */}
+            <Box marginTop={1} paddingX={0}>
+              <Text dimColor>
+                {settingsRowIdx === 0
+                  ? '←/→ o Enter · 1 (en) / 2 (es)'
+                  : settingsRowIdx === 1
+                    ? '←/→ o Enter · 1 (sys) / 2 (light) / 3 (dark)'
+                    : isEditingWorkDir
+                      ? 'Enter guardar · Esc cancelar'
+                      : 'Enter / e editar ruta'}
+              </Text>
+            </Box>
+          </Box>
+        </Box>
       </Box>
-    </Box>
-  );
+    );
+  };
 
   // OpenCode-style Interactive Per-Agent Model Picker Modal (/models or Ctrl+O)
   const renderModelsModal = () => {
