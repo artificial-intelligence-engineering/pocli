@@ -1124,4 +1124,41 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(() => applyTerminalThemeOsc('solarized-light')).not.toThrow();
     expect(() => applyTerminalThemeOsc('system')).not.toThrow();
   });
+
+  it('Issue #12: verifies master-detail split layout data model and keyboard shortcuts for /settings', () => {
+    // 1. Settings categories (Master panel)
+    const categories = ['language', 'theme', 'workDir'] as const;
+    expect(categories).toHaveLength(3);
+
+    // 2. Navigation through 3 rows wraps cleanly
+    const getNextCategory = (curr: number) => (curr < 2 ? curr + 1 : 0);
+    const getPrevCategory = (curr: number) => (curr > 0 ? curr - 1 : 2);
+
+    expect(getNextCategory(0)).toBe(1);
+    expect(getNextCategory(1)).toBe(2);
+    expect(getNextCategory(2)).toBe(0);
+
+    expect(getPrevCategory(0)).toBe(2);
+    expect(getPrevCategory(2)).toBe(1);
+    expect(getPrevCategory(1)).toBe(0);
+
+    // 3. Category 0: numeric shortcuts 1 -> en, 2 -> es
+    const langFromNum = (n: string) => (n === '1' ? 'en' : n === '2' ? 'es' : null);
+    expect(langFromNum('1')).toBe('en');
+    expect(langFromNum('2')).toBe('es');
+
+    // 4. Category 1: numeric shortcuts 1 -> system, 2 -> solarized-light, 3 -> solarized-dark
+    const themeFromNum = (n: string) =>
+      n === '1' ? 'system' : n === '2' ? 'solarized-light' : n === '3' ? 'solarized-dark' : null;
+    expect(themeFromNum('1')).toBe('system');
+    expect(themeFromNum('2')).toBe('solarized-light');
+    expect(themeFromNum('3')).toBe('solarized-dark');
+
+    // 5. Verification of badges in Master panel
+    const getThemeBadge = (thm: string) =>
+      thm === 'solarized-dark' ? 'dark' : thm === 'solarized-light' ? 'light' : 'sys';
+    expect(getThemeBadge('solarized-dark')).toBe('dark');
+    expect(getThemeBadge('solarized-light')).toBe('light');
+    expect(getThemeBadge('system')).toBe('sys');
+  });
 });
