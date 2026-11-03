@@ -14,8 +14,16 @@ export function resolveDefaultWorkDir(): string {
 export const SupportedLanguageSchema = z.enum(['en', 'es']);
 export type SupportedLanguage = z.infer<typeof SupportedLanguageSchema>;
 
+export const SupportedThemeSchema = z.enum([
+  'system',
+  'solarized-light',
+  'solarized-dark',
+]);
+export type SupportedTheme = z.infer<typeof SupportedThemeSchema>;
+
 export const AppSettingsSchema = z.object({
   language: SupportedLanguageSchema.default('en'),
+  theme: SupportedThemeSchema.default('system'),
   workDir: z.string().default(DEFAULT_POCLI_HOME_DIR),
   activeProjectId: z.string().optional(),
 });
@@ -46,10 +54,17 @@ export interface UiTranslations {
   settingsSubtitle: string;
   settingLanguageLabel: string;
   settingLanguageDesc: string;
+  settingThemeLabel: string;
+  settingThemeDesc: string;
+  themeSystemLabel: string;
+  themeSolarizedLightLabel: string;
+  themeSolarizedDarkLabel: string;
   settingWorkDirLabel: string;
   settingWorkDirDesc: string;
   settingWorkDirEditPrompt: string;
   settingsSavedMsg: (lang: SupportedLanguage) => string;
+  themeSavedMsg: (theme: SupportedTheme) => string;
+  themeInvalidMsg: (invalidTheme: string) => string;
   workDirSavedMsg: (dir: string) => string;
   modelsTitle: string;
   modelsSubtitle: string;
@@ -139,6 +154,12 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Use ↑/↓ to select option · ←/→ or Enter to edit · Esc to close',
     settingLanguageLabel: 'Interface Language',
     settingLanguageDesc: 'Switch TUI display language between English and Spanish',
+    settingThemeLabel: 'Visual Theme',
+    settingThemeDesc:
+      'Select color theme (system, solarized-light, solarized-dark)',
+    themeSystemLabel: 'system',
+    themeSolarizedLightLabel: 'solarized-light',
+    themeSolarizedDarkLabel: 'solarized-dark',
     settingWorkDirLabel: 'Central Working & Artifacts Directory',
     settingWorkDirDesc:
       'Central folder (default $HOME/.pocli/) for CLI configs, LLM Python scripts, spreadsheets & PM outputs',
@@ -146,6 +167,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Enter new Central Working Directory path (Enter to save · Esc to cancel):',
     settingsSavedMsg: (lang) =>
       `✔ Settings updated: Interface language set to ${lang === 'en' ? 'English (en)' : 'Spanish (es)'}.`,
+    themeSavedMsg: (thm) =>
+      `✔ Settings updated: Visual theme set to ${thm}.`,
+    themeInvalidMsg: (thm) =>
+      `✖ Invalid theme "${thm}". Available: system, solarized-light, solarized-dark.`,
     workDirSavedMsg: (dir) =>
       `✔ Central Working & Artifacts Directory updated to: ${dir}`,
     modelsTitle: 'Select Model — Per-Agent Model Picker (/models)',
@@ -343,7 +368,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/settings',
         description:
-          'Open settings or change language/working dir (/settings lang en|es · /settings dir <path>)',
+          'Open settings or change language/theme/working dir (/settings lang en|es · /settings theme system|solarized-light|solarized-dark · /settings dir <path>)',
       },
       {
         command: '/view',
@@ -395,6 +420,12 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Usa ↑/↓ para elegir opción · ←/→ o Enter para editar · Esc para cerrar',
     settingLanguageLabel: 'Idioma de la Interfaz',
     settingLanguageDesc: 'Alternar el idioma de la interfaz TUI entre Inglés y Español',
+    settingThemeLabel: 'Tema Visual',
+    settingThemeDesc:
+      'Seleccionar tema de color (system, solarized-light, solarized-dark)',
+    themeSystemLabel: 'system',
+    themeSolarizedLightLabel: 'solarized-light',
+    themeSolarizedDarkLabel: 'solarized-dark',
     settingWorkDirLabel: 'Directorio Central de Trabajo y Artefactos',
     settingWorkDirDesc:
       'Carpeta central (por defecto $HOME/.pocli/) para configs del CLI, scripts Python, hojas de cálculo y outputs de PM',
@@ -402,6 +433,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Introduce la nueva ruta del Directorio Central de Trabajo (Enter guardar · Esc cancelar):',
     settingsSavedMsg: (lang) =>
       `✔ Configuración actualizada: Idioma establecido a ${lang === 'en' ? 'Inglés (en)' : 'Español (es)'}.`,
+    themeSavedMsg: (thm) =>
+      `✔ Configuración actualizada: Tema visual establecido a ${thm}.`,
+    themeInvalidMsg: (thm) =>
+      `✖ Tema no válido "${thm}". Disponibles: system, solarized-light, solarized-dark.`,
     workDirSavedMsg: (dir) =>
       `✔ Directorio Central de Trabajo y Artefactos actualizado a: ${dir}`,
     modelsTitle: 'Seleccionar Modelo — Configuración de Modelo por Agente (/models)',
@@ -599,7 +634,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/settings',
         description:
-          'Abrir ajustes o cambiar idioma/directorio de trabajo (/settings lang en|es · /settings dir <ruta>)',
+          'Abrir ajustes o cambiar idioma/tema/directorio de trabajo (/settings lang en|es · /settings theme system|solarized-light|solarized-dark · /settings dir <ruta>)',
       },
       {
         command: '/view',

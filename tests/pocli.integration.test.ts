@@ -3,10 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  AppSettingsSchema,
+  applyTerminalThemeOsc,
   AuthorityGuard,
   AVAILABLE_MODELS_CATALOG,
   DEFAULT_POCLI_HOME_DIR,
   executeDbCommandOrQuery,
+  getRoleTheme,
   HarnessRegistry,
   I18N_DICTIONARY,
   isMouseSequence,
@@ -16,6 +19,9 @@ import {
   PoCliDatabase,
   PoCliOrchestrator,
   resolveModelSpec,
+  SOLARIZED_COLORS,
+  SupportedThemeSchema,
+  THEME_PALETTES,
 } from '../src/index.js';
 
 describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)', () => {
@@ -1043,5 +1049,79 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(I18N_DICTIONARY.en.bottomShortcutsHint).toContain('Tab multipanel');
     expect(I18N_DICTIONARY.es.bottomShortcutsHint).toContain('Ctrl+N carrusel');
     expect(I18N_DICTIONARY.es.bottomShortcutsHint).toContain('Tab multipanel');
+  });
+
+  it('Issue #9: supports theme configuration in /settings (system, solarized light, solarized dark)', () => {
+    // 1. Schema validation: exactly 3 themes supported with 'system' as default
+    expect(SupportedThemeSchema.safeParse('system').success).toBe(true);
+    expect(SupportedThemeSchema.safeParse('solarized-light').success).toBe(true);
+    expect(SupportedThemeSchema.safeParse('solarized-dark').success).toBe(true);
+    expect(SupportedThemeSchema.safeParse('monokai').success).toBe(false);
+    expect(SupportedThemeSchema.safeParse('dracula').success).toBe(false);
+
+    const defaultSettings = AppSettingsSchema.parse({});
+    expect(defaultSettings.theme).toBe('system');
+
+    // 2. Initial SQLite settings default to 'system'
+    const initial = storage.getSettings();
+    expect(initial.theme).toBe('system');
+
+    // 3. Update theme to solarized-dark and verify persistence
+    const updatedDark = storage.updateSettings({ theme: 'solarized-dark' });
+    expect(updatedDark.theme).toBe('solarized-dark');
+    expect(storage.getSettings().theme).toBe('solarized-dark');
+
+    // Verify written to settings.json
+    const configPath = path.join(initial.workDir, 'config', 'settings.json');
+    expect(fs.existsSync(configPath)).toBe(true);
+    const parsedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    expect(parsedConfig.theme).toBe('solarized-dark');
+
+    // 4. Update theme to solarized-light and verify persistence
+    const updatedLight = storage.updateSettings({ theme: 'solarized-light' });
+    expect(updatedLight.theme).toBe('solarized-light');
+    expect(storage.getSettings().theme).toBe('solarized-light');
+
+    // 5. Update back to system
+    const updatedSystem = storage.updateSettings({ theme: 'system' });
+    expect(updatedSystem.theme).toBe('system');
+    expect(storage.getSettings().theme).toBe('system');
+
+    // 6. Verify canonical Solarized palette values
+    expect(SOLARIZED_COLORS.base03).toBe('#002b36');
+    expect(SOLARIZED_COLORS.base3).toBe('#fdf6e3');
+    expect(SOLARIZED_COLORS.yellow).toBe('#b58900');
+    expect(SOLARIZED_COLORS.blue).toBe('#268bd2');
+
+    // 7. Verify THEME_PALETTES structures
+    expect(THEME_PALETTES.system.theme).toBe('system');
+    expect(THEME_PALETTES['solarized-dark'].bg).toBe('#002b36');
+    expect(THEME_PALETTES['solarized-light'].bg).toBe('#fdf6e3');
+
+    // 8. Verify getRoleTheme adapts to active theme
+    const systemArch = getRoleTheme('architect', 'system');
+    const darkArch = getRoleTheme('architect', 'solarized-dark');
+    const lightArch = getRoleTheme('architect', 'solarized-light');
+
+    expect(systemArch.bgColor).toBe('blue');
+    expect(darkArch.bgColor).toBe('#268bd2');
+    expect(lightArch.bgColor).toBe('#268bd2');
+
+    // 9. Verify i18n dictionary translations in en and es
+    expect(I18N_DICTIONARY.en.settingThemeLabel).toBe('Visual Theme');
+    expect(I18N_DICTIONARY.es.settingThemeLabel).toBe('Tema Visual');
+    expect(I18N_DICTIONARY.en.themeSavedMsg('solarized-dark')).toContain('solarized-dark');
+    expect(I18N_DICTIONARY.es.themeSavedMsg('solarized-light')).toContain('solarized-light');
+    expect(I18N_DICTIONARY.en.themeInvalidMsg('invalid')).toContain(
+      'Available: system, solarized-light, solarized-dark',
+    );
+    expect(I18N_DICTIONARY.es.themeInvalidMsg('invalido')).toContain(
+      'Disponibles: system, solarized-light, solarized-dark',
+    );
+
+    // 10. OSC helper behaves safely in non-TTY environments
+    expect(() => applyTerminalThemeOsc('solarized-dark')).not.toThrow();
+    expect(() => applyTerminalThemeOsc('solarized-light')).not.toThrow();
+    expect(() => applyTerminalThemeOsc('system')).not.toThrow();
   });
 });

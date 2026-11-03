@@ -8,6 +8,7 @@ import {
   getRoleDisplayName,
   I18N_DICTIONARY,
   SupportedLanguage,
+  SupportedTheme,
 } from '../core/i18n.js';
 import { ExpertChatSummary } from '../storage/database.js';
 import { executeDbCommandOrQuery } from '../storage/db-repl.js';
@@ -43,43 +44,187 @@ const ASCII_LOGO = [
   '╚═╝      ╚═════╝      ╚═════╝╚══════╝╚═╝',
 ];
 
+/**
+ * Canonical Solarized Palette (Ethan Schoonover)
+ * https://ethanschoonover.com/solarized/
+ */
+export const SOLARIZED_COLORS = {
+  base03: '#002b36', // darkest background
+  base02: '#073642', // background highlights / secondary bg
+  base01: '#586e75', // comments / secondary content
+  base00: '#657b83', // primary content in light theme
+  base0: '#839496',  // primary content in dark theme
+  base1: '#93a1a1',  // emphasized content
+  base2: '#eee8d5',  // background highlights in light theme
+  base3: '#fdf6e3',  // lightest background
+  yellow: '#b58900',
+  orange: '#cb4b16',
+  red: '#dc322f',
+  magenta: '#d33682',
+  violet: '#6c71c4',
+  blue: '#268bd2',
+  cyan: '#2aa198',
+  green: '#859900',
+} as const;
+
 export interface RoleColorTheme {
-  bgColor: 'magenta' | 'blue' | 'green' | 'yellow' | 'cyan';
-  fgColor: 'white' | 'black';
-  accentColor: 'magenta' | 'blue' | 'green' | 'yellow' | 'cyan';
+  bgColor: string;
+  fgColor: string;
+  accentColor: string;
 }
 
-export const ROLE_COLOR_THEMES: Record<string, RoleColorTheme> = {
-  pm: {
-    bgColor: 'magenta',
-    fgColor: 'white',
-    accentColor: 'magenta',
+export interface ThemePalette {
+  theme: SupportedTheme;
+  bg?: string;
+  fg: string;
+  dim: string;
+  header: string;
+  border: string;
+  accent: string;
+  cyan: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  magenta: string;
+  red: string;
+  orange: string;
+  modalBorder: string;
+  roleThemes: Record<ActorRole, RoleColorTheme>;
+}
+
+export const THEME_PALETTES: Record<SupportedTheme, ThemePalette> = {
+  system: {
+    theme: 'system',
+    bg: undefined,
+    fg: 'white',
+    dim: 'gray',
+    header: 'white',
+    border: 'cyan',
+    accent: 'cyan',
+    cyan: 'cyan',
+    green: 'green',
+    yellow: 'yellow',
+    blue: 'blue',
+    magenta: 'magenta',
+    red: 'red',
+    orange: 'yellow',
+    modalBorder: 'yellow',
+    roleThemes: {
+      pm: { bgColor: 'magenta', fgColor: 'white', accentColor: 'magenta' },
+      architect: { bgColor: 'blue', fgColor: 'white', accentColor: 'blue' },
+      developer: { bgColor: 'green', fgColor: 'black', accentColor: 'green' },
+      qa: { bgColor: 'yellow', fgColor: 'black', accentColor: 'yellow' },
+    },
   },
-  architect: {
-    bgColor: 'blue',
-    fgColor: 'white',
-    accentColor: 'blue',
+  'solarized-dark': {
+    theme: 'solarized-dark',
+    bg: SOLARIZED_COLORS.base03,
+    fg: SOLARIZED_COLORS.base0,
+    dim: SOLARIZED_COLORS.base01,
+    header: SOLARIZED_COLORS.base1,
+    border: SOLARIZED_COLORS.cyan,
+    accent: SOLARIZED_COLORS.blue,
+    cyan: SOLARIZED_COLORS.cyan,
+    green: SOLARIZED_COLORS.green,
+    yellow: SOLARIZED_COLORS.yellow,
+    blue: SOLARIZED_COLORS.blue,
+    magenta: SOLARIZED_COLORS.magenta,
+    red: SOLARIZED_COLORS.red,
+    orange: SOLARIZED_COLORS.orange,
+    modalBorder: SOLARIZED_COLORS.yellow,
+    roleThemes: {
+      pm: {
+        bgColor: SOLARIZED_COLORS.magenta,
+        fgColor: SOLARIZED_COLORS.base3,
+        accentColor: SOLARIZED_COLORS.magenta,
+      },
+      architect: {
+        bgColor: SOLARIZED_COLORS.blue,
+        fgColor: SOLARIZED_COLORS.base3,
+        accentColor: SOLARIZED_COLORS.blue,
+      },
+      developer: {
+        bgColor: SOLARIZED_COLORS.green,
+        fgColor: SOLARIZED_COLORS.base03,
+        accentColor: SOLARIZED_COLORS.green,
+      },
+      qa: {
+        bgColor: SOLARIZED_COLORS.yellow,
+        fgColor: SOLARIZED_COLORS.base03,
+        accentColor: SOLARIZED_COLORS.yellow,
+      },
+    },
   },
-  developer: {
-    bgColor: 'green',
-    fgColor: 'black',
-    accentColor: 'green',
-  },
-  qa: {
-    bgColor: 'yellow',
-    fgColor: 'black',
-    accentColor: 'yellow',
+  'solarized-light': {
+    theme: 'solarized-light',
+    bg: SOLARIZED_COLORS.base3,
+    fg: SOLARIZED_COLORS.base00,
+    dim: SOLARIZED_COLORS.base1,
+    header: SOLARIZED_COLORS.base01,
+    border: SOLARIZED_COLORS.cyan,
+    accent: SOLARIZED_COLORS.blue,
+    cyan: SOLARIZED_COLORS.cyan,
+    green: SOLARIZED_COLORS.green,
+    yellow: SOLARIZED_COLORS.yellow,
+    blue: SOLARIZED_COLORS.blue,
+    magenta: SOLARIZED_COLORS.magenta,
+    red: SOLARIZED_COLORS.red,
+    orange: SOLARIZED_COLORS.orange,
+    modalBorder: SOLARIZED_COLORS.yellow,
+    roleThemes: {
+      pm: {
+        bgColor: SOLARIZED_COLORS.magenta,
+        fgColor: SOLARIZED_COLORS.base3,
+        accentColor: SOLARIZED_COLORS.magenta,
+      },
+      architect: {
+        bgColor: SOLARIZED_COLORS.blue,
+        fgColor: SOLARIZED_COLORS.base3,
+        accentColor: SOLARIZED_COLORS.blue,
+      },
+      developer: {
+        bgColor: SOLARIZED_COLORS.green,
+        fgColor: SOLARIZED_COLORS.base3,
+        accentColor: SOLARIZED_COLORS.green,
+      },
+      qa: {
+        bgColor: SOLARIZED_COLORS.yellow,
+        fgColor: SOLARIZED_COLORS.base3,
+        accentColor: SOLARIZED_COLORS.yellow,
+      },
+    },
   },
 };
 
-export function getRoleTheme(role: ActorRole): RoleColorTheme {
+export const ROLE_COLOR_THEMES = THEME_PALETTES.system.roleThemes;
+
+export function getRoleTheme(
+  role: ActorRole,
+  theme: SupportedTheme = 'system',
+): RoleColorTheme {
+  const palette = THEME_PALETTES[theme] ?? THEME_PALETTES.system;
   return (
-    ROLE_COLOR_THEMES[role] ?? {
+    palette.roleThemes[role] ?? {
       bgColor: 'cyan',
       fgColor: 'black',
       accentColor: 'cyan',
     }
   );
+}
+
+export function applyTerminalThemeOsc(theme: SupportedTheme): void {
+  if (!process.stdout.isTTY) return;
+  if (theme === 'solarized-dark') {
+    process.stdout.write(
+      `\x1b]11;${SOLARIZED_COLORS.base03}\x07\x1b]10;${SOLARIZED_COLORS.base0}\x07`,
+    );
+  } else if (theme === 'solarized-light') {
+    process.stdout.write(
+      `\x1b]11;${SOLARIZED_COLORS.base3}\x07\x1b]10;${SOLARIZED_COLORS.base00}\x07`,
+    );
+  } else {
+    process.stdout.write('\x1b]111\x07\x1b]110\x07');
+  }
 }
 
 export interface AvailableAgentInfo {
@@ -195,6 +340,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [language, setLanguage] = useState<SupportedLanguage>(
     initialSettings.language,
   );
+  const [theme, setTheme] = useState<SupportedTheme>(
+    initialSettings.theme ?? 'system',
+  );
   const [workDir, setWorkDir] = useState<string>(initialSettings.workDir);
   const [settingsRowIdx, setSettingsRowIdx] = useState<number>(0);
   const [isEditingWorkDir, setIsEditingWorkDir] = useState<boolean>(false);
@@ -202,6 +350,25 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     initialSettings.workDir,
   );
   const t = I18N_DICTIONARY[language];
+
+  const themePalette = useMemo(
+    () => THEME_PALETTES[theme] ?? THEME_PALETTES.system,
+    [theme],
+  );
+
+  const applyThemeChange = (nextTheme: SupportedTheme) => {
+    orchestrator.storage.updateSettings({ theme: nextTheme });
+    setTheme(nextTheme);
+    applyTerminalThemeOsc(nextTheme);
+    setStatusBanner(t.themeSavedMsg(nextTheme));
+  };
+
+  useEffect(() => {
+    applyTerminalThemeOsc(theme);
+    return () => {
+      applyTerminalThemeOsc('system');
+    };
+  }, [theme]);
 
   const [dimensions, setDimensions] = useState<{ columns: number; rows: number }>({
     columns: stdout?.columns ?? 120,
@@ -711,6 +878,52 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           parts.length >= 3
         ) {
           applyWorkDirChange(parts.slice(2).join(' '));
+          return;
+        }
+        if (arg1 === 'theme') {
+          if (!arg2) {
+            setWorkDirDraft(workDir);
+            setSettingsRowIdx(1);
+            setIsSettingsOpen(true);
+            return;
+          }
+          if (arg2 === 'system') {
+            applyThemeChange('system');
+            return;
+          }
+          if (
+            arg2 === 'solarized-light' ||
+            arg2 === 'solarized_light' ||
+            arg2 === 'light'
+          ) {
+            applyThemeChange('solarized-light');
+            return;
+          }
+          if (
+            arg2 === 'solarized-dark' ||
+            arg2 === 'solarized_dark' ||
+            arg2 === 'dark'
+          ) {
+            applyThemeChange('solarized-dark');
+            return;
+          }
+          setStatusBanner(t.themeInvalidMsg(parts[2] ?? ''));
+          return;
+        }
+        if (
+          arg1 === 'system' ||
+          arg1 === 'solarized-light' ||
+          arg1 === 'solarized_light' ||
+          arg1 === 'solarized-dark' ||
+          arg1 === 'solarized_dark'
+        ) {
+          const normTheme: SupportedTheme =
+            arg1.includes('light')
+              ? 'solarized-light'
+              : arg1.includes('dark')
+                ? 'solarized-dark'
+                : 'system';
+          applyThemeChange(normTheme);
           return;
         }
         const requestedLang = arg1 === 'lang' ? arg2 : arg1;
@@ -1240,7 +1453,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (isSettingsOpen && !isEditingWorkDir) {
-        setSettingsRowIdx((prev) => (prev === 0 ? 1 : 0));
+        setSettingsRowIdx((prev) =>
+          isUp ? (prev > 0 ? prev - 1 : 2) : prev < 2 ? prev + 1 : 0,
+        );
         return;
       }
       if (isSlashMenuOpen && filteredSlashCommands.length > 0) {
@@ -1438,11 +1653,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
 
-      // Interactive Settings modal: click toggles language or opens workDir editor
+      // Interactive Settings modal: click toggles language, theme, or opens workDir editor
       if (isSettingsOpen && !isEditingWorkDir) {
         if (settingsRowIdx === 0) {
           const nextLang: SupportedLanguage = language === 'en' ? 'es' : 'en';
           applyLanguageChange(nextLang);
+        } else if (settingsRowIdx === 1) {
+          const themeList: SupportedTheme[] = [
+            'system',
+            'solarized-light',
+            'solarized-dark',
+          ];
+          const currIdx = themeList.indexOf(theme);
+          const nextIdx = (currIdx + 1) % themeList.length;
+          applyThemeChange(themeList[nextIdx]);
         } else {
           setWorkDirDraft(workDir);
           setIsEditingWorkDir(true);
@@ -2021,8 +2245,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setIsSettingsOpen(false);
         return;
       }
-      if (key.upArrow || key.downArrow) {
-        setSettingsRowIdx((prev) => (prev === 0 ? 1 : 0));
+      if (key.upArrow) {
+        setSettingsRowIdx((prev) => (prev > 0 ? prev - 1 : 2));
+        return;
+      }
+      if (key.downArrow) {
+        setSettingsRowIdx((prev) => (prev < 2 ? prev + 1 : 0));
         return;
       }
       if (settingsRowIdx === 0) {
@@ -2032,6 +2260,35 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           return;
         }
       } else if (settingsRowIdx === 1) {
+        const themeList: SupportedTheme[] = [
+          'system',
+          'solarized-light',
+          'solarized-dark',
+        ];
+        const currIdx = themeList.indexOf(theme);
+        if (input === '1') {
+          applyThemeChange('system');
+          return;
+        }
+        if (input === '2') {
+          applyThemeChange('solarized-light');
+          return;
+        }
+        if (input === '3') {
+          applyThemeChange('solarized-dark');
+          return;
+        }
+        if (key.leftArrow) {
+          const nextIdx = (currIdx - 1 + themeList.length) % themeList.length;
+          applyThemeChange(themeList[nextIdx]);
+          return;
+        }
+        if (key.rightArrow || key.return || input === ' ') {
+          const nextIdx = (currIdx + 1) % themeList.length;
+          applyThemeChange(themeList[nextIdx]);
+          return;
+        }
+      } else if (settingsRowIdx === 2) {
         if (key.return || input === 'e' || input === ' ') {
           setWorkDirDraft(workDir);
           setIsEditingWorkDir(true);
@@ -2198,7 +2455,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const harnesses = useMemo(() => HarnessRegistry.listHarnesses(), []);
   const activeRoleDisplayName = getRoleDisplayName(activeRole, language);
-  const activeTheme = getRoleTheme(activeRole);
+  const activeTheme = getRoleTheme(activeRole, theme);
   const activeModelCfg = useMemo(
     () => orchestrator.storage.getRoleConfig(project.id, activeRole),
     [
@@ -2442,7 +2699,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         {AVAILABLE_AGENTS.map((item, idx) => {
           const isSelected = idx === selectedAgentIdx;
           const isCurrentActive = item.role === activeRole;
-          const roleTheme = getRoleTheme(item.role);
+          const roleTheme = getRoleTheme(item.role, theme);
           const roleCfg = orchestrator.storage.getRoleConfig(
             project.id,
             item.role,
@@ -2567,7 +2824,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       const activeAgent =
         AVAILABLE_AGENTS.find((a) => a.role === systemViewingRole) ??
         AVAILABLE_AGENTS[0];
-      const roleTheme = getRoleTheme(systemViewingRole);
+      const roleTheme = getRoleTheme(systemViewingRole, theme);
       const res = HarnessRegistry.inspectResolution(systemViewingRole);
 
       const windowHeight = Math.max(
@@ -2970,12 +3227,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       flexDirection="column"
       width={Math.min(92, dimensions.columns - 8)}
       borderStyle="double"
-      borderColor="yellow"
+      borderColor={themePalette.modalBorder}
       paddingX={2}
       paddingY={1}
       marginBottom={1}
     >
-      <Text bold color="yellow">
+      <Text bold color={themePalette.yellow}>
         ⚙ {t.settingsTitle}
       </Text>
       <Text dimColor>{t.settingsSubtitle}</Text>
@@ -2985,7 +3242,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         <Box flexDirection="column">
           <Text
             bold={settingsRowIdx === 0}
-            color={settingsRowIdx === 0 ? 'cyan' : 'white'}
+            color={settingsRowIdx === 0 ? themePalette.cyan : themePalette.fg}
           >
             {settingsRowIdx === 0 ? '❯ ' : '  '}
             {t.settingLanguageLabel}
@@ -2995,31 +3252,67 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         <Box>
           <Text
             bold={language === 'en'}
-            color={language === 'en' ? 'green' : 'gray'}
+            color={language === 'en' ? themePalette.green : themePalette.dim}
           >
             [ English (en) ]
           </Text>
           <Text> </Text>
           <Text
             bold={language === 'es'}
-            color={language === 'es' ? 'green' : 'gray'}
+            color={language === 'es' ? themePalette.green : themePalette.dim}
           >
             [ Español (es) ]
           </Text>
         </Box>
       </Box>
 
-      {/* Row 1: Central Working & Artifacts Directory (default $HOME/.pocli/) */}
+      {/* Row 1: Visual Theme (system, solarized-light, solarized-dark) */}
+      <Box marginTop={1} justifyContent="space-between">
+        <Box flexDirection="column">
+          <Text
+            bold={settingsRowIdx === 1}
+            color={settingsRowIdx === 1 ? themePalette.cyan : themePalette.fg}
+          >
+            {settingsRowIdx === 1 ? '❯ ' : '  '}
+            {t.settingThemeLabel}
+          </Text>
+          <Text dimColor>  {t.settingThemeDesc}</Text>
+        </Box>
+        <Box>
+          <Text
+            bold={theme === 'system'}
+            color={theme === 'system' ? themePalette.green : themePalette.dim}
+          >
+            [ system ]
+          </Text>
+          <Text> </Text>
+          <Text
+            bold={theme === 'solarized-light'}
+            color={theme === 'solarized-light' ? themePalette.green : themePalette.dim}
+          >
+            [ solarized-light ]
+          </Text>
+          <Text> </Text>
+          <Text
+            bold={theme === 'solarized-dark'}
+            color={theme === 'solarized-dark' ? themePalette.green : themePalette.dim}
+          >
+            [ solarized-dark ]
+          </Text>
+        </Box>
+      </Box>
+
+      {/* Row 2: Central Working & Artifacts Directory (default $HOME/.pocli/) */}
       <Box marginTop={1} flexDirection="column">
         <Box justifyContent="space-between">
           <Text
-            bold={settingsRowIdx === 1}
-            color={settingsRowIdx === 1 ? 'cyan' : 'white'}
+            bold={settingsRowIdx === 2}
+            color={settingsRowIdx === 2 ? themePalette.cyan : themePalette.fg}
           >
-            {settingsRowIdx === 1 ? '❯ ' : '  '}
+            {settingsRowIdx === 2 ? '❯ ' : '  '}
             {t.settingWorkDirLabel}
           </Text>
-          <Text bold color="green">
+          <Text bold color={themePalette.green}>
             [{workDir}]
           </Text>
         </Box>
@@ -3029,16 +3322,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             flexDirection="column"
             marginTop={1}
             borderStyle="round"
-            borderColor="green"
+            borderColor={themePalette.green}
             paddingX={1}
           >
-            <Text color="yellow">{t.settingWorkDirEditPrompt}</Text>
+            <Text color={themePalette.yellow}>{t.settingWorkDirEditPrompt}</Text>
             <Box>
-              <Text bold color="green">
+              <Text bold color={themePalette.green}>
                 ❯{' '}
               </Text>
-              <Text color="white">{workDirDraft}</Text>
-              <Text color="green">█</Text>
+              <Text color={themePalette.fg}>{workDirDraft}</Text>
+              <Text color={themePalette.green}>█</Text>
             </Box>
           </Box>
         )}
@@ -3069,7 +3362,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             fgColor: 'black' as const,
             accentColor: 'cyan' as const,
           }
-        : getRoleTheme(modelsTargetRole);
+        : getRoleTheme(modelsTargetRole, theme);
 
     // Larger, strictly fixed modal dimensions so moving left/right/up/down or
     // typing in the filter never changes the dialog width or height.
@@ -3185,7 +3478,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                       fgColor: 'black' as const,
                       accentColor: 'cyan' as const,
                     }
-                  : getRoleTheme(opt);
+                  : getRoleTheme(opt, theme);
               const shortLabel = roleShortLiterals[opt];
               const buttonText = centerInBox(
                 isSelectedTarget ? `▶ ${shortLabel} ◀` : shortLabel,
@@ -3318,7 +3611,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   </Text>
                   <Box height={1}>
                     {assignedRoles.map((rKey) => {
-                      const rTheme = getRoleTheme(rKey);
+                      const rTheme = getRoleTheme(rKey, theme);
                       return (
                         <Box key={rKey} marginLeft={1}>
                           <Text
@@ -4265,7 +4558,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   </Text>
                   {AVAILABLE_AGENTS.map((item) => {
                     if (!busyRoles[item.role]) return null;
-                    const rTheme = getRoleTheme(item.role);
+                    const rTheme = getRoleTheme(item.role, theme);
                     const isStreamingThis = Boolean(streamingByRole[item.role]);
                     return (
                       <Text key={item.role} color={rTheme.accentColor}>
@@ -4384,7 +4677,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                   qa: 0,
                 },
               };
-              const roleTheme = getRoleTheme(roleKey);
+              const roleTheme = getRoleTheme(roleKey, theme);
               const boxTitle = t.expertBoxTitles[roleKey];
               const isSelected = activeRole === roleKey;
               const isCardBusy = Boolean(busyRoles[roleKey]);

@@ -30,6 +30,7 @@ import {
   AppSettings,
   resolveDefaultWorkDir,
   SupportedLanguage,
+  SupportedTheme,
 } from '../core/i18n.js';
 import { AuthorityGuard } from '../core/workflow.js';
 
@@ -587,6 +588,9 @@ export class PoCliDatabase {
     const langRow = this.db
       .prepare(`SELECT value FROM settings WHERE key = 'language'`)
       .get() as { value: string } | undefined;
+    const themeRow = this.db
+      .prepare(`SELECT value FROM settings WHERE key = 'theme'`)
+      .get() as { value: string } | undefined;
     const workDirRow = this.db
       .prepare(`SELECT value FROM settings WHERE key = 'work_dir'`)
       .get() as { value: string } | undefined;
@@ -595,11 +599,17 @@ export class PoCliDatabase {
       .get() as { value: string } | undefined;
     const lang: SupportedLanguage =
       langRow?.value === 'es' ? 'es' : 'en';
+    const theme: SupportedTheme =
+      themeRow?.value === 'solarized-light' ||
+      themeRow?.value === 'solarized-dark'
+        ? themeRow.value
+        : 'system';
     const workDir = workDirRow?.value
       ? path.resolve(workDirRow.value)
       : this.defaultWorkDir;
     return {
       language: lang,
+      theme,
       workDir,
       activeProjectId: activeProjRow?.value,
     };
@@ -617,6 +627,17 @@ export class PoCliDatabase {
              updated_at = excluded.updated_at`,
         )
         .run(partial.language, now);
+    }
+    if (partial.theme) {
+      this.db
+        .prepare(
+          `INSERT INTO settings (key, value, updated_at)
+           VALUES ('theme', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             value = excluded.value,
+             updated_at = excluded.updated_at`,
+        )
+        .run(partial.theme, now);
     }
     if (partial.workDir !== undefined && partial.workDir.trim().length > 0) {
       const resolvedWorkDir = path.resolve(partial.workDir.trim());
