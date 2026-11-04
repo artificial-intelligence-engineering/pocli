@@ -144,16 +144,16 @@ export class PoCliDatabase {
   public ensureWorkDirStructure(workDir: string): void {
     const resolved = path.resolve(workDir);
     fs.mkdirSync(path.join(resolved, 'config'), { recursive: true });
-    fs.mkdirSync(path.join(resolved, 'artifacts', 'scripts'), {
-      recursive: true,
-    });
-    fs.mkdirSync(path.join(resolved, 'artifacts', 'outputs'), {
-      recursive: true,
-    });
-    fs.mkdirSync(path.join(resolved, 'artifacts', 'projects'), {
-      recursive: true,
-    });
+    fs.mkdirSync(path.join(resolved, 'logs'), { recursive: true });
     fs.mkdirSync(path.join(resolved, 'workspaces'), { recursive: true });
+  }
+
+  public ensureProjectArtifactsStructure(workspaceDir: string): void {
+    const base = path.join(workspaceDir, '.pocli', 'artifacts');
+    fs.mkdirSync(path.join(base, 'contracts'), { recursive: true });
+    fs.mkdirSync(path.join(base, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(base, 'deliveries'), { recursive: true });
+    fs.mkdirSync(path.join(base, 'outputs'), { recursive: true });
   }
 
   private syncSettingsFiles(settings: AppSettings): void {
@@ -738,7 +738,7 @@ export class PoCliDatabase {
     const id = `proj_${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();
     const workspaceDir = path.resolve(params.workspaceDir);
-    fs.mkdirSync(path.join(workspaceDir, '.pocli', 'artifacts'), { recursive: true });
+    this.ensureProjectArtifactsStructure(workspaceDir);
 
     const phase: WorkflowPhase = 'PHASE_2_ARCHITECT_ANALYSIS';
     this.db
@@ -1719,55 +1719,34 @@ export class PoCliDatabase {
     }
 
     const sha256 = crypto.createHash('sha256').update(params.content, 'utf8').digest('hex');
-    const currentWorkDir = this.getSettings().workDir;
-    this.ensureWorkDirStructure(currentWorkDir);
+    this.ensureProjectArtifactsStructure(project.workspaceDir);
 
     let absPath: string;
-    if (params.type === 'LLM_OUTPUT' || params.type === 'PM_REPORT') {
-      const centralRel =
-        params.customRelPath ??
-        path.join(
-          'outputs',
-          `${params.code}_v${nextVersion}.md`,
-        );
-      absPath = path.join(currentWorkDir, 'artifacts', centralRel);
-      fs.mkdirSync(path.dirname(absPath), { recursive: true });
-      fs.writeFileSync(absPath, params.content, 'utf8');
-
-      // Also mirror into the active project's .pocli/artifacts directory
-      const projectMirrorPath = path.join(
-        project.workspaceDir,
-        '.pocli',
-        'artifacts',
-        centralRel,
-      );
-      fs.mkdirSync(path.dirname(projectMirrorPath), { recursive: true });
-      fs.writeFileSync(projectMirrorPath, params.content, 'utf8');
-    } else {
+    if (params.type === 'SOURCE_CODE') {
       const relPath =
         params.customRelPath ??
-        path.join(
-          '.pocli',
-          'artifacts',
+        path.join('src', `${params.code}_v${nextVersion}.txt`);
+      absPath = path.join(project.workspaceDir, relPath);
+    } else {
+      let relPath: string;
+      if (params.customRelPath) {
+        relPath = params.customRelPath;
+      } else if (params.type === 'PM_REPORT') {
+        relPath = path.join('deliveries', `${params.code}_v${nextVersion}.md`);
+      } else if (params.type === 'LLM_OUTPUT') {
+        relPath = path.join('outputs', `${params.code}_v${nextVersion}.md`);
+      } else {
+        relPath = path.join(
+          'contracts',
           params.type.toLowerCase(),
           `${params.code}_v${nextVersion}.md`,
         );
-      absPath = path.join(project.workspaceDir, relPath);
-      fs.mkdirSync(path.dirname(absPath), { recursive: true });
-      fs.writeFileSync(absPath, params.content, 'utf8');
-
-      // Mirror all LLM-created artifacts into the central working directory ($HOME/.pocli/artifacts/projects/<project>/)
-      const sanitizedProjectName = project.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const centralMirrorPath = path.join(
-        currentWorkDir,
-        'artifacts',
-        'projects',
-        sanitizedProjectName,
-        relPath,
-      );
-      fs.mkdirSync(path.dirname(centralMirrorPath), { recursive: true });
-      fs.writeFileSync(centralMirrorPath, params.content, 'utf8');
+      }
+      absPath = path.join(project.workspaceDir, '.pocli', 'artifacts', relPath);
     }
+
+    fs.mkdirSync(path.dirname(absPath), { recursive: true });
+    fs.writeFileSync(absPath, params.content, 'utf8');
 
     const id = `art_${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();

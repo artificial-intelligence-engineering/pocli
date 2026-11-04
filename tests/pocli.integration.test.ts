@@ -602,11 +602,11 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(storage.getActiveProject()?.name).toBe('EnterprisePlatform');
   });
 
-  it('defaults central CLI folder to $HOME/.pocli/, allows changing working directory via /settings, and stores LLM Python scripts & PM spreadsheets there', async () => {
+  it('defaults central CLI folder to $HOME/.pocli/, allows changing working directory via /settings, and stores artifacts per-project in workspace/.pocli/artifacts', async () => {
     // 1. Default global CLI directory is $HOME/.pocli
     expect(DEFAULT_POCLI_HOME_DIR).toBe(path.join(os.homedir(), '.pocli'));
 
-    // 2. Customize the Central Working & Artifacts Directory via /settings
+    // 2. Customize the Central Working Directory via /settings
     const customCentralDir = path.join(tmpDir, 'custom-pocli-home');
     const updatedSettings = storage.updateSettings({
       workDir: customCentralDir,
@@ -616,19 +616,34 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       fs.existsSync(path.join(customCentralDir, 'config', 'settings.json')),
     ).toBe(true);
     expect(
-      fs.existsSync(path.join(customCentralDir, 'artifacts', 'scripts')),
+      fs.existsSync(path.join(customCentralDir, 'workspaces')),
     ).toBe(true);
+    // Ensure central working directory is NOT polluted with artifacts
     expect(
-      fs.existsSync(path.join(customCentralDir, 'artifacts', 'outputs')),
-    ).toBe(true);
+      fs.existsSync(path.join(customCentralDir, 'artifacts')),
+    ).toBe(false);
 
     const project = orchestrator.createProject({
-      name: 'CentralizedArtifactsDemo',
-      description: 'Verifies LLM scripts and PM outputs in central working directory',
+      name: 'PerProjectArtifactsDemo',
+      description: 'Verifies self-contained per-project artifact storage in workspace',
       workspaceDir: path.join(customCentralDir, 'workspaces', 'demo'),
     });
 
-    // 3. Request Project Manager (PM) to generate both a Python helper script and a CSV spreadsheet
+    // 3. Project workspace structure has .pocli/artifacts subdirectories
+    expect(
+      fs.existsSync(path.join(project.workspaceDir, '.pocli', 'artifacts', 'contracts')),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(project.workspaceDir, '.pocli', 'artifacts', 'scripts')),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(project.workspaceDir, '.pocli', 'artifacts', 'deliveries')),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(project.workspaceDir, '.pocli', 'artifacts', 'outputs')),
+    ).toBe(true);
+
+    // 4. Request Project Manager (PM) to generate both a Python helper script and a CSV spreadsheet
     const pmTurn = await orchestrator.chatWithProfessional({
       projectId: project.id,
       targetRole: 'pm',
@@ -639,15 +654,17 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(pmTurn.createdArtifacts.map((a) => a.code)).toContain('OUT-CSV-001');
     expect(pmTurn.createdArtifacts.map((a) => a.code)).toContain('OUT-PY-001');
 
-    // Verify both files exist inside the configured central working directory (<workDir>/artifacts/...)
+    // Verify both files exist inside the project's workspace (.pocli/artifacts/...)
     const expectedCsvPath = path.join(
-      customCentralDir,
+      project.workspaceDir,
+      '.pocli',
       'artifacts',
-      'outputs',
+      'deliveries',
       'pm_project_metrics.csv',
     );
     const expectedPyPath = path.join(
-      customCentralDir,
+      project.workspaceDir,
+      '.pocli',
       'artifacts',
       'scripts',
       'pocli_task_helper.py',
@@ -660,6 +677,11 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(fs.readFileSync(expectedPyPath, 'utf8')).toContain(
       '#!/usr/bin/env python3',
     );
+
+    // Verify central directory does NOT contain any project artifact mirrors
+    expect(
+      fs.existsSync(path.join(customCentralDir, 'artifacts')),
+    ).toBe(false);
   });
 
   it('implements Pi-inspired Context Window Compaction (/compact), Session Tree DAG parent_id lineage, and 3-tier prompt assembly in SQLite', async () => {
