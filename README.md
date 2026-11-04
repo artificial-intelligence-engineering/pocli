@@ -211,6 +211,7 @@ npm run build
   * `/system` — Open the interactive **System Prompts Inspector** dialog to view the read-only prompt for any specialist (`Architect`, `Developer`, `QA`, `PM`) or inspect `System Prompt Locations` to see active file paths, user overrides (`$HOME/.pocli/behavior/system/`), and in-memory fallbacks.
   * `/db` — Inspect the SQLite database directly inside the TUI (`/db`, `/db .tables`, `/db .experts`, or `/db SELECT ...`), complementing the standalone `pocli db` REPL.
   * `/settings` — Open the interactive Settings modal or configure UI language (`/settings lang en|es`) and the **Central Working & Artifacts Directory** (`/settings dir <path>`, which defaults to `$HOME/.pocli/` and stores all CLI customizations, LLM-generated Python helper scripts in `artifacts/scripts/`, spreadsheets and Project Manager outputs in `artifacts/outputs/`, and mirrored project artifacts).
+  * `/howto` — Open the interactive Getting Started and Workflow Guide modal, explaining the Product Owner authority model, the 6-step SDLC process, agent roles, and keyboard shortcuts.
   * `/help` — Display all available commands and keyboard shortcuts.
   * `/view`, `/clear`, `/exit`, `/quit`, `/q`.
 

@@ -35,6 +35,7 @@ import {
   ParsedMouseEvent,
   parseMouseEvents,
 } from './mouse.js';
+import { getHowtoRenderLines } from './howtoContent.js';
 
 export interface CommandCenterProps {
   orchestrator: PoCliOrchestrator;
@@ -421,6 +422,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [viewMode, setViewMode] = useState<'startup' | 'chat' | 'multipanel'>('startup');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  const [isHowtoOpen, setIsHowtoOpen] = useState<boolean>(false);
+  const [howtoScrollOffset, setHowtoScrollOffset] = useState<number>(0);
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState<boolean>(false);
   const [dbModalOutput, setDbModalOutput] = useState<string>('');
 
@@ -741,6 +744,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const closeAllModals = () => {
     setIsHelpOpen(false);
+    setIsHowtoOpen(false);
+    setHowtoScrollOffset(0);
     setIsSettingsOpen(false);
     setIsEditingWorkDir(false);
     setIsProjectsModalOpen(false);
@@ -955,6 +960,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     !isAuthModalOpen &&
     !isWorkersModalOpen &&
     !isHelpOpen &&
+    !isHowtoOpen &&
     !isSettingsOpen &&
     !isExitConfirmOpen;
   const slashToken = inputValue.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
@@ -996,6 +1002,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         closeAllModals();
         setIsHelpOpen(nextState);
         setStatusBanner(t.helpOpenedMsg);
+        return;
+      }
+      if (cmdToken === '/howto' || cmdToken === '/guide' || cmdToken === '/workflow') {
+        const nextState = !isHowtoOpen;
+        closeAllModals();
+        setIsHowtoOpen(nextState);
+        setHowtoScrollOffset(0);
+        setStatusBanner(t.howtoOpenedMsg);
         return;
       }
       if (cmdToken === '/project') {
@@ -1745,6 +1759,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setLogScrollOffset((prev) => (isUp ? Math.max(0, prev - 2) : prev + 2));
         return;
       }
+      if (isHowtoOpen) {
+        setHowtoScrollOffset((prev) => (isUp ? Math.max(0, prev - 2) : prev + 2));
+        return;
+      }
       if (isAuthModalOpen && !isEditingAuthKey) {
         const count = AuthStorage.listProviders().length;
         setSelectedAuthIdx((prev) =>
@@ -1902,9 +1920,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
 
-      // Interactive Help, DB, Auth, or Exit Confirm modal: click closes modal
-      if (isHelpOpen || dbModalOutput.length > 0 || isExitConfirmOpen || (isAuthModalOpen && !isEditingAuthKey)) {
+      // Interactive Help, Howto, DB, Auth, or Exit Confirm modal: click closes modal
+      if (isHelpOpen || isHowtoOpen || dbModalOutput.length > 0 || isExitConfirmOpen || (isAuthModalOpen && !isEditingAuthKey)) {
         setIsHelpOpen(false);
+        setIsHowtoOpen(false);
+        setHowtoScrollOffset(0);
         setDbModalOutput('');
         setIsExitConfirmOpen(false);
         setIsAuthModalOpen(false);
@@ -2591,6 +2611,40 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (key.escape || key.return || input === 'q') {
         setIsHelpOpen(false);
         setDbModalOutput('');
+        return;
+      }
+      return;
+    }
+
+    // 3b. Handle interactive Howto Workflow Guide modal when open
+    if (isHowtoOpen) {
+      if (key.escape || key.return || input === 'q') {
+        setIsHowtoOpen(false);
+        setHowtoScrollOffset(0);
+        return;
+      }
+      if (key.upArrow) {
+        setHowtoScrollOffset((prev) => Math.max(0, prev - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setHowtoScrollOffset((prev) => prev + 1);
+        return;
+      }
+      if (key.pageUp) {
+        setHowtoScrollOffset((prev) => Math.max(0, prev - 8));
+        return;
+      }
+      if (key.pageDown) {
+        setHowtoScrollOffset((prev) => prev + 8);
+        return;
+      }
+      if (input === 'g') {
+        setHowtoScrollOffset(0);
+        return;
+      }
+      if (input === 'G') {
+        setHowtoScrollOffset(9999);
         return;
       }
       return;
@@ -3722,6 +3776,124 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     </Box>
   );
 
+  // Howto Workflow Guide Modal Component (/howto)
+  const renderHowtoModal = () => {
+    const modalWidth = Math.min(108, Math.max(80, dimensions.columns - 4));
+    const contentWidth = modalWidth - 8;
+    const lines = getHowtoRenderLines(language, contentWidth);
+    const windowHeight = Math.max(
+      8,
+      Math.min(18, Math.max(8, dimensions.rows - 12)),
+    );
+    const totalLines = lines.length;
+    const maxScroll = Math.max(0, totalLines - windowHeight);
+    const currentScroll = Math.max(
+      0,
+      Math.min(maxScroll, howtoScrollOffset),
+    );
+
+    const thumbHeight = Math.max(
+      1,
+      Math.round((windowHeight / Math.max(1, totalLines)) * windowHeight),
+    );
+    const maxThumbTop = Math.max(0, windowHeight - thumbHeight);
+    const thumbTop =
+      maxScroll > 0
+        ? Math.min(
+            maxThumbTop,
+            Math.round((currentScroll / maxScroll) * maxThumbTop),
+          )
+        : 0;
+
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        borderStyle="double"
+        borderColor="cyan"
+        paddingX={2}
+        paddingY={1}
+        marginBottom={1}
+      >
+        <Box justifyContent="space-between" marginBottom={1}>
+          <Text bold color="cyan">
+            💡 {t.howtoTitle}
+          </Text>
+          <Text dimColor>
+            {totalLines > windowHeight
+              ? `${currentScroll + 1}-${Math.min(
+                  totalLines,
+                  currentScroll + windowHeight,
+                )} / ${totalLines} · ${t.howtoSubtitle}`
+              : t.howtoSubtitle}
+          </Text>
+        </Box>
+
+        <Box
+          flexDirection="column"
+          borderStyle="single"
+          borderColor="gray"
+          paddingX={1}
+          paddingY={0}
+          marginBottom={1}
+          height={windowHeight + 2}
+        >
+          {Array.from({ length: windowHeight }, (_, idx) => {
+            const lineIdx = currentScroll + idx;
+            const line = lineIdx < totalLines ? lines[lineIdx] : null;
+            const isThumb =
+              totalLines > windowHeight &&
+              idx >= thumbTop &&
+              idx < thumbTop + thumbHeight;
+
+            return (
+              <Box key={idx} justifyContent="space-between" width="100%">
+                <Box flexShrink={1} flexDirection="row">
+                  {line?.prefix && (
+                    <Text
+                      color={line.prefixColor ?? 'yellow'}
+                      bold={line.prefixBold ?? true}
+                    >
+                      {line.prefix}{' '}
+                    </Text>
+                  )}
+                  <Text
+                    color={line?.color ?? 'white'}
+                    bold={line?.bold ?? false}
+                    dimColor={line?.dimColor ?? false}
+                    wrap="truncate-end"
+                  >
+                    {line?.text ?? ' '}
+                  </Text>
+                </Box>
+                {totalLines > windowHeight && (
+                  <Box flexShrink={0} paddingLeft={1}>
+                    <Text color={isThumb ? 'cyan' : 'gray'} bold={isThumb}>
+                      {isThumb ? '█' : '░'}
+                    </Text>
+                  </Box>
+                )}
+              </Box>
+            );
+          })}
+        </Box>
+
+        <Box justifyContent="space-between">
+          <Text dimColor>
+            {language === 'es'
+              ? '↑/↓ o Rueda Ratón desplazar · g/G inicio/fin · Esc cerrar'
+              : '↑/↓ or Mouse Wheel scroll · g/G top/bottom · Esc close'}
+          </Text>
+          <Text bold color="yellow">
+            {language === 'es'
+              ? 'POCLI: Tú eres el Product Owner'
+              : 'POCLI: You are the Product Owner'}
+          </Text>
+        </Box>
+      </Box>
+    );
+  };
+
   // Settings Modal Component — Option 4: Master-Detail Split Layout with strictly fixed size
   const renderSettingsModal = () => {
     const modalWidth = Math.min(108, Math.max(88, dimensions.columns - 4));
@@ -4480,6 +4652,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const anyModalOpen =
     isHelpOpen ||
+    isHowtoOpen ||
     isSettingsOpen ||
     isWorkersModalOpen ||
     isProjectsModalOpen ||
@@ -5046,6 +5219,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isLogsModalOpen && renderLogsModal()}
             {isAuthModalOpen && renderAuthModal()}
             {isHelpOpen && renderHelpModal()}
+            {isHowtoOpen && renderHowtoModal()}
             {isSettingsOpen && renderSettingsModal()}
             {isWorkersModalOpen && renderWorkersModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
@@ -5068,7 +5242,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
             <Box marginTop={1} marginBottom={2}>
               <Text color="cyan">
-                /projects {language === 'es' ? 'para seleccionar proyecto' : 'to switch project'}  ·  /help {language === 'es' ? 'ayuda' : 'help'}
+                /projects {language === 'es' ? 'para seleccionar proyecto' : 'to switch project'}  ·  /howto {language === 'es' ? 'guía de inicio' : 'getting started'}  ·  /help {language === 'es' ? 'ayuda' : 'help'}
               </Text>
             </Box>
 
@@ -5166,6 +5340,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isLogsModalOpen && renderLogsModal()}
             {isAuthModalOpen && renderAuthModal()}
             {isHelpOpen && renderHelpModal()}
+            {isHowtoOpen && renderHowtoModal()}
             {isSettingsOpen && renderSettingsModal()}
             {isWorkersModalOpen && renderWorkersModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
@@ -5562,6 +5737,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {isLogsModalOpen && renderLogsModal()}
           {isAuthModalOpen && renderAuthModal()}
           {isHelpOpen && renderHelpModal()}
+          {isHowtoOpen && renderHowtoModal()}
           {isSettingsOpen && renderSettingsModal()}
           {isWorkersModalOpen && renderWorkersModal()}
           {isExitConfirmOpen && renderExitConfirmModal()}

@@ -82,6 +82,9 @@ export interface UiTranslations {
   helpTitle: string;
   helpSubtitle: string;
   helpOpenedMsg: string;
+  howtoTitle: string;
+  howtoSubtitle: string;
+  howtoOpenedMsg: string;
   newProjectTitle: string;
   newProjectStepNameLabel: string;
   newProjectStepDirLabel: (projectName: string) => string;
@@ -192,6 +195,9 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     helpTitle: 'Available Commands & Shortcuts (/help)',
     helpSubtitle: 'Press Esc, Enter, or q to close help',
     helpOpenedMsg: 'Showing all available slash commands (/help).',
+    howtoTitle: 'PO CLI Workflow & Methodology Guide (/howto)',
+    howtoSubtitle: '↑/↓ scroll · Esc, Enter or q to close',
+    howtoOpenedMsg: 'Showing PoCLI workflow and methodology guide (/howto).',
     newProjectTitle: 'Create New Project (/project)',
     newProjectStepNameLabel: 'Step 1/2 — Enter Project Name:',
     newProjectStepDirLabel: (projectName) =>
@@ -394,6 +400,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         description: 'Clear the on-screen status notification banner',
       },
       {
+        command: '/howto',
+        description: 'Show comprehensive workflow guide for getting started with POCLI',
+        phaseHint: 'Workflow Guide',
+      },
+      {
         command: '/help',
         description: 'Display all available commands and keyboard shortcuts',
       },
@@ -469,6 +480,9 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     helpTitle: 'Comandos Disponibles y Atajos (/help)',
     helpSubtitle: 'Pulsa Esc, Enter o q para cerrar la ayuda',
     helpOpenedMsg: 'Mostrando todos los comandos disponibles (/help).',
+    howtoTitle: 'Guía de Proceso y Metodología de PO CLI (/howto)',
+    howtoSubtitle: '↑/↓ desplazarse · Esc, Enter o q para cerrar',
+    howtoOpenedMsg: 'Mostrando la guía de proceso y metodología de PoCLI (/howto).',
     newProjectTitle: 'Crear Nuevo Proyecto (/project)',
     newProjectStepNameLabel: 'Paso 1/2 — Introduce el Nombre del Proyecto:',
     newProjectStepDirLabel: (projectName) =>
@@ -669,6 +683,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/clear',
         description: 'Limpiar el registro de notificaciones en pantalla',
+      },
+      {
+        command: '/howto',
+        description: 'Muestra la guía completa del proceso y flujo de trabajo con POCLI',
+        phaseHint: 'Guía de Trabajo',
       },
       {
         command: '/help',
