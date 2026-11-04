@@ -19,6 +19,7 @@ import {
 import { Logger } from './core/logger.js';
 import { AuthStorage } from './core/auth.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
+import { c, formatLogLineForTerminal } from './core/colors.js';
 
 function enterFullscreenTerminal(): void {
   if (process.stdout.isTTY) {
@@ -136,7 +137,7 @@ async function main(): Promise<void> {
         temperature: resolved.defaultTemperature,
       });
       console.log(
-        `✔ Assigned ${resolved.provider}/${resolved.modelId} to ${targetRole} in project "${project.name}".`,
+        `${c.green('✔')} Assigned ${c.cyanBold(`${resolved.provider}/${resolved.modelId}`)} to ${c.bold(targetRole)} in project "${project.name}".`,
       );
       storage.close();
       return;
@@ -144,17 +145,17 @@ async function main(): Promise<void> {
 
     const roleConfigs = storage.listRoleConfigs(project.id);
     console.log(
-      `\n=== Active Project "${project.name}" — Per-Agent Model Assignments ===`,
+      `\n${c.cyanBold(`=== Active Project "${project.name}" — Per-Agent Model Assignments ===`)}`,
     );
     for (const rc of roleConfigs) {
       console.log(
-        `  • ${rc.role.padEnd(12, ' ')} -> ${rc.provider}/${rc.modelId} (temp=${rc.temperature}, mode=${rc.executionModality})`,
+        `  • ${c.cyanBold(rc.role.padEnd(12, ' '))} -> ${c.green(`${rc.provider}/${rc.modelId}`)} ${c.dim(`(temp=${rc.temperature}, mode=${rc.executionModality})`)}`,
       );
     }
-    console.log(`\n=== Available Models Catalog (pocli models / /models) ===`);
+    console.log(`\n${c.cyanBold('=== Available Models Catalog (pocli models / /models) ===')}`);
     for (const m of AVAILABLE_MODELS_CATALOG) {
       console.log(
-        `  • ${(m.provider + '/' + m.modelId).padEnd(36, ' ')} ${m.displayName.padEnd(32, ' ')} [${m.contextWindow} · ${m.recommendedFor}]`,
+        `  • ${c.bold((m.provider + '/' + m.modelId).padEnd(36, ' '))} ${m.displayName.padEnd(32, ' ')} ${c.yellow(`[${m.contextWindow} · ${m.recommendedFor}]`)}`,
       );
     }
     storage.close();
@@ -179,7 +180,7 @@ async function main(): Promise<void> {
       logArgs[0] === '--clear'
     ) {
       Logger.clear();
-      console.log('✔ Logs cleared.');
+      console.log(`${c.green('✔')} Logs cleared.`);
       storage.close();
       return;
     }
@@ -193,11 +194,13 @@ async function main(): Promise<void> {
 
     const lines = Logger.getRecentLines(count);
     if (lines.length === 0) {
-      console.log(`(No logs found at ${Logger.getLogFilePath()})`);
+      console.log(c.dim(`(No logs found at ${Logger.getLogFilePath()})`));
     } else {
-      console.log(`=== Last ${lines.length} log lines (${Logger.getLogFilePath()}) ===\n`);
+      console.log(
+        `\n${c.cyanBold(`=== Last ${lines.length} log lines`)} ${c.dim(`(${Logger.getLogFilePath()})`)} ${c.cyanBold('===')}\n`,
+      );
       for (const line of lines) {
-        console.log(line);
+        console.log(formatLogLineForTerminal(line));
       }
     }
     storage.close();
@@ -230,7 +233,7 @@ async function main(): Promise<void> {
       }
       try {
         AuthStorage.setApiKey(provider, key);
-        console.log(`✔ API key for '${provider.toLowerCase()}' securely saved to ${AuthStorage.getAuthFilePath()} (mode 0600).`);
+        console.log(`${c.green('✔')} API key for '${c.bold(provider.toLowerCase())}' securely saved to ${AuthStorage.getAuthFilePath()} (mode 0600).`);
       } catch (err) {
         console.error(`Error saving API key: ${(err as Error).message}`);
         storage.close();
@@ -249,9 +252,9 @@ async function main(): Promise<void> {
       }
       const removed = AuthStorage.removeApiKey(provider);
       if (removed) {
-        console.log(`✔ Removed persisted API key for '${provider.toLowerCase()}'.`);
+        console.log(`${c.green('✔')} Removed persisted API key for '${c.bold(provider.toLowerCase())}'.`);
       } else {
-        console.log(`ℹ No persisted API key found for '${provider.toLowerCase()}' in ${AuthStorage.getAuthFilePath()}.`);
+        console.log(`${c.yellow('ℹ')} No persisted API key found for '${c.bold(provider.toLowerCase())}' in ${AuthStorage.getAuthFilePath()}.`);
       }
       storage.close();
       return;
@@ -259,21 +262,23 @@ async function main(): Promise<void> {
 
     if (action === 'status' || action === 'list') {
       const providers = AuthStorage.listProviders();
-      console.log(`\n=== PO CLI — LLM Provider Authentication Status (${AuthStorage.getAuthFilePath()}) ===\n`);
+      console.log(
+        `\n${c.cyanBold('=== PO CLI — LLM Provider Authentication Status ===')} ${c.dim(`(${AuthStorage.getAuthFilePath()})`)}\n`,
+      );
       for (const p of providers) {
         const idCol = p.id.padEnd(12, ' ');
         const nameCol = p.name.padEnd(30, ' ');
         if (p.status === 'CONFIGURED') {
           const sourceTag = p.source === 'env' ? `(env: ${p.envVar})` : `(file: ${AuthStorage.getAuthFilePath().replace(os.homedir(), '~')})`;
-          console.log(`  • ${idCol} ${nameCol} [CONFIGURED]     ${p.maskedKey} ${sourceTag}`);
+          console.log(`  • ${c.bold(idCol)} ${nameCol} ${c.greenBold('✔ [CONFIGURED]')}     ${c.cyan(p.maskedKey)} ${c.dim(sourceTag)}`);
         } else {
-          console.log(`  • ${idCol} ${nameCol} [NOT CONFIGURED] (env: ${p.envVar})`);
+          console.log(`  • ${c.bold(idCol)} ${nameCol} ${c.gray('✖ [NOT CONFIGURED]')} ${c.dim(`(env: ${p.envVar})`)}`);
         }
       }
-      console.log('\nCommands:');
-      console.log('  pocli auth set <provider> <key>    Save API key securely to disk');
-      console.log('  pocli auth remove <provider>       Remove persisted API key');
-      console.log('  pocli auth path                    Print credentials file path');
+      console.log(`\n${c.bold('Commands:')}`);
+      console.log(`  ${c.cyan('pocli auth set')} ${c.yellow('<provider> <key>')}    Save API key securely to disk`);
+      console.log(`  ${c.cyan('pocli auth remove')} ${c.yellow('<provider>')}       Remove persisted API key`);
+      console.log(`  ${c.cyan('pocli auth path')}                    Print credentials file path`);
       storage.close();
       return;
     }
@@ -314,13 +319,13 @@ async function main(): Promise<void> {
 
   console.log(
     [
-      'Product Owner CLI (pocli) — Available commands:',
-      '  pocli auth [status|set|remove|path] Manage LLM provider API keys ($HOME/.pocli/auth.json)',
-      '  pocli models [agent] [model]        List or assign LLM models for roles',
-      '  pocli db                            Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)',
-      '  pocli db path                       Print the active SQLite database file path',
-      '  pocli db "<sql>" [--format json]    Execute a SQL query or dot-command (.tables, .stats)',
-      '  pocli logs [-n 50|path|clear]       Inspect or clear runtime diagnostic logs ($HOME/.pocli/logs/)',
+      c.cyanBold('Product Owner CLI (pocli) — Available commands:'),
+      `  ${c.cyan('pocli auth')} ${c.yellow('[status|set|remove|path]')} ${c.dim('Manage LLM provider API keys ($HOME/.pocli/auth.json)')}`,
+      `  ${c.cyan('pocli models')} ${c.yellow('[agent] [model]')}        ${c.dim('List or assign LLM models for roles')}`,
+      `  ${c.cyan('pocli db')}                            ${c.dim('Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)')}`,
+      `  ${c.cyan('pocli db path')}                       ${c.dim('Print the active SQLite database file path')}`,
+      `  ${c.cyan('pocli db')} ${c.yellow('"<sql>"')} ${c.dim('[--format json]')}    ${c.dim('Execute a SQL query or dot-command (.tables, .stats)')}`,
+      `  ${c.cyan('pocli logs')} ${c.yellow('[-n 50|path|clear]')}       ${c.dim('Inspect or clear runtime diagnostic logs ($HOME/.pocli/logs/)')}`,
     ].join('\n'),
   );
   storage.close();
