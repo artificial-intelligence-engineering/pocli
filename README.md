@@ -258,12 +258,3 @@ POCLI leverages battle-tested open-source libraries and native Linux capabilitie
 * **[NotebookLM](https://notebooklm.google.com)** (Google): Conceptual inspiration for POCLI's filesystem-backed **Knowledge Notebooks** with hybrid RAG (FTS5 BM25 + vector cosine similarity) and mandatory verifiable source citations (`[Notebook | Document | Section (Lines)]`).
 * **[Architectural Decision Records (ADRs)](https://adr.github.io)** (Michael Nygard): Standardized documentation pattern for recording technical decisions and architectural evolution (`ADR-*`).
 
-### Project Architectural Specifications
-
-Detailed architectural evaluations and specifications maintained in this repository:
-
-* **[ADR-000: Open Source Reference Projects Benchmark Matrix](docs/adr/000-oss-benchmark-matrix.md)** — Comparative analysis across 16 criteria for evaluated open-source solutions.
-* **[ADR-001: General Architecture, Linux Process Runtime, Persistence, and Hybrid RAG](docs/adr/001-architecture-and-runtime.md)** — Modular architecture, `JSON-RPC 2.0` IPC, `node:sqlite` + `FTS5`, RAG Notebooks, and Linux sandboxing.
-* **[Master Product Specification (AGENTS.md)](agents/AGENTS.md)** — Role definitions, authority model, 8-phase workflow state machine, and communication channels.
-* **[Phased Implementation Plan (IMPLEMENTATION_PLAN.md)](agents/IMPLEMENTATION_PLAN.md)** — Incremental walking skeleton strategy and phase milestones.
-
