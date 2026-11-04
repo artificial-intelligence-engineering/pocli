@@ -185,9 +185,6 @@ npm run pocli -- db "SELECT id, name, phase FROM projects;" --format json
 # Run the integration test suite (Phases 0 to 7)
 npm test
 
-# Run a full 8-phase engineering workflow demonstration on Linux
-npx tsx src/cli.ts demo
-
 # Build standalone TypeScript executable (`./dist/cli.js` -> `pocli`)
 npm run build
 ```
