@@ -38,7 +38,7 @@ import {
 
 export interface CommandCenterProps {
   orchestrator: PoCliOrchestrator;
-  initialProject: Project;
+  initialProject?: Project | null;
 }
 
 const ASCII_LOGO = [
@@ -425,7 +425,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [dbModalOutput, setDbModalOutput] = useState<string>('');
 
   // Active project & repository / artifact / SQLite summary state
-  const [project, setProject] = useState<Project>(initialProject);
+  const [project, setProject] = useState<Project | null>(initialProject ?? null);
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -495,8 +495,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [queuedMessageIds, setQueuedMessageIds] = useState<Set<string>>(new Set());
 
   const activeRoleQueuedCount = useMemo(() => {
+    if (!project) return 0;
     return orchestrator.getQueuedMessages(project.id, activeRole).length;
-  }, [orchestrator, project.id, activeRole, queuedMessageIds, messagesVersion]);
+  }, [orchestrator, project?.id, activeRole, queuedMessageIds, messagesVersion]);
 
   const isAnyRoleBusy = useMemo(
     () => Object.values(busyRoles).some(Boolean),
@@ -532,7 +533,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       messageId: string;
       queueLength: number;
     }) => {
-      if (payload.projectId === project.id) {
+      if (project && payload.projectId === project.id) {
         setQueuedMessageIds((prev) => new Set(prev).add(payload.messageId));
         setBusyRoles((prev) => ({ ...prev, [payload.role]: true }));
         setMessagesVersion((prev) => prev + 1);
@@ -544,7 +545,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       messageId: string;
       remainingQueueLength: number;
     }) => {
-      if (payload.projectId === project.id) {
+      if (project && payload.projectId === project.id) {
         setQueuedMessageIds((prev) => {
           const next = new Set(prev);
           next.delete(payload.messageId);
@@ -555,7 +556,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
     };
     const onIdle = (payload: { projectId: string; role: ActorRole }) => {
-      if (payload.projectId === project.id) {
+      if (project && payload.projectId === project.id) {
         setBusyRoles((prev) => ({ ...prev, [payload.role]: false }));
         setMessagesVersion((prev) => prev + 1);
       }
@@ -569,7 +570,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       orchestrator.off('agent:messageDequeued', onDequeued);
       orchestrator.off('agent:idle', onIdle);
     };
-  }, [orchestrator, project.id]);
+  }, [orchestrator, project?.id]);
 
   const thinkingSpinner = SPINNER_FRAMES[spinnerIdx];
 
@@ -586,20 +587,30 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   >([]);
 
   const refreshState = (targetProjectId?: string) => {
-    const pid = targetProjectId ?? project.id;
-    const updated = orchestrator.storage.getProject(pid);
-    if (updated) setProject(updated);
+    const pid = targetProjectId ?? project?.id;
     const listed = orchestrator.storage.listProjects();
     setAllProjects(listed);
+    if (!pid) {
+      setArtifacts([]);
+      setNotebooks([]);
+      setExpertSummaries([]);
+      return;
+    }
+    const updated = orchestrator.storage.getProject(pid);
+    if (updated) setProject(updated);
     setArtifacts(orchestrator.storage.listArtifacts(pid, true));
     setNotebooks(orchestrator.storage.getProjectNotebooks(pid));
     setExpertSummaries(orchestrator.storage.listExpertChatSummaries(pid));
   };
 
   useEffect(() => {
-    refreshState(project.id);
+    if (project?.id) {
+      refreshState(project.id);
+    } else {
+      refreshState();
+    }
     setMessageScrollOffset(0);
-  }, [project.id, activeRole]);
+  }, [project?.id, activeRole]);
 
   // Enable SGR (1006) terminal mouse tracking + DEC Mode 2026 Synchronized Output
   // on stdout to eliminate screen-erase flicker when Ink redraws full-screen frames.
@@ -770,6 +781,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setModelsTargetRole(resolvedTarget);
     setModelsProviderTab('all');
     setModelsFilterQuery('');
+    if (!project) {
+      setSelectedModelIdx(0);
+      setIsModelsModalOpen(true);
+      return;
+    }
     if (resolvedTarget !== 'all') {
       const currentCfg = orchestrator.storage.getRoleConfig(
         project.id,
@@ -805,6 +821,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     targetRole: ActorRole | 'all',
     entry: ModelCatalogEntry,
   ) => {
+    if (!project) {
+      setStatusBanner(
+        language === 'es'
+          ? 'No hay ningún proyecto activo para asignar modelos.'
+          : 'No active project to assign models.',
+      );
+      return;
+    }
     orchestrator.storage.assignModelToRole({
       projectId: project.id,
       role: targetRole,
@@ -998,10 +1022,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         closeAllModals();
         const listed = orchestrator.storage.listProjects();
         setAllProjects(listed);
-        const currentIdx = Math.max(
-          0,
-          listed.findIndex((p) => p.id === project.id),
-        );
+        const currentIdx = project
+          ? Math.max(0, listed.findIndex((p) => p.id === project.id))
+          : 0;
         setSelectedProjectIdx(currentIdx);
         setIsProjectsModalOpen(nextState);
         return;
@@ -1015,10 +1038,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         }
         const listed = orchestrator.storage.listProjects();
         setAllProjects(listed);
-        const currentIdx = Math.max(
-          0,
-          listed.findIndex((p) => p.id === project.id),
-        );
+        const currentIdx = project
+          ? Math.max(0, listed.findIndex((p) => p.id === project.id))
+          : 0;
         setSelectedProjectIdx(currentIdx);
         setIsProjectsModalOpen(true);
         return;
@@ -1103,6 +1125,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/workers') {
+        if (!project) {
+          setStatusBanner(
+            language === 'es'
+              ? 'No hay ningún proyecto activo.'
+              : 'No active project.',
+          );
+          return;
+        }
         const subCmd = parts[1]?.toLowerCase();
         if (subCmd === 'restart') {
           const targetRole = (parts[2]?.toLowerCase() ?? activeRole) as ActorRole;
@@ -1236,6 +1266,27 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         switchActiveRole('qa');
         return;
       }
+      const projectRequiredCommands = [
+        '/pm',
+        '/propose',
+        '/approve',
+        '/reject',
+        '/handoff',
+        '/implement',
+        '/consult',
+        '/validate',
+        '/accept',
+        '/notebooks',
+        '/compact',
+      ];
+      if (projectRequiredCommands.includes(cmdToken) && !project) {
+        setStatusBanner(
+          language === 'es'
+            ? 'No hay ningún proyecto activo. Usa /project para crear uno.'
+            : 'No active project. Use /project to create one.',
+        );
+        return;
+      }
       if (cmdToken === '/pm') {
         switchActiveRole('pm');
         const modeArg = parts[1]?.toLowerCase();
@@ -1247,7 +1298,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           );
           try {
             const res = await orchestrator.executePmInquiry({
-              projectId: project.id,
+              projectId: project!.id,
               topic: parts.slice(2).join(' ') || 'Project status across all roles',
               modality,
             });
@@ -1275,7 +1326,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (cmdToken === '/approve') {
         try {
           const { approval } = orchestrator.reviewArchitectureByPo({
-            projectId: project.id,
+            projectId: project!.id,
             artifactCode: 'ARCH-001',
             decision: 'APPROVED',
             comments: 'Architecture formally approved by the Product Owner.',
@@ -1290,7 +1341,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (cmdToken === '/reject') {
         try {
           orchestrator.reviewArchitectureByPo({
-            projectId: project.id,
+            projectId: project!.id,
             artifactCode: 'ARCH-001',
             decision: 'REJECTED',
             comments: 'Product Owner requested architectural revisions.',
@@ -1304,7 +1355,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       if (cmdToken === '/handoff') {
         try {
-          const bundle = orchestrator.performDeveloperHandoff(project.id);
+          const bundle = orchestrator.performDeveloperHandoff(project!.id);
           switchActiveRole('developer');
           setStatusBanner(
             t.handoffCompletedMsg(bundle.approvedArchitectureVersion),
@@ -1327,7 +1378,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setBusyRoles((prev) => ({ ...prev, developer: true, architect: true }));
         try {
           const cons = await orchestrator.consultArchitectFromDeveloper({
-            projectId: project.id,
+            projectId: project!.id,
             subject: 'Consultation regarding contract validation during implementation',
             ambiguityOrBlocker: 'Detected ambiguity in invalid input error handling',
             proposedAlternative: 'Throw typed Error compliant with SPEC-001',
@@ -1348,7 +1399,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setStatusBanner(t.qaRunningMsg);
         try {
           const res = await orchestrator.submitToQaAndValidate({
-            projectId: project.id,
+            projectId: project!.id,
           });
           setStatusBanner(
             t.qaCompletedMsg(
@@ -1369,7 +1420,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (cmdToken === '/accept') {
         try {
           orchestrator.acceptProjectByPo({
-            projectId: project.id,
+            projectId: project!.id,
             comments: 'Project finally accepted by the Product Owner.',
           });
           setStatusBanner(t.projectAcceptedMsg);
@@ -1380,7 +1431,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/notebooks') {
-        const nbs = orchestrator.storage.getProjectNotebooks(project.id);
+        const nbs = orchestrator.storage.getProjectNotebooks(project!.id);
         for (const nb of nbs) {
           orchestrator.rag.indexNotebook(nb.id);
         }
@@ -1405,7 +1456,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               ? (targetArg as ActorRole)
               : activeRole;
         const res = orchestrator.compactContext({
-          projectId: project.id,
+          projectId: project!.id,
           targetRole,
           keepRecentCount: 1,
         });
@@ -1532,6 +1583,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   cycleNextAgentRef.current = cycleNextAgent;
 
   const sendChatMessage = async (targetRole: ActorRole, messageText: string) => {
+    if (!project) {
+      setStatusBanner(
+        language === 'es'
+          ? 'No hay ningún proyecto activo. Usa /project para crear uno.'
+          : 'No active project. Use /project to create one.',
+      );
+      return;
+    }
+
     // 1. Immediately record user prompt to SQLite so it appears in the chat log without delay
     const userMsg = orchestrator.storage.recordMessage({
       projectId: project.id,
@@ -1712,7 +1772,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
 
       // Scroll through conversation history with the active agent
-      const allMsgs = orchestrator.storage.listMessages(project.id, activeRole);
+      const allMsgs = project
+        ? orchestrator.storage.listMessages(project.id, activeRole)
+        : [];
       const winSize = viewMode === 'multipanel' ? 4 : 3;
       const maxOffset = Math.max(0, allMsgs.length - winSize);
       setMessageScrollOffset((prev) =>
@@ -2106,13 +2168,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               orchestrator.deleteProject(target.id);
             const updatedProjects = orchestrator.storage.listProjects();
             setAllProjects(updatedProjects);
-            if (project.id === target.id) {
+            if (project && project.id === target.id) {
               if (newActiveProjectId) {
                 const nextActive =
                   orchestrator.storage.getProject(newActiveProjectId);
-                if (nextActive) setProject(nextActive);
+                setProject(nextActive ?? null);
               } else if (updatedProjects.length > 0) {
                 setProject(updatedProjects[0]);
+              } else {
+                setProject(null);
               }
             }
             setSelectedProjectIdx((prev) =>
@@ -2381,7 +2445,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             (currIdx + delta + targetOptions.length) % targetOptions.length
           ];
         setModelsTargetRole(nextTarget);
-        if (!modelsFilterQuery) {
+        if (!modelsFilterQuery && project) {
           if (nextTarget !== 'all') {
             const cfg = orchestrator.storage.getRoleConfig(
               project.id,
@@ -2659,7 +2723,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       if (input === 'r' || input === 'R' || key.return) {
         const target = workersList[workersSelectedIdx];
-        if (target) {
+        if (target && project) {
           orchestrator
             .restartWorker(project.id, target.role)
             .then(() => {
@@ -2678,7 +2742,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       if (input === 's' || input === 'S') {
         const target = workersList[workersSelectedIdx];
-        if (target) {
+        if (target && project) {
           orchestrator
             .stopWorker(project.id, target.role)
             .then(() => {
@@ -2845,16 +2909,25 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const harnesses = useMemo(() => HarnessRegistry.listHarnesses(), []);
   const activeRoleDisplayName = getRoleDisplayName(activeRole, language);
   const activeTheme = getRoleTheme(activeRole, theme);
-  const activeModelCfg = useMemo(
-    () => orchestrator.storage.getRoleConfig(project.id, activeRole),
-    [
-      orchestrator.storage,
-      project.id,
-      activeRole,
-      expertSummaries,
-      roleConfigVersion,
-    ],
-  );
+  const activeModelCfg = useMemo(() => {
+    if (!project) {
+      return {
+        projectId: '',
+        role: activeRole,
+        provider: 'freellm',
+        modelId: 'deepseek/deepseek-chat',
+        temperature: 0.2,
+        executionModality: 'LOCAL_PROCESS' as const,
+      };
+    }
+    return orchestrator.storage.getRoleConfig(project.id, activeRole);
+  }, [
+    orchestrator.storage,
+    project?.id,
+    activeRole,
+    expertSummaries,
+    roleConfigVersion,
+  ]);
   const activeModelEntry = useMemo(() => {
     const match = AVAILABLE_MODELS_CATALOG.find(
       (m) => m.modelId.toLowerCase() === activeModelCfg.modelId.toLowerCase(),
@@ -2871,10 +2944,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       ),
     };
   }, [activeModelCfg]);
-  const messages = useMemo(
-    () => orchestrator.storage.listMessages(project.id, activeRole),
-    [orchestrator.storage, project.id, activeRole, expertSummaries, messagesVersion],
-  );
+  const messages = useMemo(() => {
+    if (!project) return [];
+    return orchestrator.storage.listMessages(project.id, activeRole);
+  }, [orchestrator.storage, project?.id, activeRole, expertSummaries, messagesVersion]);
   const sliceWindowedMessages = (winSize: number) => {
     if (messages.length <= winSize) return messages;
     const maxOffset = Math.max(0, messages.length - winSize);
@@ -2909,17 +2982,18 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     chars += 12180;
     return Math.round(chars / 4);
   }, [messages]);
-  const roleConfigs = useMemo(
-    () => orchestrator.storage.listRoleConfigs(project.id),
-    [orchestrator.storage, project.id, expertSummaries, roleConfigVersion],
-  );
+  const roleConfigs = useMemo(() => {
+    if (!project) return [];
+    return orchestrator.storage.listRoleConfigs(project.id);
+  }, [orchestrator.storage, project?.id, expertSummaries, roleConfigVersion]);
 
   const renderTopColorBanner = (barWidth: number) => {
     const vendorLabel = getModelVendorLabel(
       activeModelCfg.provider,
       activeModelCfg.modelId,
     );
-    const bannerText = ` ${project.name}  │  ${activeRoleDisplayName}  │  ${vendorLabel}/${activeModelCfg.modelId} `;
+    const projLabel = project ? project.name : (language === 'es' ? 'Sin proyecto' : 'No project');
+    const bannerText = ` ${projLabel}  │  ${activeRoleDisplayName}  │  ${vendorLabel}/${activeModelCfg.modelId} `;
     const fullBannerLine = fitAndPadLine(bannerText, barWidth);
 
     return (
@@ -3022,13 +3096,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         <Box paddingY={1}>
           <Text dimColor>
             {language === 'es'
-              ? 'No hay proyectos disponibles.'
-              : 'No projects available.'}
+              ? 'No hay proyectos creados aún. Usa /project para crear uno.'
+              : 'No projects created yet. Use /project to create one.'}
           </Text>
         </Box>
       ) : (
         allProjects.map((proj, idx) => {
-          const isCurrentActive = proj.id === project.id;
+          const isCurrentActive = project ? proj.id === project.id : false;
           const isRowSelected = idx === selectedProjectIdx;
           const isMarkedForDeletion = projectToDelete?.id === proj.id;
           return (
@@ -3121,10 +3195,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           const isSelected = idx === selectedAgentIdx;
           const isCurrentActive = item.role === activeRole;
           const roleTheme = getRoleTheme(item.role, theme);
-          const roleCfg = orchestrator.storage.getRoleConfig(
-            project.id,
-            item.role,
-          );
+          const roleCfg = project
+            ? orchestrator.storage.getRoleConfig(project.id, item.role)
+            : {
+                projectId: '',
+                role: item.role,
+                provider: 'freellm',
+                modelId: 'deepseek/deepseek-chat',
+                temperature: 0.2,
+                executionModality: 'LOCAL_PROCESS' as const,
+              };
           const catalogEntry = AVAILABLE_MODELS_CATALOG.find(
             (m) =>
               m.provider === roleCfg.provider &&
@@ -5000,9 +5080,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
             {renderUnifiedPromptBox(
               promptBoxWidth,
-              language === 'es'
-                ? 'Centro de comandos... "/projects para cambiar de proyecto"'
-                : 'Command center... "/projects to switch project"',
+              project
+                ? (language === 'es'
+                    ? 'Centro de comandos... "/projects para cambiar de proyecto"'
+                    : 'Command center... "/projects to switch project"')
+                : (language === 'es'
+                    ? 'Centro de comandos... "/project para crear un proyecto"'
+                    : 'Command center... "/project to create a new project"'),
             )}
           </Box>
         )}
@@ -5012,7 +5096,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         <Box width="100%" justifyContent="space-between" height={1}>
           <Box flexDirection="row">
             <Text bold color="white" backgroundColor="blue">
-              {` Active Project: ${project.name} `}
+              {project
+                ? ` Active Project: ${project.name} `
+                : ' Active project: No projects created yet '}
             </Text>
           </Box>
           <Box flexDirection="row">
@@ -5341,7 +5427,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {/* Right Column: Project Info & Context Sidebar (OpenCode shaded panel) */}
             {(() => {
               const sidebarLines: Array<{ text: string; color?: string; bold?: boolean; dimColor?: boolean }> = [
-                { text: project.name || 'pocli', bold: true, color: 'white' },
+                { text: project?.name || 'pocli', bold: true, color: 'white' },
                 { text: '' },
                 { text: 'Context', bold: true, color: 'white' },
                 { text: `${estimatedTokens.toLocaleString()} tokens`, dimColor: true },
@@ -5349,8 +5435,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 { text: activeModelEntry.isFree ? '$0.00 spent' : '$0.02 spent', dimColor: true },
                 { text: '' },
                 { text: language === 'es' ? 'Proyecto' : 'Project', bold: true, color: 'white' },
-                { text: project.name, color: 'white' },
-                { text: `v${project.approvedArchitectureVersion} (${project.phase.replace('PHASE_', '')})`, dimColor: true },
+                { text: project?.name || (language === 'es' ? 'Ninguno' : 'None'), color: 'white' },
+                { text: project ? `v${project.approvedArchitectureVersion} (${project.phase.replace('PHASE_', '')})` : (language === 'es' ? 'Sin proyecto' : 'No project'), dimColor: true },
                 { text: '' },
                 { text: language === 'es' ? 'Especialista' : 'Specialist', bold: true, color: 'white' },
                 { text: activeRoleDisplayName, color: activeTheme.accentColor, bold: true },
@@ -5427,7 +5513,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           </Box>
           <Box flexDirection="row">
             <Text bold color="white" backgroundColor="blue">
-              {` Active Project: ${project.name} `}
+              {project
+                ? ` Active Project: ${project.name} `
+                : ' Active project: No projects created yet '}
             </Text>
           </Box>
         </Box>
@@ -5488,7 +5576,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               const summary = expertSummaries.find(
                 (s) => s.expertRole === roleKey,
               ) ?? {
-                projectId: project.id,
+                projectId: project?.id ?? '',
                 expertRole: roleKey,
                 totalMessages: 0,
                 activeContextTokens: 0,
@@ -5816,7 +5904,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Box justifyContent="space-between">
               <Text>
                 <Text bold color="green">
-                  [{project.name}]
+                  {project ? `[${project.name}]` : '[No project]'}
                 </Text>{' '}
                 <Text dimColor>
                   {activeRoleDisplayName}
@@ -5828,7 +5916,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 <Text color={activeTheme.accentColor}>█</Text>
               </Text>
               <Text dimColor>
-                dir: {project.workspaceDir} · {t.returnToCleanViewHint}
+                {project ? `dir: ${project.workspaceDir} · ` : ''}{t.returnToCleanViewHint}
               </Text>
             </Box>
             <Text color={isAnyRoleBusy ? 'yellow' : 'gray'}>{statusBanner}</Text>

@@ -109,19 +109,17 @@ async function main(): Promise<void> {
   //   - `pocli models` -> lists per-agent configured models + available models catalog
   //   - `pocli models <agent|all> <provider/model>` -> assigns model to agent in SQLite
   if (subcommand === 'models' || subcommand === 'model') {
-    let project = storage.getActiveProject();
-    if (!project) {
-      project = orchestrator.createProject({
-        name: 'Default-Workspace-Linux',
-        description:
-          'Default workspace configured for the PO CLI virtual engineering team',
-        workspaceDir: path.join(centralWorkDir, 'workspaces', 'default-workspace'),
-      });
-    }
-
+    const project = storage.getActiveProject();
     const arg1 = args[1];
     const arg2 = args[2];
     if (arg1 && arg2) {
+      if (!project) {
+        console.error(
+          c.red('No active project found. Create a project first using "pocli" and "/project".'),
+        );
+        storage.close();
+        process.exit(1);
+      }
       const resolved = resolveModelSpec(arg2);
       if (!resolved) {
         console.error(`Model "${arg2}" not found.`);
@@ -143,13 +141,19 @@ async function main(): Promise<void> {
       return;
     }
 
-    const roleConfigs = storage.listRoleConfigs(project.id);
-    console.log(
-      `\n${c.cyanBold(`=== Active Project "${project.name}" — Per-Agent Model Assignments ===`)}`,
-    );
-    for (const rc of roleConfigs) {
+    if (project) {
+      const roleConfigs = storage.listRoleConfigs(project.id);
       console.log(
-        `  • ${c.cyanBold(rc.role.padEnd(12, ' '))} -> ${c.green(`${rc.provider}/${rc.modelId}`)} ${c.dim(`(temp=${rc.temperature}, mode=${rc.executionModality})`)}`,
+        `\n${c.cyanBold(`=== Active Project "${project.name}" — Per-Agent Model Assignments ===`)}`,
+      );
+      for (const rc of roleConfigs) {
+        console.log(
+          `  • ${c.cyanBold(rc.role.padEnd(12, ' '))} -> ${c.green(`${rc.provider}/${rc.modelId}`)} ${c.dim(`(temp=${rc.temperature}, mode=${rc.executionModality})`)}`,
+        );
+      }
+    } else {
+      console.log(
+        `\n${c.yellow('No active project found.')} ${c.dim('Run "pocli" to create or select a project.')}`,
       );
     }
     console.log(`\n${c.cyanBold('=== Available Models Catalog (pocli models / /models) ===')}`);
@@ -290,14 +294,7 @@ async function main(): Promise<void> {
   }
 
   if (subcommand === 'tui' || subcommand === 'pocli') {
-    let project = storage.getActiveProject();
-    if (!project) {
-      project = orchestrator.createProject({
-        name: 'Default-Workspace-Linux',
-        description: 'Default workspace configured for the PO CLI virtual engineering team',
-        workspaceDir: path.join(centralWorkDir, 'workspaces', 'default-workspace'),
-      });
-    }
+    const project = storage.getActiveProject() || null;
 
     enterFullscreenTerminal();
     try {
