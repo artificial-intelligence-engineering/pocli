@@ -171,6 +171,26 @@ All inter-agent communication is controlled, logged, and bound to the project co
 7. **Phase 7 — Correction Cycle:** If QA rejects the deliverable, defects return to the Developer for fixing (consulting the Architect if fixes impact architecture) and re-validation by QA.
 8. **Phase 8 — Final Acceptance:** Once QA confirms all acceptance criteria are met, the deliverable is presented for final Product Owner acceptance.
 
+### 6.1. Methodology: Governed Agentic Development (SDD + ODD Hybrid)
+
+PO CLI implements the **Governed Agentic Development** methodology (ADR-002), reconciling **Organic-Driven Development (ODD)** and **Spec-Driven Development (SDD)**:
+
+- **1. DISCOVER (ODD / Context-Driven Mode):**
+  - The Architect or Developer conducts empirical investigations on legacy code, runtimes, or libraries using sandboxed spikes (`LOCAL_PROCESS`, `LINUX_BWRAP`, `OCI_CONTAINER`).
+  - Exploratory findings are recorded into structured `EXP-*` (Experiment) and `OBS-*` (Observation) artifacts.
+  - Spikes and discarded hypotheses never directly alter the production branch or approved architecture.
+- **2. PROMOTE (Governance Bridge):**
+  - When an experiment proves a design direction (`PROMOTE_TO_ADR`) or implementation pattern (`PROMOTE_TO_SPEC`), it is promoted to a normative artifact via `/promote`.
+  - Creates explicit bidirectional traceability (`tracesTo: ['EXP-*']` in the contract, and `promotedTo` in the experiment).
+- **3. SPECIFY & APPROVE (SDD / Contract-Driven Mode):**
+  - Promoted findings become formal proposals (`ADR-*`, `ARCH-*`, `SPEC-*`).
+  - The human Product Owner retains sovereign decision authority: no promoted proposal is active until approved by the PO (`/approve`).
+- **4. BUILD (SDD + TDD):**
+  - The Developer implements code bound deterministically to approved specifications. Unilateral architectural modifications remain prohibited.
+- **5. ACCEPT & VERIFY (Generator-Verifier / Evidence-Driven QA):**
+  - Independent QA executes tests, collects empirical evidence, logs defects (`DEF-*`), and advises `ACCEPT` or `REJECT`.
+  - Final delivery acceptance is granted solely by the human Product Owner (`/accept`).
+
 ## 7. Project Concept and Persistent Artifacts
 
 Project knowledge must not live exclusively in chat transcripts. PO CLI maintains a structured repository of versioned artifacts with bidirectional traceability:
@@ -183,6 +203,8 @@ Project knowledge must not live exclusively in chat transcripts. PO CLI maintain
 - Implementation Plans (`PLAN-*`)
 - Source Code (`CODE-*`)
 - Test Cases (`TEST-*`), QA Reports (`QA-*`), and Defects (`DEF-*`)
+- Experiments (`EXP-*`): Empirical hypotheses, sandboxed spike executions, raw evidence, and promotion verdicts.
+- Observations (`OBS-*`): Structured empirical findings from legacy codebase and third-party inspection.
 - Approval History and Architectural Consultations
 
 ## 8. Specialized Knowledge Bases: Notebooks & Hybrid RAG
