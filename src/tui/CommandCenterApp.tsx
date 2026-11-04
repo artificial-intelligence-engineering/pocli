@@ -2850,25 +2850,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     return messages.slice(Math.max(0, endIdx - maxVisible), endIdx);
   }, [messages, safeViewportHeight, messageScrollOffset, promptLineCount]);
 
-  const gitBranch = useMemo(() => {
-    try {
-      const res = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-        cwd: project.workspaceDir || process.cwd(),
-        encoding: 'utf8',
-        timeout: 1000,
-      });
-      return res.stdout.trim() || 'main';
-    } catch {
-      return 'main';
-    }
-  }, [project.workspaceDir]);
-
-  const shortWorkdir = useMemo(() => {
-    const target = project.workspaceDir || process.cwd();
-    const home = os.homedir();
-    return target.startsWith(home) ? `~${target.slice(home.length)}` : target;
-  }, [project.workspaceDir]);
-
   const estimatedTokens = useMemo(() => {
     let chars = 0;
     for (const m of messages) {
@@ -4932,12 +4913,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           </Box>
         )}
 
-        {/* Bottom Footer Bar matching OpenCode screenshot:
-            ~/HACK/dev/ai.github.io.git:master     ctrl+n cycle   shift+tab agents   ctrl+p commands              1.0.0 */}
+        {/* Bottom Footer Bar:
+            Active Project: <name>     ctrl+n cycle   shift+tab agents   ctrl+p commands              1.0.0 */}
         <Box width="100%" justifyContent="space-between" height={1}>
           <Box flexDirection="row">
-            <Text color="gray">
-              {shortWorkdir}:{gitBranch}
+            <Text bold color="white" backgroundColor="blue">
+              {` Active Project: ${project.name} `}
             </Text>
           </Box>
           <Box flexDirection="row">
@@ -5351,8 +5332,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text color="gray">{language === 'es' ? 'inicio' : 'home'}</Text>
           </Box>
           <Box flexDirection="row">
-            <Text color="gray">
-              {shortWorkdir}:{gitBranch}
+            <Text bold color="white" backgroundColor="blue">
+              {` Active Project: ${project.name} `}
             </Text>
           </Box>
         </Box>
