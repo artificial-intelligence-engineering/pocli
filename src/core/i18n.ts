@@ -164,9 +164,9 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     themeSystemLabel: 'system',
     themeSolarizedLightLabel: 'solarized-light',
     themeSolarizedDarkLabel: 'solarized-dark',
-    settingWorkDirLabel: 'Central Working & Artifacts Directory',
+    settingWorkDirLabel: 'Central POCLI Home Directory',
     settingWorkDirDesc:
-      'Central folder (default $HOME/.pocli/) for CLI configs, LLM Python scripts, spreadsheets & PM outputs',
+      'Central folder (default $HOME/.pocli/) for CLI configuration, SQLite database, logs & workspaces',
     settingWorkDirEditPrompt:
       'Enter new Central Working Directory path (Enter to save · Esc to cancel):',
     settingsSavedMsg: (lang) =>
@@ -441,9 +441,9 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     themeSystemLabel: 'system',
     themeSolarizedLightLabel: 'solarized-light',
     themeSolarizedDarkLabel: 'solarized-dark',
-    settingWorkDirLabel: 'Directorio Central de Trabajo y Artefactos',
+    settingWorkDirLabel: 'Directorio Central de POCLI',
     settingWorkDirDesc:
-      'Carpeta central (por defecto $HOME/.pocli/) para configs del CLI, scripts Python, hojas de cálculo y outputs de PM',
+      'Carpeta central (por defecto $HOME/.pocli/) para configuración del CLI, base de datos SQLite, logs y workspaces',
     settingWorkDirEditPrompt:
       'Introduce la nueva ruta del Directorio Central de Trabajo (Enter guardar · Esc cancelar):',
     settingsSavedMsg: (lang) =>

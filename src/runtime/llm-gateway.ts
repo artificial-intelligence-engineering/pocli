@@ -1102,7 +1102,7 @@ export class LlmGateway {
           arguments: {
             code: 'OUT-CSV-001',
             title: `PM Spreadsheet Output — ${input.projectName}`,
-            relFilePath: 'outputs/pm_project_metrics.csv',
+            relFilePath: 'deliveries/pm_project_metrics.csv',
             content: [
               'project,phase,role,status,notes',
               `${input.projectName},${input.phase},architect,ACTIVE,Architecture governance active`,
@@ -1126,7 +1126,7 @@ export class LlmGateway {
             relFilePath: 'scripts/pocli_task_helper.py',
             content: [
               '#!/usr/bin/env python3',
-              '"""Auto-generated LLM helper script stored in the central POCLI working directory."""',
+              '"""Auto-generated LLM helper script stored in project .pocli/artifacts/scripts."""',
               'import json',
               '',
               'def summarize_project():',
@@ -1141,12 +1141,12 @@ export class LlmGateway {
       }
       replyText =
         `[Project Manager (PM)] Consolidated status check for **${input.projectName}** (Phase: \`${input.phase}\`). ` +
-        `I can execute parallel or sequential inquiries across the active Architect, Developer, and QA agents and store requested outputs (Python scripts, spreadsheets, reports) in the central POCLI working directory.${citationFooter}`;
+        `I can execute parallel or sequential inquiries across the active Architect, Developer, and QA agents and store requested outputs (Python scripts, spreadsheets, reports) in the project artifacts directory (.pocli/artifacts/).${citationFooter}`;
     } else {
       replyText = `[Specialist ${input.role}] Analysis completed for ${input.projectName}.${citationFooter}`;
     }
 
-    // Any role can also emit a Python helper script or spreadsheet output in the central working directory when requested
+    // Any role can also emit a Python helper script or spreadsheet output in the project artifacts directory when requested
     if (input.role !== 'pm') {
       const promptLower = input.userPrompt.toLowerCase();
       if (
