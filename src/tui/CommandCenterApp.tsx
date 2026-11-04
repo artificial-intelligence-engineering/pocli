@@ -1483,12 +1483,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // Non-command input entered on the main startup screen
+    if (viewMode === 'startup') {
+      setInputValue('');
+      setStatusBanner(
+        language === 'es'
+          ? 'ℹ La pantalla principal está reservada para comandos (inician con /). Usa Ctrl+N, Shift+Tab o /architect para conversar con un agente.'
+          : 'ℹ The main screen is reserved for commands (starting with /). Use Ctrl+N, Shift+Tab, or /architect to chat with an agent.',
+      );
+      return;
+    }
+
     // Normal conversation message sent to the currently active professional
     setInputValue('');
     setRoleDrafts((prev) => ({ ...prev, [activeRole]: '' }));
-    if (viewMode === 'startup') {
-      setViewMode('chat');
-    }
     void sendChatMessage(activeRole, trimmed);
   };
 
@@ -4918,8 +4926,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {renderUnifiedPromptBox(
               promptBoxWidth,
               language === 'es'
-                ? 'Pregunta cualquier cosa... "/projects para cambiar de proyecto"'
-                : 'Ask anything... "/projects to switch project"',
+                ? 'Centro de comandos... "/projects para cambiar de proyecto"'
+                : 'Command center... "/projects to switch project"',
             )}
           </Box>
         )}
