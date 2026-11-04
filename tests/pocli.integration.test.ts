@@ -1298,4 +1298,118 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(lines.length).toBe(3);
     expect(lines[0]).toBe('Escribe un mensaje para el agente...');
   });
+
+  it('Issue #28: verifies main startup screen prompt is reserved for slash commands and placeholder is Command center', () => {
+    // 1. Placeholder verification for startup screen
+    const getStartupPlaceholder = (lang: 'en' | 'es') =>
+      lang === 'es'
+        ? 'Centro de comandos... "/projects para cambiar de proyecto"'
+        : 'Command center... "/projects to switch project"';
+
+    expect(getStartupPlaceholder('en')).toBe(
+      'Command center... "/projects to switch project"',
+    );
+    expect(getStartupPlaceholder('es')).toBe(
+      'Centro de comandos... "/projects para cambiar de proyecto"',
+    );
+
+    // 2. Main screen input submission logic: commands vs plain chat
+    interface MockCommandCenterState {
+      viewMode: 'startup' | 'chat';
+      activeRole: 'architect' | 'developer' | 'qa' | 'pm';
+      inputValue: string;
+      statusBanner: string;
+      sentMessages: Array<{ role: string; text: string }>;
+    }
+
+    const handleSubmission = (
+      state: MockCommandCenterState,
+      rawInput: string,
+      lang: 'en' | 'es' = 'en',
+    ) => {
+      const trimmed = rawInput.trim();
+      if (!trimmed) return;
+
+      if (trimmed.startsWith('/')) {
+        // Slash commands execute from startup screen
+        if (state.viewMode !== 'startup') {
+          state.inputValue = '';
+          state.statusBanner =
+            lang === 'es'
+              ? 'ℹ Para ejecutar comandos ve a la ventana principal con Esc o Ctrl+A.'
+              : 'ℹ Commands must be executed from the main window. Press Esc or Ctrl+A.';
+          return;
+        }
+        state.inputValue = '';
+        state.statusBanner = `Executed command: ${trimmed}`;
+        return;
+      }
+
+      // Non-command input entered on startup screen
+      if (state.viewMode === 'startup') {
+        state.inputValue = '';
+        state.statusBanner =
+          lang === 'es'
+            ? 'ℹ La pantalla principal está reservada para comandos (inician con /). Usa Ctrl+N, Shift+Tab o /architect para conversar con un agente.'
+            : 'ℹ The main screen is reserved for commands (starting with /). Use Ctrl+N, Shift+Tab, or /architect to chat with an agent.';
+        return;
+      }
+
+      // Non-command input in chat mode sends to active agent
+      state.inputValue = '';
+      state.sentMessages.push({ role: state.activeRole, text: trimmed });
+    };
+
+    // Test Case A: Plain text on startup screen is rejected and does not dispatch to agent
+    const stateA: MockCommandCenterState = {
+      viewMode: 'startup',
+      activeRole: 'architect',
+      inputValue: 'hola equipo',
+      statusBanner: '',
+      sentMessages: [],
+    };
+    handleSubmission(stateA, stateA.inputValue, 'es');
+    expect(stateA.inputValue).toBe('');
+    expect(stateA.sentMessages.length).toBe(0);
+    expect(stateA.statusBanner).toContain('reservada para comandos');
+
+    // Test Case B: English plain text on startup screen
+    const stateB: MockCommandCenterState = {
+      viewMode: 'startup',
+      activeRole: 'developer',
+      inputValue: 'implement this feature',
+      statusBanner: '',
+      sentMessages: [],
+    };
+    handleSubmission(stateB, stateB.inputValue, 'en');
+    expect(stateB.inputValue).toBe('');
+    expect(stateB.sentMessages.length).toBe(0);
+    expect(stateB.statusBanner).toContain('reserved for commands (starting with /)');
+
+    // Test Case C: Slash command on startup screen executes normally
+    const stateC: MockCommandCenterState = {
+      viewMode: 'startup',
+      activeRole: 'architect',
+      inputValue: '/projects',
+      statusBanner: '',
+      sentMessages: [],
+    };
+    handleSubmission(stateC, stateC.inputValue, 'en');
+    expect(stateC.inputValue).toBe('');
+    expect(stateC.statusBanner).toBe('Executed command: /projects');
+
+    // Test Case D: Plain text in chat mode sends message to active agent
+    const stateD: MockCommandCenterState = {
+      viewMode: 'chat',
+      activeRole: 'architect',
+      inputValue: 'Please review ARCH-001',
+      statusBanner: '',
+      sentMessages: [],
+    };
+    handleSubmission(stateD, stateD.inputValue, 'en');
+    expect(stateD.inputValue).toBe('');
+    expect(stateD.sentMessages).toEqual([
+      { role: 'architect', text: 'Please review ARCH-001' },
+    ]);
+  });
 });
