@@ -90,6 +90,9 @@ export interface UiTranslations {
   projectsListTitle: string;
   projectsListSubtitle: string;
   projectSwitchedMsg: (name: string, dir: string) => string;
+  projectDeletedMsg: (name: string, renamedDir?: string) => string;
+  confirmDeleteProject: (name: string) => string;
+  projectsListFooterHints: string;
   projectNotFoundMsg: (query: string) => string;
   reposLabel: string;
   activeBadge: string;
@@ -202,6 +205,12 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Use ↑/↓ and Enter to switch active project · Esc to close',
     projectSwitchedMsg: (name, dir) =>
       `✔ Switched active project to "${name}" (${dir}).`,
+    projectDeletedMsg: (name, renamedDir) =>
+      `✔ Project "${name}" deleted from database and archived as ${renamedDir ? path.basename(renamedDir) : 'DELETED_' + name}.`,
+    confirmDeleteProject: (name) =>
+      `Are you sure you want to delete "${name}"? It will be archived on disk as DELETED_${name}. (y/n)`,
+    projectsListFooterHints:
+      '↑/↓ Navigate · Enter Select · d Delete/Archive · Esc Close',
     projectNotFoundMsg: (query) =>
       `✖ Project "${query}" not found. Use /projects to list all projects.`,
     reposLabel: 'repos',
@@ -473,6 +482,12 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Usa ↑/↓ y Enter para cambiar al proyecto seleccionado · Esc para cerrar',
     projectSwitchedMsg: (name, dir) =>
       `✔ Proyecto activo cambiado a "${name}" (${dir}).`,
+    projectDeletedMsg: (name, renamedDir) =>
+      `✔ Proyecto "${name}" eliminado de la base de datos y archivado como ${renamedDir ? path.basename(renamedDir) : 'DELETED_' + name}.`,
+    confirmDeleteProject: (name) =>
+      `¿Seguro que deseas eliminar "${name}"? Se archivará en disco como DELETED_${name}. (s/n)`,
+    projectsListFooterHints:
+      '↑/↓ Navegar · Enter Seleccionar · d Eliminar/Archivar · Esc Cerrar',
     projectNotFoundMsg: (query) =>
       `✖ Proyecto "${query}" no encontrado. Usa /projects para listar proyectos.`,
     reposLabel: 'repos',

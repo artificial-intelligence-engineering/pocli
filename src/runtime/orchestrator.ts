@@ -151,6 +151,12 @@ export class PoCliOrchestrator extends EventEmitter {
     return project;
   }
 
+  deleteProject(projectId: string): { renamedWorkspaceDir?: string; newActiveProjectId?: string } {
+    const result = this.storage.deleteProject(projectId);
+    this.emit('project:deleted', { projectId, ...result });
+    return result;
+  }
+
   // ==========================================================================
   // PHASE 2 & DIRECT COMMUNICATION: PO <-> ANY PROFESSIONAL
   // ==========================================================================

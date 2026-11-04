@@ -445,6 +445,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [isProjectsModalOpen, setIsProjectsModalOpen] =
     useState<boolean>(false);
   const [selectedProjectIdx, setSelectedProjectIdx] = useState<number>(0);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
 
   // Interactive Active Agent Selector Modal (/agents)
   const [isAgentsModalOpen, setIsAgentsModalOpen] = useState<boolean>(false);
@@ -747,6 +748,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setModelsFilterQuery('');
     setDbModalOutput('');
     setIsWorkersModalOpen(false);
+    setProjectToDelete(null);
     setProjectWizardStep('CLOSED');
   };
 
@@ -2094,8 +2096,46 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // 2. Handle Projects List & Switcher Modal (/projects or /switch)
     if (isProjectsModalOpen) {
+      if (projectToDelete) {
+        const lower = (input || '').toLowerCase();
+        if (lower === 'y' || (language === 'es' && lower === 's')) {
+          const target = projectToDelete;
+          setProjectToDelete(null);
+          try {
+            const { renamedWorkspaceDir, newActiveProjectId } =
+              orchestrator.deleteProject(target.id);
+            const updatedProjects = orchestrator.storage.listProjects();
+            setAllProjects(updatedProjects);
+            if (project.id === target.id) {
+              if (newActiveProjectId) {
+                const nextActive =
+                  orchestrator.storage.getProject(newActiveProjectId);
+                if (nextActive) setProject(nextActive);
+              } else if (updatedProjects.length > 0) {
+                setProject(updatedProjects[0]);
+              }
+            }
+            setSelectedProjectIdx((prev) =>
+              Math.max(0, Math.min(prev, updatedProjects.length - 1)),
+            );
+            setStatusBanner(
+              t.projectDeletedMsg(target.name, renamedWorkspaceDir),
+            );
+          } catch (err: any) {
+            setStatusBanner(`✖ Error: ${err?.message ?? String(err)}`);
+          }
+          return;
+        }
+        if (lower === 'n' || key.escape || input === 'q') {
+          setProjectToDelete(null);
+          return;
+        }
+        return;
+      }
+
       if (key.escape || input === 'q') {
         setIsProjectsModalOpen(false);
+        setProjectToDelete(null);
         return;
       }
       if (key.upArrow && allProjects.length > 0) {
@@ -2110,10 +2150,21 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         );
         return;
       }
+      if (
+        (input === 'd' || input === 'D' || key.delete) &&
+        allProjects.length > 0
+      ) {
+        const target = allProjects[selectedProjectIdx] ?? allProjects[0];
+        if (target) {
+          setProjectToDelete(target);
+        }
+        return;
+      }
       if (key.return && allProjects.length > 0) {
         const chosen = allProjects[selectedProjectIdx] ?? allProjects[0];
         if (chosen) {
           setIsProjectsModalOpen(false);
+          setProjectToDelete(null);
           switchProjectTo(chosen.id);
         }
         return;
@@ -2952,41 +3003,84 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         </Text>
         <Text dimColor>{t.projectsListSubtitle}</Text>
       </Box>
-      {allProjects.map((proj, idx) => {
-        const isCurrentActive = proj.id === project.id;
-        const isRowSelected = idx === selectedProjectIdx;
-        return (
-          <Box
-            key={proj.id}
-            flexDirection="column"
-            marginBottom={0}
-            paddingX={1}
-          >
-            <Box justifyContent="space-between">
-              <Text
-                bold={isRowSelected || isCurrentActive}
-                color={isRowSelected ? 'cyan' : isCurrentActive ? 'green' : 'white'}
-              >
-                {isRowSelected ? '❯ ' : '  '}
-                {proj.name}{' '}
-                {isCurrentActive && (
-                  <Text color="green" bold>
-                    [{t.activeBadge}]
-                  </Text>
-                )}{' '}
-                <Text dimColor>({proj.phase})</Text>
-              </Text>
-              <Text color="yellow">
-                {t.reposLabel}:{' '}
-                {proj.repositories.length > 0
-                  ? `${proj.repositories.length} [${proj.repositories.join(', ')}]`
-                  : '0'}
-              </Text>
+
+      {projectToDelete && (
+        <Box
+          flexDirection="row"
+          marginBottom={1}
+          paddingX={1}
+          borderStyle="single"
+          borderColor="red"
+        >
+          <Text color="red" bold>
+            ⚠️ {t.confirmDeleteProject(projectToDelete.name)}
+          </Text>
+        </Box>
+      )}
+
+      {allProjects.length === 0 ? (
+        <Box paddingY={1}>
+          <Text dimColor>
+            {language === 'es'
+              ? 'No hay proyectos disponibles.'
+              : 'No projects available.'}
+          </Text>
+        </Box>
+      ) : (
+        allProjects.map((proj, idx) => {
+          const isCurrentActive = proj.id === project.id;
+          const isRowSelected = idx === selectedProjectIdx;
+          const isMarkedForDeletion = projectToDelete?.id === proj.id;
+          return (
+            <Box
+              key={proj.id}
+              flexDirection="column"
+              marginBottom={0}
+              paddingX={1}
+            >
+              <Box justifyContent="space-between">
+                <Text
+                  bold={isRowSelected || isCurrentActive}
+                  color={
+                    isMarkedForDeletion
+                      ? 'red'
+                      : isRowSelected
+                        ? 'cyan'
+                        : isCurrentActive
+                          ? 'green'
+                          : 'white'
+                  }
+                >
+                  {isRowSelected ? '❯ ' : '  '}
+                  {proj.name}{' '}
+                  {isCurrentActive && (
+                    <Text color="green" bold>
+                      [{t.activeBadge}]
+                    </Text>
+                  )}{' '}
+                  {isMarkedForDeletion && (
+                    <Text color="red" bold>
+                      [DELETE?]
+                    </Text>
+                  )}{' '}
+                  <Text dimColor>({proj.phase})</Text>
+                </Text>
+                <Text color="yellow">
+                  {t.reposLabel}:{' '}
+                  {proj.repositories.length > 0
+                    ? `${proj.repositories.length} [${proj.repositories.join(', ')}]`
+                    : '0'}
+                </Text>
+              </Box>
+              <Text dimColor>    dir: {proj.workspaceDir}</Text>
             </Box>
-            <Text dimColor>    dir: {proj.workspaceDir}</Text>
-          </Box>
-        );
-      })}
+          );
+        })
+      )}
+
+      <Box marginTop={1} justifyContent="flex-start">
+        <Text dimColor>{t.projectsListFooterHints}</Text>
+      </Box>
     </Box>
   );
 
