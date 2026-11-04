@@ -50,6 +50,8 @@ export const ArtifactTypeSchema = z.enum([
   'PM_REPORT',
   'LLM_OUTPUT',
   'DOCUMENTATION',
+  'EXPERIMENT',
+  'OBSERVATION',
 ]);
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>;
 
@@ -93,6 +95,65 @@ export const ApprovalRecordSchema = z.object({
   createdAt: z.string(),
 });
 export type ApprovalRecord = z.infer<typeof ApprovalRecordSchema>;
+
+// ============================================================================
+// 3.1 GOVERNED AGENTIC DEVELOPMENT: ODD ARTIFACT PAYLOADS (AGENTS.MD 6, 7)
+// ============================================================================
+
+export const ExecutionModalitySchema = z.enum([
+  'LOCAL_PROCESS',
+  'LINUX_BWRAP',
+  'OCI_CONTAINER',
+]);
+export type ExecutionModality = z.infer<typeof ExecutionModalitySchema>;
+
+export const ExperimentVerdictSchema = z.enum([
+  'DISCARD',                       // Hypothesis invalidated/infeasible; discarded without polluting main architecture
+  'PROMOTE_TO_ADR',                // Strategic architectural discovery to be formalized as ADR-*
+  'PROMOTE_TO_SPEC',               // Technical implementation pattern to be formalized as SPEC-*
+  'NEEDS_FURTHER_EXPERIMENTATION', // Inconclusive; requires additional spikes or testing
+]);
+export type ExperimentVerdict = z.infer<typeof ExperimentVerdictSchema>;
+
+export const ExperimentExecutionStepSchema = z.object({
+  stepNumber: z.number().int().positive(),
+  commandOrSnippet: z.string(),
+  exitCode: z.number().int().optional(),
+  observedOutput: z.string(),
+  executionTimeMs: z.number().optional(),
+});
+export type ExperimentExecutionStep = z.infer<typeof ExperimentExecutionStepSchema>;
+
+export const ExperimentArtifactPayloadSchema = z.object({
+  hypothesis: z.string().min(10),
+  context: z.object({
+    environment: ExecutionModalitySchema,
+    branchOrCommit: z.string().optional(),
+    targetDependencies: z.array(z.string()).default([]),
+  }),
+  steps: z.array(ExperimentExecutionStepSchema).min(1),
+  rawEvidenceSnippet: z.string().optional(),
+  findings: z.array(z.string()).min(1),
+  openQuestionsForPo: z.array(z.string()).default([]),
+  verdict: ExperimentVerdictSchema,
+  justification: z.string().min(10),
+  promotedTo: z.object({
+    artifactCode: z.string(), // e.g., ADR-002 or SPEC-003
+    promotedAt: z.string(),   // ISO 8601
+  }).optional(),
+});
+export type ExperimentArtifactPayload = z.infer<typeof ExperimentArtifactPayloadSchema>;
+
+export const ObservationArtifactPayloadSchema = z.object({
+  targetEntity: z.string().min(3), // e.g. "legacy/auth/session_manager.py" or "Stripe Webhook API v2024-10"
+  environment: z.union([ExecutionModalitySchema, z.literal('EXTERNAL_SYSTEM')]),
+  summary: z.string().min(10),
+  findings: z.array(z.string()).min(1),
+  relatedFiles: z.array(z.string()).default([]),
+  tracesToArtifacts: z.array(z.string()).default([]),
+  potentialRisks: z.array(z.string()).default([]),
+});
+export type ObservationArtifactPayload = z.infer<typeof ObservationArtifactPayloadSchema>;
 
 // ============================================================================
 // 4. AUTHORITY CONSULTATIONS & QA REPORTS (AGENTS.MD SECTIONS 4, 5, 6)
@@ -211,15 +272,8 @@ export const RagCitationSchema = z.object({
 export type RagCitation = z.infer<typeof RagCitationSchema>;
 
 // ============================================================================
-// 6. MULTI-MODEL ROUTING, EXECUTION MODALITIES & MEMORY (AGENTS.MD 10-12)
+// 6. MULTI-MODEL ROUTING & MEMORY (AGENTS.MD 10-12)
 // ============================================================================
-
-export const ExecutionModalitySchema = z.enum([
-  'LOCAL_PROCESS',
-  'LINUX_BWRAP',
-  'OCI_CONTAINER',
-]);
-export type ExecutionModality = z.infer<typeof ExecutionModalitySchema>;
 
 export const LlmProviderTypeSchema = z.enum([
   'deterministic',
