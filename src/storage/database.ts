@@ -888,11 +888,11 @@ export class PoCliDatabase {
     const trimmed = query.trim();
     if (!trimmed) return null;
     const byId = this.getProject(trimmed);
-    if (byId) return byId;
+    if (byId && !byId.name.startsWith('DELETED_')) return byId;
 
     const row = this.db
       .prepare(
-        `SELECT * FROM projects WHERE LOWER(name) = LOWER(?) ORDER BY created_at DESC LIMIT 1`,
+        `SELECT * FROM projects WHERE LOWER(name) = LOWER(?) AND name NOT LIKE 'DELETED_%' ORDER BY created_at DESC LIMIT 1`,
       )
       .get(trimmed) as Record<string, unknown> | undefined;
     return row ? this.mapProjectRow(row) : null;
@@ -912,7 +912,7 @@ export class PoCliDatabase {
     const settings = this.getSettings();
     if (settings.activeProjectId) {
       const proj = this.getProject(settings.activeProjectId);
-      if (proj) return proj;
+      if (proj && !proj.name.startsWith('DELETED_')) return proj;
     }
     const all = this.listProjects();
     if (all.length > 0) {
@@ -932,9 +932,64 @@ export class PoCliDatabase {
 
   listProjects(): Project[] {
     const rows = this.db
-      .prepare('SELECT * FROM projects ORDER BY created_at DESC')
+      .prepare(`SELECT * FROM projects WHERE name NOT LIKE 'DELETED_%' ORDER BY created_at DESC`)
       .all() as Record<string, unknown>[];
     return rows.map((r) => this.mapProjectRow(r));
+  }
+
+  deleteProject(projectId: string): { renamedWorkspaceDir?: string; newActiveProjectId?: string } {
+    const project = this.getProject(projectId);
+    if (!project) {
+      throw new Error(`Project ${projectId} not found.`);
+    }
+
+    let renamedWorkspaceDir: string | undefined;
+
+    // 1. Rename workspace folder on filesystem if it exists (preserves historical files)
+    if (project.workspaceDir && fs.existsSync(project.workspaceDir)) {
+      const parentDir = path.dirname(project.workspaceDir);
+      const baseName = path.basename(project.workspaceDir);
+      const prefix = 'DELETED_';
+      const cleanBaseName = baseName.startsWith(prefix) ? baseName : `${prefix}${baseName}`;
+      let targetDir = path.join(parentDir, cleanBaseName);
+
+      if (fs.existsSync(targetDir) && targetDir !== project.workspaceDir) {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        targetDir = path.join(parentDir, `${cleanBaseName}_${timestamp}`);
+      }
+
+      try {
+        fs.renameSync(project.workspaceDir, targetDir);
+        renamedWorkspaceDir = targetDir;
+      } catch {
+        // Proceed with database cleanup even if rename fails (e.g. cross-device permissions)
+      }
+    }
+
+    // 2. Clean up memories_fts virtual table for this project
+    try {
+      this.db.prepare(`DELETE FROM memories_fts WHERE project_id = ?`).run(projectId);
+    } catch {
+      // ignore
+    }
+
+    // 3. Delete from projects table (foreign keys cascade all other tables)
+    this.db.prepare(`DELETE FROM projects WHERE id = ?`).run(projectId);
+
+    // 4. Update active project in settings if the deleted project was active
+    let newActiveProjectId: string | undefined;
+    const currentActiveId = this.getSettings().activeProjectId;
+    if (currentActiveId === projectId) {
+      const remaining = this.listProjects();
+      if (remaining.length > 0) {
+        newActiveProjectId = remaining[0].id;
+        this.updateSettings({ activeProjectId: newActiveProjectId });
+      } else {
+        this.updateSettings({ activeProjectId: undefined });
+      }
+    }
+
+    return { renamedWorkspaceDir, newActiveProjectId };
   }
 
   transitionPhase(projectId: string, targetPhase: WorkflowPhase): Project {
