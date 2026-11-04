@@ -237,6 +237,8 @@ During the initial design and architectural evaluation phase (documented in [ADR
   * *Influence:* Multi-agent CLI orchestration patterns, process isolation concepts, role profile management, and task delegation via MCP.
 * **[Open Orchestra](https://github.com/0xSero/orchestra)** (`0xSero/orchestra`):
   * *Influence:* Technical specification handoff patterns, strict separation between specification authoring and code execution, and role playbooks.
+* **[Open Notebook](https://github.com/lfnovo/open-notebook)** (`lfnovo/open-notebook`):
+  * *Influence:* Open-source TypeScript implementation of the NotebookLM paradigm, providing reference architecture for multi-source document ingestion, grounded synthesis, and research workspace management.
 * **[TinySDLC](https://github.com/Minh-Tam-Solution/tinysdlc)** (`Minh-Tam-Solution/tinysdlc`):
   * *Influence:* Strict *"No Self-Review"* principle (the Senior Developer never validates their own delivery; the Independent QA Engineer conducts empirical verification with reproducible test cases and execution evidence).
 
@@ -251,10 +253,10 @@ POCLI leverages battle-tested open-source libraries and native Linux capabilitie
 * **[Bubblewrap (`bwrap`)](https://github.com/containers/bubblewrap)** (`containers/bubblewrap`): Unprivileged Linux namespace sandboxing (`LINUX_BWRAP`) providing mount, PID, network, and IPC isolation with read-only root and workspace-confined writes.
 * **[Podman](https://podman.io)**: Rootless OCI container runtime for isolated agent execution (`OCI_CONTAINER`).
 
-### Protocols, Standards & Architectural Foundations
+### Protocols, Standards & Research Papers
 
 * **[Model Context Protocol (MCP)](https://modelcontextprotocol.io)** (Anthropic): Standardized JSON-RPC 2.0 protocol for secure, extensible tool discovery, external data sources, and role-scoped permissions.
 * **[JSON-RPC 2.0 Specification](https://www.jsonrpc.org/specification)**: Lightweight newline-delimited IPC protocol (`NDJSON` over `stdio`) governing parent Orchestrator and child agent worker communication.
-* **[NotebookLM](https://notebooklm.google.com)** (Google): Conceptual inspiration for POCLI's filesystem-backed **Knowledge Notebooks** with hybrid RAG (FTS5 BM25 + vector cosine similarity) and mandatory verifiable source citations (`[Notebook | Document | Section (Lines)]`).
+* **[NotebookLM](https://notebooklm.google.com)** (Google) & **[Grounded Citation Research (arXiv:2311.09533)](https://arxiv.org/abs/2311.09533)**: Foundational research paper *"Effective Large Language Model Adaptation for Improved Grounding and Citation Generation"* (Google Cloud AI Research, NAACL 2024), establishing the theoretical grounding for Gemini Notebooks. POCLI adapts this methodology for filesystem-backed **Knowledge Notebooks** with hybrid RAG (FTS5 BM25 + vector cosine similarity) and mandatory verifiable source citations (`[Notebook | Document | Section (Lines)]`).
 * **[Architectural Decision Records (ADRs)](https://adr.github.io)** (Michael Nygard): Standardized documentation pattern for recording technical decisions and architectural evolution (`ADR-*`).
 
