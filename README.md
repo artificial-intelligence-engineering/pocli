@@ -216,3 +216,47 @@ npm run build
   * `/settings` — Open the interactive Settings modal or configure UI language (`/settings lang en|es`) and the **Central Working & Artifacts Directory** (`/settings dir <path>`, which defaults to `$HOME/.pocli/` and stores all CLI customizations, LLM-generated Python helper scripts in `artifacts/scripts/`, spreadsheets and Project Manager outputs in `artifacts/outputs/`, and mirrored project artifacts).
   * `/help` — Display all available commands and keyboard shortcuts.
   * `/view`, `/clear`, `/exit`, `/quit`, `/q`.
+
+---
+
+## Research
+
+POCLI is built on the core engineering philosophy of *"do not reinvent the wheel"*—systematically researching, benchmarking, and synthesizing patterns from state-of-the-art open-source agent frameworks, terminal interfaces, and software engineering methodologies.
+
+### Evaluated Open-Source Reference Repositories
+
+During the initial design and architectural evaluation phase (documented in [ADR-000](docs/adr/000-oss-benchmark-matrix.md)), several leading open-source projects were benchmarked to identify reusable components and foundational patterns:
+
+* **[OpenCode](https://github.com/anomalyco/opencode)** (`anomalyco/opencode`):
+  * *Influence:* Benchmark fullscreen terminal UX, clean centered startup view with ASCII art, interactive `/` slash command overlay, darker shaded card backgrounds (`#073642`), vertical accent indicator (`│`), dynamic multi-line expanding prompt input box, right sidebar metadata panel, client/runtime decoupling, and the interactive SQLite REPL (`opencode db` / `pocli db`).
+* **[Pi (`pi-mono`)](https://github.com/badlogic/pi-mono)** (`badlogic/pi-mono`):
+  * *Influence:* Minimal harness philosophy (concise system prompts of 150–250 tokens per role, sub-second TTFT, avoiding monolithic prompt bloat), lightweight predictable Agent Loop without framework overhead, branching Session Tree DAG (`parent_id`), and structured context compaction checkpointing (`/compact`).
+* **[Slipwright](https://github.com/ksksertac/slipwright)** (`ksksertac/slipwright`):
+  * *Influence:* Human-in-the-loop gating model, deterministic SDLC state machine with typed schemas, and explicit human approval gates at major milestones (Architecture approval, code delivery handoff).
+* **[CLI Agent Orchestrator (CAO)](https://github.com/awslabs/cli-agent-orchestrator)** (`awslabs/cli-agent-orchestrator` by AWS Labs):
+  * *Influence:* Multi-agent CLI orchestration patterns, process isolation concepts, role profile management, and task delegation via MCP.
+* **[Open Orchestra](https://github.com/0xSero/orchestra)** (`0xSero/orchestra`):
+  * *Influence:* Technical specification handoff patterns, strict separation between specification authoring and code execution, and role playbooks.
+* **[Open Notebook](https://github.com/lfnovo/open-notebook)** (`lfnovo/open-notebook`):
+  * *Influence:* Open-source TypeScript implementation of the NotebookLM paradigm, providing reference architecture for multi-source document ingestion, grounded synthesis, and research workspace management.
+* **[TinySDLC](https://github.com/Minh-Tam-Solution/tinysdlc)** (`Minh-Tam-Solution/tinysdlc`):
+  * *Influence:* Strict *"No Self-Review"* principle (the Senior Developer never validates their own delivery; the Independent QA Engineer conducts empirical verification with reproducible test cases and execution evidence).
+
+### Foundational Technologies & Runtime Libraries
+
+POCLI leverages battle-tested open-source libraries and native Linux capabilities:
+
+* **[Ink](https://github.com/vadimdemedes/ink)** (`vadimdemedes/ink`): Declarative React-based terminal UI rendering engine, powering the fullscreen Command Center, layout containers, and keyboard event routing.
+* **[Yoga Layout](https://github.com/facebook/yoga)** (`facebook/yoga`): Flexbox layout engine powering Ink's terminal box model, dynamic wrapping, and anchored scrollable viewports.
+* **[Node.js Native SQLite (`node:sqlite`)](https://nodejs.org/api/sqlite.html)** & **[SQLite FTS5](https://www.sqlite.org/fts5.html)**: Native relational persistence (`DatabaseSync`) in Node.js 24 LTS with write-ahead logging (`WAL`) and BM25 full-text indexing, eliminating external C++ compilation dependencies.
+* **[Zod](https://github.com/colinhacks/zod)** (`colinhacks/zod`): TypeScript-first runtime schema validation for IPC messages, domain entities, tool calls, and state transitions.
+* **[Bubblewrap (`bwrap`)](https://github.com/containers/bubblewrap)** (`containers/bubblewrap`): Unprivileged Linux namespace sandboxing (`LINUX_BWRAP`) providing mount, PID, network, and IPC isolation with read-only root and workspace-confined writes.
+* **[Podman](https://podman.io)**: Rootless OCI container runtime for isolated agent execution (`OCI_CONTAINER`).
+
+### Protocols, Standards & Research Papers
+
+* **[Model Context Protocol (MCP)](https://modelcontextprotocol.io)** (Anthropic): Standardized JSON-RPC 2.0 protocol for secure, extensible tool discovery, external data sources, and role-scoped permissions.
+* **[JSON-RPC 2.0 Specification](https://www.jsonrpc.org/specification)**: Lightweight newline-delimited IPC protocol (`NDJSON` over `stdio`) governing parent Orchestrator and child agent worker communication.
+* **[NotebookLM](https://notebooklm.google.com)** (Google) & **[Grounded Citation Research (arXiv:2311.09533)](https://arxiv.org/abs/2311.09533)**: Foundational research paper *"Effective Large Language Model Adaptation for Improved Grounding and Citation Generation"* (Google Cloud AI Research, NAACL 2024), establishing the theoretical grounding for Gemini Notebooks. POCLI adapts this methodology for filesystem-backed **Knowledge Notebooks** with hybrid RAG (FTS5 BM25 + vector cosine similarity) and mandatory verifiable source citations (`[Notebook | Document | Section (Lines)]`).
+* **[Architectural Decision Records (ADRs)](https://adr.github.io)** (Michael Nygard): Standardized documentation pattern for recording technical decisions and architectural evolution (`ADR-*`).
+
