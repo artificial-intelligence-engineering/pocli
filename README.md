@@ -158,6 +158,8 @@ This multi-process architecture guarantees that agent execution is isolated insi
   * [agents/IMPLEMENTATION_PLAN.md](agents/IMPLEMENTATION_PLAN.md) — Phased implementation plan.
   * [docs/adr/000-oss-benchmark-matrix.md](docs/adr/000-oss-benchmark-matrix.md) — Open-source reference benchmark matrix (*Slipwright, AWS CAO, Open Orchestra, TinySDLC, Pi, OpenCode*).
   * [docs/adr/001-architecture-and-runtime.md](docs/adr/001-architecture-and-runtime.md) — Modular architecture, `JSON-RPC 2.0` IPC, `node:sqlite` + `FTS5`, RAG Notebooks, and Linux sandboxing.
+  * [docs/adr/002-governed-agentic-development.md](docs/adr/002-governed-agentic-development.md) — Governed agentic software development, authority boundary, and non-bypassable human gating.
+  * [docs/adr/003-multipanel-worker-and-context-inspector.md](docs/adr/003-multipanel-worker-and-context-inspector.md) — Live Worker Runtime Status & Context/Memory Inspector in Multipanel view.
 * **Core Modules (`src/`):**
   * `src/core/contracts.ts`, `src/core/workflow.ts`, & `src/core/i18n.ts`: `Zod` domain schemas, the **8-phase Workflow state machine**, authority policy enforcement (`AuthorityGuard`), and multi-language (`en`/`es`) dictionary.
   * `src/storage/database.ts`: Decoupled persistence built on `node:sqlite` (`WAL` + `FTS5`), versioned artifacts materialized on disk with `SHA-256` hashes, approval history, architectural consultations, QA reports, 4-layer memory, and persisted application settings.
