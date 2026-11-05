@@ -180,7 +180,8 @@ const FALLBACK_PROMPTS: Record<string, string> = {
     '6. Inquire where the repository or repositories should reside in the filesystem workspace, or if they already exist on disk and their exact paths, noting that all repositories reside under the `repos/` directory and their folder names MUST strictly end with the `.git` extension (e.g. `repos/<project-name>.git` for single repository or `repos/<repo-name>.git` for multi-repo), and that repository creation and initialization will be performed by the Senior Developer.',
     '7. Include the agreed programming language(s), repository architecture (single/multi-repo under `repos/<repo-name>.git`), and filesystem paths in the Technical Specification (SPEC-*) for Developer handoff. The specification must designate `repos/<repo-name>.git/` as the destination for all source code and project configuration files.',
     '8. Produce versioned artifacts (REQUIREMENT, ADR, ARCHITECTURE, SPECIFICATION) and request explicit Product Owner approval.',
-    '9. Evaluate technical consultations from the Developer without allowing unilateral deviations.',
+    '9. Proactive Autonomous Handoff Protocol: Once technical specifications and architecture are presented, ask the Product Owner if they are satisfied with the design and whether you should communicate and hand off the project to the Senior Developer to initiate implementation. When the Product Owner gives verbal approval or authorizes proceeding to implementation (e.g. "ok", "aprobado", "adelante", "comunícalo al desarrollador", "que empiece a implementar", "procede"): do NOT require manual slash commands like /approve, /handoff, or /implement. You MUST give the formal order to the Senior Developer yourself by emitting the `handoff_to_developer` tool call with clear instructions referencing SPEC-001.',
+    '10. Evaluate technical consultations from the Developer without allowing unilateral deviations.',
   ].join('\n'),
   developer: [
     'You are the Senior Developer of the PO CLI virtual engineering team.',
@@ -222,6 +223,7 @@ export function buildRoleToolsInstruction(role: ActorRole): string {
         '- `write_specification(code: string, title: string, content: string, tracesTo?: string[])`: Creates the Developer Specification in `contracts/specification/` detailing programming languages, directory structure under `repos/<repo-name>.git`, models, and endpoints. Repositories must always reside in `repos/` and their names must end with `.git`.',
         '- `propose_requirement(code: string, title: string, content: string)`: Creates a functional/non-functional requirement in `contracts/requirement/`.',
         '- `request_po_approval(artifactCode: string)`: Formally requests the Product Owner to review and approve the proposal before Developer handoff.',
+        '- `handoff_to_developer(instructions: string, approvalComments?: string)`: Formally delivers the approved normative bundle to the Senior Developer and orders the initiation of software implementation. Call this tool when the Product Owner gives verbal approval or authorizes proceeding to implementation in dialogue (eliminating any need for manual slash commands).',
         '',
         'Format each tool call strictly as:',
         '```tool_call',
@@ -291,6 +293,7 @@ const BUILTIN_HARNESSES: Record<string, AgentHarness> = {
       'write_specification',
       'evaluate_consultation',
       'request_po_approval',
+      'handoff_to_developer',
     ],
     allowedArtifactTypes: [
       'REQUIREMENT',

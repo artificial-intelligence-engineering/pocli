@@ -78,11 +78,12 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
         titleColor: 'yellow',
         paragraphs: [
           'Como Product Owner, tienes autoridad absoluta: el Senior Developer tiene estrictamente prohibido tocar código sin una arquitectura aprobada.',
+          '¡Flujo Autónomo Conversacional! Puedes darle el visto bueno al Arquitecto directamente en el chat (ej: "ok", "aprobado", "comunícaselo al desarrollador"). El Arquitecto formalizará la aprobación, transferirá el proyecto e iniciará al Senior Developer sin necesidad de comandos manuales.',
         ],
         bullets: [
           {
             command: '/approve',
-            text: 'Aprueba formalmente la propuesta si estás conforme con la arquitectura y especificaciones.',
+            text: '(Opcional) Aprueba manualmente la propuesta si no usas el diálogo conversacional con el Arquitecto.',
           },
           {
             command: '/reject',
@@ -243,11 +244,12 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
       titleColor: 'yellow',
       paragraphs: [
         'As Product Owner, you have ultimate authority: the Senior Developer is strictly blocked from writing code without approved architecture.',
+        'Conversational Autonomous Flow! You can give approval directly to the Architect in chat (e.g. "ok", "approved", "tell the developer to begin"). The Architect will formally approve contracts, execute the handoff, and initiate the Senior Developer automatically without manual slash commands.',
       ],
       bullets: [
         {
           command: '/approve',
-          text: 'Formally approve the proposal if you agree with the design and specifications.',
+          text: '(Optional) Manually approve the proposal if not using conversational approval with the Architect.',
         },
         {
           command: '/reject',

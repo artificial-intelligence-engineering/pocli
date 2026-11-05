@@ -513,5 +513,132 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       expect(tableEn).toContain('| `SPEC-001` | Specification | v1 | Created | `contracts/specification/SPEC-001_v1.md` |');
       expect(tableEn).toContain('| `ARCH-001` | Architecture | v2 | Modified | `contracts/architecture/ARCH-001_v2.md` |');
     });
+
+    it('extracts handoff_to_developer tool call and suppresses it from cleanText', () => {
+      const raw = [
+        'Comprendido, doy la orden al Senior Developer para iniciar la implementación.',
+        '```tool_call',
+        '{',
+        '  "name": "handoff_to_developer",',
+        '  "arguments": {',
+        '    "instructions": "Inicia la implementación del servicio en repos/my-api.git según SPEC-001.",',
+        '    "approvalComments": "Aprobado por el Product Owner en diálogo."',
+        '  }',
+        '}',
+        '```',
+        'El traspaso ha quedado registrado.',
+      ].join('\n');
+
+      const res = extractToolCalls(raw);
+      expect(res.toolCalls).toHaveLength(1);
+      expect(res.toolCalls[0].name).toBe('handoff_to_developer');
+      expect(res.toolCalls[0].arguments.instructions).toContain('repos/my-api.git');
+      expect(res.cleanText).toContain('Comprendido, doy la orden al Senior Developer');
+      expect(res.cleanText).toContain('El traspaso ha quedado registrado.');
+      expect(res.cleanText).not.toContain('handoff_to_developer');
+    });
+
+    it('executes handoff_to_developer: approves architecture, completes handoff, and transitions to PHASE_5_IMPLEMENTATION', async () => {
+      const testDbPath = path.join(tmpDir, 'test-handoff.sqlite');
+      const storage = new PoCliDatabase(testDbPath);
+      const wsDir = path.join(tmpDir, 'test-handoff-ws');
+      fs.mkdirSync(wsDir, { recursive: true });
+
+      const project = storage.createProject({
+        name: 'test-handoff',
+        description: 'Test Handoff Flow',
+        workspaceDir: wsDir,
+      });
+
+      // Advance to PHASE_2 and create contracts
+      storage.transitionPhase(project.id, 'PHASE_2_ARCHITECT_ANALYSIS');
+
+      storage.saveArtifact({
+        projectId: project.id,
+        code: 'REQ-001',
+        type: 'REQUIREMENT',
+        title: 'User Requirements',
+        content: '# REQ-001',
+        authorRole: 'architect',
+        status: 'DRAFT',
+      });
+
+      storage.saveArtifact({
+        projectId: project.id,
+        code: 'ADR-001',
+        type: 'ADR',
+        title: 'FastAPI Choice',
+        content: '# ADR-001',
+        authorRole: 'architect',
+        status: 'DRAFT',
+      });
+
+      storage.saveArtifact({
+        projectId: project.id,
+        code: 'ARCH-001',
+        type: 'ARCHITECTURE',
+        title: 'System Architecture',
+        content: '# ARCH-001: Architecture Details',
+        authorRole: 'architect',
+        status: 'PENDING_APPROVAL',
+      });
+
+      storage.saveArtifact({
+        projectId: project.id,
+        code: 'SPEC-001',
+        type: 'SPECIFICATION',
+        title: 'Technical Specification',
+        content: '# SPEC-001: Technical Details',
+        authorRole: 'architect',
+        status: 'DRAFT',
+      });
+
+      // Advance to PHASE_3_ARCHITECTURE_APPROVAL
+      storage.transitionPhase(project.id, 'PHASE_3_ARCHITECTURE_APPROVAL');
+
+      const orchestrator = new PoCliOrchestrator(storage);
+
+      // Execute handoff_to_developer tool call
+      const result = await (orchestrator as any).executeAgentToolCalls(
+        project.id,
+        'architect',
+        [
+          {
+            name: 'handoff_to_developer',
+            arguments: {
+              instructions: 'Implement the FastAPI service in repos/test-handoff.git according to SPEC-001.',
+              approvalComments: 'Verbally approved by PO in chat conversation.',
+            },
+          },
+        ],
+      );
+
+      // Verify autonomous handoff payload
+      expect(result.autonomousHandoff).toBeDefined();
+      expect(result.autonomousHandoff?.nextRole).toBe('developer');
+      expect(result.autonomousHandoff?.instructions).toContain('repos/test-handoff.git');
+
+      // Verify project state in database
+      const updatedProj = storage.getProject(project.id)!;
+      expect(updatedProj.phase).toBe('PHASE_5_IMPLEMENTATION');
+      expect(updatedProj.approvedArchitectureVersion).toBe(1);
+
+      // Verify contract statuses updated to APPROVED
+      const arch = storage.getLatestArtifactByCode(project.id, 'ARCH-001')!;
+      expect(arch.status).toBe('APPROVED');
+
+      const spec = storage.getLatestArtifactByCode(project.id, 'SPEC-001')!;
+      expect(spec.status).toBe('APPROVED');
+
+      // Verify official Architect -> Developer handoff message in DAG
+      const msgs = storage.listMessages(project.id);
+      const handoffMsg = msgs.find(
+        (m) => m.fromRole === 'architect' && m.toRole === 'developer',
+      );
+      expect(handoffMsg).toBeDefined();
+      expect(handoffMsg?.content).toContain('# Normative Developer Handoff Bundle');
+      expect(handoffMsg?.content).toContain('ARCH-001');
+      expect(handoffMsg?.content).toContain('SPEC-001');
+    });
   });
 });
