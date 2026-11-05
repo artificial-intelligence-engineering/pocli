@@ -102,6 +102,9 @@ export interface UiTranslations {
   activeInterlocutorMsg: (roleName: string) => string;
   statusClearedMsg: string;
   unknownCommandMsg: (cmd: string) => string;
+  llmMissingApiKeyError: (provider: string) => string;
+  llmConnectionError: (provider: string, reason: string) => string;
+  llmStatusBannerError: (provider: string) => string;
   consultingAgentMsg: (role: string) => string;
   agentRepliedMsg: (role: string, pid: number, artifactCount: number) => string;
   archApprovedMsg: (version: number) => string;
@@ -232,6 +235,12 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     statusClearedMsg: 'Screen status log cleared.',
     unknownCommandMsg: (cmd) =>
       `Unknown command: ${cmd}. Type "/" to view available commands.`,
+    llmMissingApiKeyError: (provider) =>
+      `✖ Error: API key for provider '${provider}' is not configured. Use /auth to configure your API key or /models to select another model.`,
+    llmConnectionError: (provider, reason) =>
+      `✖ Error: Failed to connect to provider '${provider}': ${reason}. Verify credentials via /auth or select another model with /models.`,
+    llmStatusBannerError: (provider) =>
+      `✖ Error: ${provider.toUpperCase()} API key not configured (use /auth or /models)`,
     consultingAgentMsg: (role) =>
       `⏳ Consulting ${role.toUpperCase()} in isolated Linux worker process...`,
     agentRepliedMsg: (role, pid, count) =>
@@ -525,6 +534,12 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     statusClearedMsg: 'Registro de notificaciones limpiado.',
     unknownCommandMsg: (cmd) =>
       `Comando desconocido: ${cmd}. Escribe "/" para ver los comandos disponibles.`,
+    llmMissingApiKeyError: (provider) =>
+      `✖ Error: La API key para el proveedor '${provider}' no está configurada. Usa el comando /auth para añadir tu clave de API o cambia de modelo con /models.`,
+    llmConnectionError: (provider, reason) =>
+      `✖ Error: Fallo de conexión con el proveedor '${provider}': ${reason}. Verifica tus credenciales con /auth o cambia de modelo con /models.`,
+    llmStatusBannerError: (provider) =>
+      `✖ Error: ${provider.toUpperCase()} API key no configurada (usa /auth o /models)`,
     consultingAgentMsg: (role) =>
       `⏳ Consultando a ${role.toUpperCase()} en proceso worker Linux aislado...`,
     agentRepliedMsg: (role, pid, count) =>

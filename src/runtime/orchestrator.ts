@@ -313,6 +313,7 @@ export class PoCliOrchestrator extends EventEmitter {
     );
 
     // Execute turn inside persistent worker (or process runner if persistent mode is disabled)
+    const appSettings = this.storage.getSettings();
     const turnResult: WorkerExecutionResult = await this.runtime.executeTurn(
       {
         projectId: project.id,
@@ -324,6 +325,7 @@ export class PoCliOrchestrator extends EventEmitter {
         normativeArtifactsSummary: contextWindow.formattedPromptContext,
         ragCitations: citations,
         modelConfig,
+        language: appSettings.language,
       },
       project.workspaceDir,
       params.onStreamChunk,

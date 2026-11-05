@@ -1351,10 +1351,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       if (cmdToken === '/propose') {
         switchActiveRole('architect');
-        void sendChatMessage(
-          'architect',
-          'Design and propose the formal architecture and requirements for this project.',
-        );
+        const proposePrompt =
+          parts.slice(1).join(' ').trim() ||
+          (language === 'es'
+            ? 'Diseña y propón la arquitectura y requisitos formales para este proyecto.'
+            : 'Design and propose the formal architecture and requirements for this project.');
+        void sendChatMessage('architect', proposePrompt);
         return;
       }
       if (cmdToken === '/approve') {
@@ -1705,7 +1707,40 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         next.delete(userMsg.id);
         return next;
       });
-      setStatusBanner(`✖ Error: ${(err as Error).message}`);
+      setStreamingByRole((prev) => {
+        const next = { ...prev };
+        delete next[targetRole];
+        return next;
+      });
+      setBusyRoles((prev) => ({ ...prev, [targetRole]: false }));
+
+      const rawMsg = (err as Error).message || String(err);
+      const cleanMsg = rawMsg.replace(
+        /^Worker JSON-RPC Error \(-?\d+\):\s*/,
+        '',
+      );
+
+      const cfg = orchestrator.storage.getRoleConfig(project.id, targetRole);
+      const bannerText = cleanMsg.includes('API key')
+        ? t.llmStatusBannerError(cfg.provider)
+        : `✖ Error: ${cleanMsg}`;
+
+      setStatusBanner(bannerText);
+
+      // Record specialist's error response directly in the chat history
+      orchestrator.storage.recordMessage({
+        projectId: project.id,
+        fromRole: targetRole,
+        toRole: 'product_owner',
+        content: cleanMsg,
+        metadata: {
+          isError: true,
+          errorReason: cleanMsg,
+        },
+      });
+      setMessageScrollOffset(0);
+      setMessagesVersion((prev) => prev + 1);
+      refreshState();
     } finally {
       const stillBusy = orchestrator.isRoleBusy(project.id, targetRole);
       setBusyRoles((prev) => ({ ...prev, [targetRole]: stillBusy }));
@@ -5103,10 +5138,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     text: string,
     isLineSelected: boolean,
   ) => {
+    const isErrorText = text.startsWith('✖');
     if (!text.includes('```')) {
       return (
         <Text
-          color="white"
+          color={isErrorText ? 'red' : 'white'}
+          bold={isErrorText}
           backgroundColor={isLineSelected ? 'yellow' : undefined}
         >
           {text}
@@ -5573,10 +5610,30 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                                 <Box flexDirection="column" flexShrink={0} paddingLeft={2}>
                                   {renderFormattedContent(m.content, isLineSelected)}
                                 </Box>
-                                <Box flexDirection="row" flexShrink={0} marginTop={1} paddingLeft={2}>
-                                  <Text color="cyan" bold>Build</Text>
-                                  <Text dimColor> · {activeRoleDisplayName} · {activeModelEntry.displayName}</Text>
-                                </Box>
+                                {(() => {
+                                  let isErrMsg = m.content.startsWith('✖');
+                                  try {
+                                    const parsed = JSON.parse(m.metadataJson || '{}');
+                                    if (parsed.isError) isErrMsg = true;
+                                  } catch {
+                                    // ignore
+                                  }
+                                  return (
+                                    <Box flexDirection="row" flexShrink={0} marginTop={1} paddingLeft={2}>
+                                      {isErrMsg ? (
+                                        <>
+                                          <Text color="red" bold>Error</Text>
+                                          <Text dimColor> · {activeRoleDisplayName} · {language === 'es' ? 'No accesible' : 'Unreachable'}</Text>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Text color="cyan" bold>Build</Text>
+                                          <Text dimColor> · {activeRoleDisplayName} · {activeModelEntry.displayName}</Text>
+                                        </>
+                                      )}
+                                    </Box>
+                                  );
+                                })()}
                               </Box>
                             );
                           })()
@@ -6147,6 +6204,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                     <Box flexDirection="row">
                       <Text dimColor>
                         Model: <Text color="cyan">{workerModelDisplay}</Text>
+                        {activeModelCfg.provider !== 'deterministic' &&
+                          activeModelCfg.provider !== 'ollama' &&
+                          !Boolean(AuthStorage.getApiKey(activeModelCfg.provider)) && (
+                            <Text color="red" bold>
+                              {' '}[{language === 'es' ? 'Falta API Key' : 'Missing API Key'}]
+                            </Text>
+                          )}
                       </Text>
                     </Box>
                   </Box>
