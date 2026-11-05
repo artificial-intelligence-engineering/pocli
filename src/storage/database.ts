@@ -149,11 +149,10 @@ export class PoCliDatabase {
   }
 
   public ensureProjectArtifactsStructure(workspaceDir: string): void {
-    const base = path.join(workspaceDir, '.pocli', 'artifacts');
-    fs.mkdirSync(path.join(base, 'contracts'), { recursive: true });
-    fs.mkdirSync(path.join(base, 'scripts'), { recursive: true });
-    fs.mkdirSync(path.join(base, 'deliveries'), { recursive: true });
-    fs.mkdirSync(path.join(base, 'outputs'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'contracts'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'deliveries'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'outputs'), { recursive: true });
   }
 
   private syncSettingsFiles(settings: AppSettings): void {
@@ -1751,7 +1750,7 @@ export class PoCliDatabase {
           `${params.code}_v${nextVersion}.md`,
         );
       }
-      absPath = path.join(project.workspaceDir, '.pocli', 'artifacts', relPath);
+      absPath = path.join(project.workspaceDir, relPath);
     }
 
     fs.mkdirSync(path.dirname(absPath), { recursive: true });

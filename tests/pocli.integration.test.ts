@@ -567,7 +567,7 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     });
 
     // Verify filesystem artifacts directory was created and existing repositories were discovered
-    expect(fs.existsSync(path.join(multiRepoDir, '.pocli', 'artifacts'))).toBe(
+    expect(fs.existsSync(path.join(multiRepoDir, 'contracts'))).toBe(
       true,
     );
     expect(p1.repositories).toEqual([
@@ -629,18 +629,18 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
       workspaceDir: path.join(customCentralDir, 'workspaces', 'demo'),
     });
 
-    // 3. Project workspace structure has .pocli/artifacts subdirectories
+    // 3. Project workspace structure has contracts, scripts, deliveries, outputs subdirectories
     expect(
-      fs.existsSync(path.join(project.workspaceDir, '.pocli', 'artifacts', 'contracts')),
+      fs.existsSync(path.join(project.workspaceDir, 'contracts')),
     ).toBe(true);
     expect(
-      fs.existsSync(path.join(project.workspaceDir, '.pocli', 'artifacts', 'scripts')),
+      fs.existsSync(path.join(project.workspaceDir, 'scripts')),
     ).toBe(true);
     expect(
-      fs.existsSync(path.join(project.workspaceDir, '.pocli', 'artifacts', 'deliveries')),
+      fs.existsSync(path.join(project.workspaceDir, 'deliveries')),
     ).toBe(true);
     expect(
-      fs.existsSync(path.join(project.workspaceDir, '.pocli', 'artifacts', 'outputs')),
+      fs.existsSync(path.join(project.workspaceDir, 'outputs')),
     ).toBe(true);
 
     // 4. Request Project Manager (PM) to generate both a Python helper script and a CSV spreadsheet
@@ -654,18 +654,14 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     expect(pmTurn.createdArtifacts.map((a) => a.code)).toContain('OUT-CSV-001');
     expect(pmTurn.createdArtifacts.map((a) => a.code)).toContain('OUT-PY-001');
 
-    // Verify both files exist inside the project's workspace (.pocli/artifacts/...)
+    // Verify both files exist inside the project's workspace (deliveries/, scripts/...)
     const expectedCsvPath = path.join(
       project.workspaceDir,
-      '.pocli',
-      'artifacts',
       'deliveries',
       'pm_project_metrics.csv',
     );
     const expectedPyPath = path.join(
       project.workspaceDir,
-      '.pocli',
-      'artifacts',
       'scripts',
       'pocli_task_helper.py',
     );

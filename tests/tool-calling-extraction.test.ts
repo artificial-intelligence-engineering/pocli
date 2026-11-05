@@ -192,7 +192,7 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it('writes markdown files directly to disk in .pocli/artifacts/contracts/', () => {
+    it('writes markdown files directly to disk in contracts/', () => {
       const art = storage.saveArtifact({
         projectId,
         code: 'SPEC-001',
@@ -203,7 +203,7 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       });
 
       expect(fs.existsSync(art.filePath)).toBe(true);
-      expect(art.filePath).toContain(path.join('.pocli', 'artifacts', 'contracts', 'specification', 'SPEC-001_v1.md'));
+      expect(art.filePath).toContain(path.join('contracts', 'specification', 'SPEC-001_v1.md'));
 
       const diskContent = fs.readFileSync(art.filePath, 'utf8');
       expect(diskContent).toContain('# SPEC-001: FastAPI Specification');
@@ -327,16 +327,12 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       const project = storage.getProject(projectId)!;
       const adrPath = path.join(
         project.workspaceDir,
-        '.pocli',
-        'artifacts',
         'contracts',
         'adr',
         'ADR-001_v1.md',
       );
       const specPath = path.join(
         project.workspaceDir,
-        '.pocli',
-        'artifacts',
         'contracts',
         'specification',
         'SPEC-001_v1.md',
@@ -392,7 +388,7 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
 
       expect(fs.existsSync(art.filePath)).toBe(true);
       expect(art.filePath).toContain(
-        path.join('.pocli', 'artifacts', 'contracts', 'architecture', 'ARCH-001_v1.md'),
+        path.join('contracts', 'architecture', 'ARCH-001_v1.md'),
       );
       expect(fs.readFileSync(art.filePath, 'utf8')).toContain('+-----+ --> +-----+');
     });

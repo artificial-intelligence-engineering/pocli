@@ -1473,7 +1473,7 @@ export class LlmGateway {
             relFilePath: 'scripts/pocli_task_helper.py',
             content: [
               '#!/usr/bin/env python3',
-              '"""Auto-generated LLM helper script stored in project .pocli/artifacts/scripts."""',
+              '"""Auto-generated LLM helper script stored in project scripts/."""',
               'import json',
               '',
               'def summarize_project():',
@@ -1488,7 +1488,7 @@ export class LlmGateway {
       }
       replyText =
         `[Project Manager (PM)] Consolidated status check for **${input.projectName}** (Phase: \`${input.phase}\`). ` +
-        `I can execute parallel or sequential inquiries across the active Architect, Developer, and QA agents and store requested outputs (Python scripts, spreadsheets, reports) in the project artifacts directory (.pocli/artifacts/).${citationFooter}`;
+        `I can execute parallel or sequential inquiries across the active Architect, Developer, and QA agents and store requested outputs (Python scripts, spreadsheets, reports) in the project workspace (scripts/, outputs/, deliveries/).${citationFooter}`;
     } else {
       replyText = `[Specialist ${input.role}] Analysis completed for ${input.projectName}.${citationFooter}`;
     }
