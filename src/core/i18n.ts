@@ -122,6 +122,13 @@ export interface UiTranslations {
   noNotebooksLinked: string;
   directChannelHeader: (roleName: string) => string;
   noMessagesInChannel: string;
+  multipanelInspectorTitle: (roleName: string) => string;
+  multipanelWorkerHeader: string;
+  multipanelContextStatsHeader: string;
+  multipanelMemoryHeader: string;
+  multipanelRecentExchangeHeader: string;
+  multipanelNoExchangesYet: string;
+  multipanelNoCompactionYet: string;
   copiedToClipboardMsg: (charCount: number) => string;
   returnToCleanViewHint: string;
   expertBoxTitles: {
@@ -255,6 +262,14 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     directChannelHeader: (roleName) =>
       `Direct Channel PO ↔ ${roleName.toUpperCase()}`,
     noMessagesInChannel: 'No messages in this channel yet.',
+    multipanelInspectorTitle: (roleName) =>
+      `WORKER RUNTIME & CONTEXT INSPECTOR ↔ ${roleName.toUpperCase()}`,
+    multipanelWorkerHeader: '1. Process Worker Runtime Status',
+    multipanelContextStatsHeader: '2. Context Window & Compaction Statistics',
+    multipanelMemoryHeader: '3. 4-Layer Persistent Memory & 3-Tier Architecture',
+    multipanelRecentExchangeHeader: '4. Active Channel Exchange & Runtime Activity',
+    multipanelNoExchangesYet: 'No conversational activity recorded yet. Type below to converse.',
+    multipanelNoCompactionYet: 'Within budget (no compactions executed yet)',
     copiedToClipboardMsg: (charCount) =>
       `✔ Copied ${charCount} character${charCount === 1 ? '' : 's'} to clipboard.`,
     returnToCleanViewHint: '←/→ switch agent · Tab return to clean view',
@@ -540,6 +555,14 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     directChannelHeader: (roleName) =>
       `Canal Directo PO ↔ ${roleName.toUpperCase()}`,
     noMessagesInChannel: 'No hay mensajes en este canal todavía.',
+    multipanelInspectorTitle: (roleName) =>
+      `INSPECTOR DE WORKER Y CONTEXTO ↔ ${roleName.toUpperCase()}`,
+    multipanelWorkerHeader: '1. Estado del Worker de Proceso en Tiempo Real',
+    multipanelContextStatsHeader: '2. Ventana de Contexto y Estadísticas de Compactación',
+    multipanelMemoryHeader: '3. Memoria Persistente de 4 Capas y Arquitectura de 3 Tiers',
+    multipanelRecentExchangeHeader: '4. Actividad del Canal y Último Intercambio',
+    multipanelNoExchangesYet: 'Sin actividad conversacional registrada aún. Escribe abajo para enviar un mensaje.',
+    multipanelNoCompactionYet: 'Dentro del presupuesto (sin compactaciones aún)',
     copiedToClipboardMsg: (charCount) =>
       `✔ ${charCount} carácter(es) copiado(s) al portapapeles.`,
     returnToCleanViewHint: '←/→ cambiar agente · Pulsa Tab para volver a vista limpia',
