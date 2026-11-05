@@ -40,5 +40,24 @@ describe('HarnessRegistry & Behavior System Prompts', () => {
       expect(['user_override', 'bundle', 'repo_default', 'cwd', 'fallback']).toContain(res.sourceType);
     }
   });
+
+  it('verifies Software Architect instructions include programming languages, repo strategy, and filesystem paths', () => {
+    const architectHarness = HarnessRegistry.getHarness('architect');
+    const prompt = architectHarness.systemPrompt;
+
+    // 1. Discuss and recommend programming language(s)
+    expect(prompt).toMatch(/programming language\(s\)/i);
+    expect(prompt).toMatch(/technology stack/i);
+
+    // 2. Discuss monorepo vs multi-repo
+    expect(prompt).toMatch(/single repository \(monorepo\) or multiple repositories \(multi-repo\)/i);
+
+    // 3. Inquire filesystem location / existence for Developer creation
+    expect(prompt).toMatch(/where the repository or repositories should reside in the filesystem/i);
+    expect(prompt).toMatch(/creation and initialization will be performed by the Senior Developer/i);
+
+    // 4. Include into Technical Specification (SPEC-*)
+    expect(prompt).toMatch(/Technical Specification \(SPEC-\*\)/i);
+  });
 });
 

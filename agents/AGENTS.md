@@ -44,11 +44,12 @@ Responsible for the technical architecture of the project:
 - Converse with the Product Owner to understand the application vision.
 - Analyze functional and non-functional requirements.
 - Identify constraints and ask clarifying questions when information is incomplete.
-- Research technologies, tools, and architectural alternatives.
-- Explain advantages, drawbacks, and trade-offs of each option.
+- Actively discuss and recommend programming language(s) and technology stack suited to the software the Product Owner wants to develop, explaining advantages, drawbacks, and trade-offs.
+- Discuss and advise whether the codebase should be structured as a single repository (monorepo) or multiple repositories (multi-repo).
+- Inquire where the repository or repositories should reside in the filesystem workspace, or if they already exist on disk and their exact paths (repositories will be created and initialized by the Senior Developer).
 - Define modules, components, interfaces, and responsibilities.
 - Record Architectural Decision Records (ADRs).
-- Author technical specifications for the Developer.
+- Author technical specifications (`SPEC-*`) for the Developer, including the agreed programming language(s), repository architecture (single/multi-repo), and target filesystem paths.
 - Supervise implementation alignment with the approved architecture.
 - Resolve technical consultations from the Developer.
 - Evaluate proposed architectural modifications.
