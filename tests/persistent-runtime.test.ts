@@ -403,5 +403,32 @@ describe('Issue #10 — Persistent Concurrent Agent Runtime with Autonomous Inte
     const codeArtifacts = storage.listArtifacts(projectId, false).filter((a) => a.type === 'SOURCE_CODE');
     expect(codeArtifacts.length).toBe(0);
   });
+
+  it('10. stops project workers when project is deleted and stops all workers gracefully on exit', async () => {
+    // Spawn worker for project
+    await orchestrator.chatWithProfessional({
+      projectId,
+      targetRole: 'architect',
+      message: 'Initial project setup test turn.',
+    });
+
+    const runningBefore = orchestrator
+      .listWorkers(projectId)
+      .filter((w) => w.status !== 'stopped');
+    expect(runningBefore.length).toBeGreaterThanOrEqual(1);
+
+    // Stop project workers via stopProjectWorkers and deleteProject
+    await orchestrator.stopProjectWorkers(projectId);
+    orchestrator.deleteProject(projectId);
+
+    const runningAfter = orchestrator
+      .listWorkers(projectId)
+      .filter((w) => w.status !== 'stopped');
+    expect(runningAfter.length).toBe(0);
+
+    // Test stopAllWorkers clears all workers across all projects
+    await orchestrator.stopAllWorkers();
+    expect(orchestrator.listWorkers().length).toBe(0);
+  });
 });
 

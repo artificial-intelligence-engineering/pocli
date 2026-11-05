@@ -158,6 +158,7 @@ export class PoCliOrchestrator extends EventEmitter {
   }
 
   deleteProject(projectId: string): { renamedWorkspaceDir?: string; newActiveProjectId?: string } {
+    void this.runtime.stopProjectWorkers(projectId);
     const result = this.storage.deleteProject(projectId);
     this.emit('project:deleted', { projectId, ...result });
     return result;
@@ -1488,6 +1489,10 @@ export class PoCliOrchestrator extends EventEmitter {
     if (!project) throw new Error(`Project ${projectId} not found.`);
     const modelConfig = this.storage.getRoleConfig(projectId, role);
     return this.runtime.restartWorker(projectId, role, project.workspaceDir, modelConfig);
+  }
+
+  async stopProjectWorkers(projectId: string): Promise<void> {
+    return this.runtime.stopProjectWorkers(projectId);
   }
 
   async stopAllWorkers(): Promise<void> {

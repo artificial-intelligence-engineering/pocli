@@ -297,6 +297,27 @@ async function main(): Promise<void> {
     const project = storage.getActiveProject() || null;
 
     enterFullscreenTerminal();
+
+    let isCleaningUp = false;
+    const cleanupAndExit = async (code = 0) => {
+      if (isCleaningUp) return;
+      isCleaningUp = true;
+      exitFullscreenTerminal();
+      try {
+        orchestrator.rag.stopWatchers();
+      } catch {}
+      try {
+        await orchestrator.stopAllWorkers();
+      } catch {}
+      try {
+        storage.close();
+      } catch {}
+      process.exit(code);
+    };
+
+    process.once('SIGINT', () => void cleanupAndExit(0));
+    process.once('SIGTERM', () => void cleanupAndExit(0));
+
     try {
       const { waitUntilExit } = render(
         React.createElement(CommandCenterApp, {
@@ -307,9 +328,7 @@ async function main(): Promise<void> {
       );
       await waitUntilExit();
     } finally {
-      exitFullscreenTerminal();
-      orchestrator.rag.stopWatchers();
-      storage.close();
+      await cleanupAndExit(0);
     }
     return;
   }

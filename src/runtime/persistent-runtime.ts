@@ -259,19 +259,26 @@ class ManagedWorker {
     if (this.child.killed || this.child.exitCode !== null) return;
 
     return new Promise<void>((resolve) => {
+      let resolved = false;
+      const doResolve = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(shutdownTimer);
+          resolve();
+        }
+      };
+
       const shutdownTimer = setTimeout(() => {
         try {
           this.child.kill('SIGKILL');
         } catch {
           // ignore
         }
-        resolve();
-      }, 2000);
+        doResolve();
+      }, 1000);
+      shutdownTimer.unref();
 
-      this.child.once('exit', () => {
-        clearTimeout(shutdownTimer);
-        resolve();
-      });
+      this.child.once('exit', doResolve);
 
       const shutdownReq: JsonRpcRequest = {
         jsonrpc: '2.0',
@@ -280,15 +287,19 @@ class ManagedWorker {
       };
 
       try {
-        this.child.stdin.write(`${JSON.stringify(shutdownReq)}\n`);
+        if (this.child.stdin && !this.child.stdin.destroyed) {
+          this.child.stdin.write(`${JSON.stringify(shutdownReq)}\n`);
+          this.child.stdin.end();
+        } else {
+          this.child.kill('SIGTERM');
+        }
       } catch {
         try {
           this.child.kill('SIGTERM');
         } catch {
           // ignore
         }
-        clearTimeout(shutdownTimer);
-        resolve();
+        doResolve();
       }
     });
   }
@@ -378,15 +389,21 @@ export class PersistentAgentRuntime extends EventEmitter {
           lastError: deadWorker.lastError,
         });
 
-        if (this.coordinator) {
-          this.coordinator.storage.recordAuditLogEntry({
-            projectId: deadWorker.projectId,
-            agentRole: deadWorker.role,
-            operationType: 'WRITE',
-            action: 'worker_crashed',
-            status: 'REJECTED',
-            details: { pid: deadWorker.pid, code, signal, error: deadWorker.lastError },
-          });
+        if (this.coordinator && deadWorker.status !== 'stopped') {
+          try {
+            if (this.coordinator.storage.getProject(deadWorker.projectId)) {
+              this.coordinator.storage.recordAuditLogEntry({
+                projectId: deadWorker.projectId,
+                agentRole: deadWorker.role,
+                operationType: 'WRITE',
+                action: 'worker_crashed',
+                status: 'REJECTED',
+                details: { pid: deadWorker.pid, code, signal, error: deadWorker.lastError },
+              });
+            }
+          } catch {
+            // Ignore audit log error if project was deleted
+          }
         }
       },
     );
@@ -565,12 +582,26 @@ export class PersistentAgentRuntime extends EventEmitter {
   }
 
   /**
+   * Gracefully shuts down all active workers belonging to a specific project.
+   */
+  public async stopProjectWorkers(projectId: string): Promise<void> {
+    const toStop: ManagedWorker[] = [];
+    for (const [key, worker] of this.workers.entries()) {
+      if (worker.projectId === projectId || key.startsWith(`${projectId}:`)) {
+        toStop.push(worker);
+        this.workers.delete(key);
+      }
+    }
+    await Promise.all(toStop.map((w) => w.stop()));
+  }
+
+  /**
    * Gracefully shuts down all workers across projects (e.g. on exit or project switch).
    */
   public async stopAllWorkers(): Promise<void> {
-    const promises = Array.from(this.workers.values()).map((w) => w.stop());
-    await Promise.all(promises);
+    const workers = Array.from(this.workers.values());
     this.workers.clear();
+    await Promise.all(workers.map((w) => w.stop()));
   }
 }
 
