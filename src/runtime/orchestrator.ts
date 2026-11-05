@@ -677,9 +677,22 @@ export class PoCliOrchestrator extends EventEmitter {
       }
     } else {
       // Default independent verification of generated source code artifact in workspace
-      const targetFile = path.join(project.workspaceDir, 'src', 'app-module.js');
+      const latestCode = this.storage
+        .listArtifacts(project.id, true)
+        .find((a) => a.type === 'SOURCE_CODE');
+      const defaultRepo = project.name.endsWith('.git')
+        ? project.name
+        : `${project.name}.git`;
+      const targetFile =
+        latestCode?.filePath && fs.existsSync(latestCode.filePath)
+          ? latestCode.filePath
+          : (
+            fs.existsSync(path.join(project.workspaceDir, 'repos', defaultRepo, 'src', 'app-module.js'))
+              ? path.join(project.workspaceDir, 'repos', defaultRepo, 'src', 'app-module.js')
+              : path.join(project.workspaceDir, 'src', 'app-module.js')
+          );
       executedTests = [
-        'Verify existence of implemented module src/app-module.js',
+        `Verify existence of implemented module ${path.relative(project.workspaceDir, targetFile)}`,
         'Verify functional contract executeBusinessLogic({ value: 21 }) === 42',
         'Verify invalid input handling executeBusinessLogic(null)',
       ];

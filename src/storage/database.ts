@@ -153,6 +153,7 @@ export class PoCliDatabase {
     fs.mkdirSync(path.join(workspaceDir, 'scripts'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'deliveries'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'outputs'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'repos'), { recursive: true });
   }
 
   private syncSettingsFiles(settings: AppSettings): void {
@@ -790,7 +791,15 @@ export class PoCliDatabase {
     }
 
     // Discover and register any existing repositories inside workspaceDir
-    this.discoverAndRegisterRepositories(id, workspaceDir);
+    const existing = this.discoverAndRegisterRepositories(id, workspaceDir);
+    if (existing.length === 0) {
+      const defaultRepo = params.name.endsWith('.git')
+        ? params.name
+        : `${params.name}.git`;
+      const defaultRepoDir = path.join(workspaceDir, 'repos', defaultRepo);
+      fs.mkdirSync(defaultRepoDir, { recursive: true });
+      this.discoverAndRegisterRepositories(id, workspaceDir);
+    }
 
     // Set this newly created project as the currently active project in SQLite settings
     this.updateSettings({ activeProjectId: id });
@@ -814,6 +823,7 @@ export class PoCliDatabase {
 
     const isRepoRoot = (dirPath: string): boolean => {
       return (
+        dirPath.endsWith('.git') ||
         fs.existsSync(path.join(dirPath, '.git')) ||
         fs.existsSync(path.join(dirPath, 'package.json')) ||
         fs.existsSync(path.join(dirPath, 'Cargo.toml')) ||
@@ -834,12 +844,16 @@ export class PoCliDatabase {
       if (
         !entry.isDirectory() ||
         entry.name.startsWith('.') ||
-        entry.name === 'node_modules'
+        entry.name === 'node_modules' ||
+        entry.name === 'contracts' ||
+        entry.name === 'scripts' ||
+        entry.name === 'deliveries' ||
+        entry.name === 'outputs'
       ) {
         continue;
       }
       const subDir = path.join(absWorkspace, entry.name);
-      if (isRepoRoot(subDir)) {
+      if (entry.name !== 'repos' && isRepoRoot(subDir)) {
         discovered.push({
           name: entry.name,
           repoPath: subDir,
@@ -858,7 +872,7 @@ export class PoCliDatabase {
           const nestedDir = path.join(subDir, subEntry.name);
           if (isRepoRoot(nestedDir)) {
             discovered.push({
-              name: `${entry.name}/${subEntry.name}`,
+              name: entry.name === 'repos' ? subEntry.name : `${entry.name}/${subEntry.name}`,
               repoPath: nestedDir,
             });
           }
@@ -1675,6 +1689,43 @@ export class PoCliDatabase {
     };
   }
 
+  public normalizeSourceRelPath(
+    projectName: string,
+    customRelPath?: string,
+    fallbackFile?: string,
+  ): string {
+    const defaultRepo = projectName.endsWith('.git')
+      ? projectName
+      : `${projectName}.git`;
+    if (!customRelPath || !customRelPath.trim()) {
+      return path.join('repos', defaultRepo, fallbackFile ?? 'src/index.txt');
+    }
+
+    const cleanPath = customRelPath.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    const parts = cleanPath.split('/').filter(Boolean);
+    if (parts.length === 0) {
+      return path.join('repos', defaultRepo, fallbackFile ?? 'src/index.txt');
+    }
+
+    if (parts[0] === 'repos') {
+      if (parts.length === 1) {
+        return path.join('repos', defaultRepo, fallbackFile ?? 'src/index.txt');
+      }
+      const repoDir = parts[1].endsWith('.git') ? parts[1] : `${parts[1]}.git`;
+      return path.join('repos', repoDir, ...parts.slice(2));
+    }
+
+    if (parts[0].endsWith('.git')) {
+      return path.join('repos', parts[0], ...parts.slice(1));
+    }
+
+    if (parts[0] === projectName) {
+      return path.join('repos', defaultRepo, ...parts.slice(1));
+    }
+
+    return path.join('repos', defaultRepo, ...parts);
+  }
+
   // ==========================================================================
   // VERSIONED ARTIFACTS & APPROVALS (PHASE 2)
   // ==========================================================================
@@ -1731,9 +1782,11 @@ export class PoCliDatabase {
 
     let absPath: string;
     if (params.type === 'SOURCE_CODE') {
-      const relPath =
-        params.customRelPath ??
-        path.join('src', `${params.code}_v${nextVersion}.txt`);
+      const relPath = this.normalizeSourceRelPath(
+        project.name,
+        params.customRelPath,
+        `${params.code}_v${nextVersion}.txt`,
+      );
       absPath = path.join(project.workspaceDir, relPath);
     } else {
       let relPath: string;
@@ -1755,6 +1808,10 @@ export class PoCliDatabase {
 
     fs.mkdirSync(path.dirname(absPath), { recursive: true });
     fs.writeFileSync(absPath, params.content, 'utf8');
+
+    if (params.type === 'SOURCE_CODE') {
+      this.discoverAndRegisterRepositories(project.id, project.workspaceDir);
+    }
 
     const id = `art_${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();
