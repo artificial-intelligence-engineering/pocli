@@ -12,6 +12,7 @@ import { AuthStorage } from '../core/auth.js';
 import { I18N_DICTIONARY, SupportedLanguage } from '../core/i18n.js';
 import { NotebookRagEngine } from './notebook-rag.js';
 import { buildDefaultFreeProviders, DEFAULT_FREE_PROVIDERS, LLMRouter } from './llm-router.js';
+import { buildRoleToolsInstruction } from './harnesses.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -644,6 +645,85 @@ export interface AgentTurnOutput {
 }
 
 /**
+ * Extracts and cleans structured tool calls from LLM response text,
+ * supporting ```tool_call blocks and standard JSON tool calling syntax.
+ */
+export function extractToolCalls(rawText: string): {
+  cleanText: string;
+  toolCalls: AgentToolCallRequest[];
+} {
+  const toolCalls: AgentToolCallRequest[] = [];
+  if (!rawText) {
+    return { cleanText: '', toolCalls: [] };
+  }
+
+  // 1. Match code blocks with tool_call, toolCall, or json:tool_call tag
+  const blockRegex = /```(?:tool_call|toolCall|json:tool_call)\s*([\s\S]*?)```/gi;
+  let cleanText = rawText.replace(blockRegex, (_match, jsonStr) => {
+    try {
+      const parsed = JSON.parse(jsonStr.trim());
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item && typeof item === 'object') {
+            const name = item.name || item.tool;
+            const args = item.arguments || item.params || item.args || {};
+            if (name && typeof name === 'string') {
+              toolCalls.push({
+                name,
+                arguments: typeof args === 'string' ? JSON.parse(args) : args,
+              });
+            }
+          }
+        }
+      } else if (parsed && typeof parsed === 'object') {
+        const name = parsed.name || parsed.tool;
+        const args = parsed.arguments || parsed.params || parsed.args || {};
+        if (name && typeof name === 'string') {
+          toolCalls.push({
+            name,
+            arguments: typeof args === 'string' ? JSON.parse(args) : args,
+          });
+        }
+      }
+    } catch {
+      // ignore parse error
+    }
+    return '';
+  });
+
+  // 2. Match general json blocks that explicitly contain a recognized tool call
+  const knownTools =
+    'propose_requirement|record_adr|write_architecture_doc|write_specification|request_po_approval|write_implementation_plan|write_source_file|consult_architect|submit_for_qa|write_test_case|run_verification_test|submit_qa_report';
+  const toolJsonRegex = new RegExp(
+    '```(?:json)?\\s*(\\{\\s*"(?:name|tool)"\\s*:\\s*"(?:' +
+      knownTools +
+      ')"\\s*,[\\s\\S]*?\\})\\s*```',
+    'gi',
+  );
+
+  cleanText = cleanText.replace(toolJsonRegex, (_match, jsonStr) => {
+    try {
+      const parsed = JSON.parse(jsonStr.trim());
+      const name = parsed.name || parsed.tool;
+      const args = parsed.arguments || parsed.params || parsed.args || {};
+      if (name && typeof name === 'string') {
+        toolCalls.push({
+          name,
+          arguments: typeof args === 'string' ? JSON.parse(args) : args,
+        });
+      }
+      return '';
+    } catch {
+      return _match;
+    }
+  });
+
+  cleanText = cleanText.replace(/\n{3,}/g, '\n\n').trim();
+
+  return { cleanText, toolCalls };
+}
+
+/**
  * Multi-Model LLM Gateway.
  * Decouples workflow execution from specific LLM providers and allows different
  * models for Architect, Developer, QA, and custom specialists.
@@ -819,14 +899,10 @@ export class LlmGateway {
 
         const systemContent = [
           `System: You are acting as the ${input.role.toUpperCase()} specialist in PO CLI.`,
-          input.systemPrompt,
-          input.normativeArtifactsSummary
-            ? `\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}`
-            : '',
-          ragBlock ? `\n[RAG NOTEBOOK SOURCES]\n${ragBlock}` : '',
+          this.assembleSpecialistSystemPrompt(input, ragBlock),
         ]
           .filter(Boolean)
-          .join('\n');
+          .join('\n\n');
 
         const result = await this.freeRouter.completion({
           model: modelId,
@@ -838,9 +914,11 @@ export class LlmGateway {
           onStreamChunk: onStreamToken,
         });
 
+        const extracted = extractToolCalls(result.text);
+
         return {
-          replyText: result.text,
-          toolCalls: [],
+          replyText: extracted.cleanText || result.text,
+          toolCalls: extracted.toolCalls,
           providerUsed: result.providerId,
           modelUsed: result.modelUsed,
         };
@@ -866,6 +944,23 @@ export class LlmGateway {
     }
 
     throw new Error(I18N_DICTIONARY[lang].llmMissingApiKeyError(provider));
+  }
+
+  private assembleSpecialistSystemPrompt(
+    input: AgentTurnInput,
+    ragBlock: string,
+  ): string {
+    const roleTools = buildRoleToolsInstruction(input.role);
+    return [
+      input.systemPrompt,
+      roleTools,
+      input.normativeArtifactsSummary
+        ? `[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}`
+        : '',
+      ragBlock ? `[RAG NOTEBOOK SOURCES]\n${ragBlock}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
   }
 
   private async callOpenAiCompatible(
@@ -895,7 +990,7 @@ export class LlmGateway {
         messages: [
           {
             role: 'system',
-            content: `${input.systemPrompt}\n\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}\n\n[RAG NOTEBOOK SOURCES]\n${ragBlock}`,
+            content: this.assembleSpecialistSystemPrompt(input, ragBlock),
           },
           { role: 'user', content: input.userPrompt },
         ],
@@ -907,14 +1002,38 @@ export class LlmGateway {
     }
 
     const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{
+        message?: {
+          content?: string;
+          tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>;
+        };
+      }>;
     };
-    const replyText = data.choices?.[0]?.message?.content ?? '';
-    if (onStreamToken && replyText) onStreamToken(replyText);
+    const choiceMsg = data.choices?.[0]?.message;
+    const rawText = choiceMsg?.content ?? '';
+
+    const nativeToolCalls: AgentToolCallRequest[] = [];
+    if (Array.isArray(choiceMsg?.tool_calls)) {
+      for (const tc of choiceMsg.tool_calls) {
+        if (tc.function?.name) {
+          let args = {};
+          try {
+            args = JSON.parse(tc.function.arguments || '{}');
+          } catch {}
+          nativeToolCalls.push({ name: tc.function.name, arguments: args });
+        }
+      }
+    }
+
+    const extracted = extractToolCalls(rawText);
+    const combinedToolCalls = [...nativeToolCalls, ...extracted.toolCalls];
+    const finalReplyText =
+      extracted.cleanText || (combinedToolCalls.length > 0 ? '' : rawText);
+    if (onStreamToken && finalReplyText) onStreamToken(finalReplyText);
 
     return {
-      replyText,
-      toolCalls: [],
+      replyText: finalReplyText,
+      toolCalls: combinedToolCalls,
       providerUsed: input.modelConfig.provider,
       modelUsed: modelId,
     };
@@ -942,7 +1061,7 @@ export class LlmGateway {
         model: modelId,
         max_tokens: 2048,
         temperature,
-        system: `${input.systemPrompt}\n\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}\n\n[RAG NOTEBOOK SOURCES]\n${ragBlock}`,
+        system: this.assembleSpecialistSystemPrompt(input, ragBlock),
         messages: [{ role: 'user', content: input.userPrompt }],
       }),
     });
@@ -952,15 +1071,35 @@ export class LlmGateway {
     }
 
     const data = (await response.json()) as {
-      content?: Array<{ type: string; text?: string }>;
+      content?: Array<
+        | { type: 'text'; text?: string }
+        | { type: 'tool_use'; name?: string; input?: Record<string, unknown> }
+      >;
     };
-    const replyText =
-      data.content?.filter((b) => b.type === 'text').map((b) => b.text).join('\n') ?? '';
-    if (onStreamToken && replyText) onStreamToken(replyText);
+    let rawText = '';
+    const nativeToolCalls: AgentToolCallRequest[] = [];
+    if (Array.isArray(data.content)) {
+      for (const block of data.content) {
+        if (block.type === 'text') {
+          rawText += block.text ?? '';
+        } else if (block.type === 'tool_use' && block.name) {
+          nativeToolCalls.push({
+            name: block.name,
+            arguments: block.input ?? {},
+          });
+        }
+      }
+    }
+
+    const extracted = extractToolCalls(rawText);
+    const combinedToolCalls = [...nativeToolCalls, ...extracted.toolCalls];
+    const finalReplyText =
+      extracted.cleanText || (combinedToolCalls.length > 0 ? '' : rawText);
+    if (onStreamToken && finalReplyText) onStreamToken(finalReplyText);
 
     return {
-      replyText,
-      toolCalls: [],
+      replyText: finalReplyText,
+      toolCalls: combinedToolCalls,
       providerUsed: 'anthropic',
       modelUsed: modelId,
     };
@@ -985,7 +1124,7 @@ export class LlmGateway {
         systemInstruction: {
           parts: [
             {
-              text: `${input.systemPrompt}\n\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}\n\n[RAG NOTEBOOK SOURCES]\n${ragBlock}`,
+              text: this.assembleSpecialistSystemPrompt(input, ragBlock),
             },
           ],
         },
@@ -999,15 +1138,37 @@ export class LlmGateway {
     }
 
     const data = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{
+            text?: string;
+            functionCall?: { name?: string; args?: Record<string, unknown> };
+          }>;
+        };
+      }>;
     };
-    const replyText =
-      data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('\n') ?? '';
-    if (onStreamToken && replyText) onStreamToken(replyText);
+    const parts = data.candidates?.[0]?.content?.parts ?? [];
+    let rawText = '';
+    const nativeToolCalls: AgentToolCallRequest[] = [];
+    for (const p of parts) {
+      if (p.text) rawText += p.text;
+      if (p.functionCall?.name) {
+        nativeToolCalls.push({
+          name: p.functionCall.name,
+          arguments: p.functionCall.args ?? {},
+        });
+      }
+    }
+
+    const extracted = extractToolCalls(rawText);
+    const combinedToolCalls = [...nativeToolCalls, ...extracted.toolCalls];
+    const finalReplyText =
+      extracted.cleanText || (combinedToolCalls.length > 0 ? '' : rawText);
+    if (onStreamToken && finalReplyText) onStreamToken(finalReplyText);
 
     return {
-      replyText,
-      toolCalls: [],
+      replyText: finalReplyText,
+      toolCalls: combinedToolCalls,
       providerUsed: 'gemini',
       modelUsed: modelId,
     };

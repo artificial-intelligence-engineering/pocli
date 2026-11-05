@@ -205,6 +205,73 @@ const FALLBACK_PROMPTS: Record<string, string> = {
   ].join('\n'),
 };
 
+export function buildRoleToolsInstruction(role: ActorRole): string {
+  switch (role) {
+    case 'architect':
+      return [
+        '## [AVAILABLE TOOLS AND PROTOCOL]',
+        'You have authority to produce authoritative architecture artifacts and request PO approval.',
+        'When you finalize or propose architectural decisions, specifications, or requirements, you MUST emit one or more ```tool_call blocks to persist them as physical markdown files on the project filesystem:',
+        '',
+        '- `record_adr(code: string, title: string, content: string, tracesTo?: string[])`: Creates an Architectural Decision Record in `.pocli/artifacts/contracts/adr/`.',
+        '- `write_architecture_doc(code: string, title: string, content: string, tracesTo?: string[])`: Creates the Technical Architecture in `.pocli/artifacts/contracts/architecture/`.',
+        '- `write_specification(code: string, title: string, content: string, tracesTo?: string[])`: Creates the Developer Specification in `.pocli/artifacts/contracts/specification/` detailing programming languages, directory structure, models, and endpoints.',
+        '- `propose_requirement(code: string, title: string, content: string)`: Creates a functional/non-functional requirement in `.pocli/artifacts/contracts/requirement/`.',
+        '- `request_po_approval(artifactCode: string)`: Formally requests the Product Owner to review and approve the proposal before Developer handoff.',
+        '',
+        'Format each tool call strictly as:',
+        '```tool_call',
+        '{',
+        '  "name": "write_specification",',
+        '  "arguments": {',
+        '    "code": "SPEC-001",',
+        '    "title": "Developer Technical Specification",',
+        '    "content": "# SPEC-001: Technical Specification\\n\\n..."',
+        '  }',
+        '}',
+        '```',
+        'Always accompany tool calls with conversational, professional explanations to the Product Owner.',
+      ].join('\n');
+
+    case 'developer':
+      return [
+        '## [AVAILABLE TOOLS AND PROTOCOL]',
+        'You are the Senior Developer. You build the software based on approved normative artifacts in [NORMATIVE ARTIFACTS].',
+        'When you implement files, plan work, or consult the architect, emit ```tool_call blocks:',
+        '',
+        '- `write_source_file(relFilePath: string, content: string)`: Writes or updates a source code or config file directly in the workspace directory (e.g. `app/main.py`, `package.json`, `src/index.ts`).',
+        '- `write_implementation_plan(code: string, title: string, content: string, tracesTo?: string[])`: Records your implementation plan in `.pocli/artifacts/deliveries/`.',
+        '- `consult_architect(subject: string, ambiguityOrBlocker: string, proposedAlternative: string, impactedArtifacts: string[])`: Submits a formal consultation if you detect architectural ambiguities or blockers.',
+        '- `submit_for_qa(deliverableNotes: string)`: Notifies QA that the deliverable is ready for independent verification.',
+        '',
+        'Format each tool call strictly as:',
+        '```tool_call',
+        '{',
+        '  "name": "write_source_file",',
+        '  "arguments": {',
+        '    "relFilePath": "app/main.py",',
+        '    "content": "..."',
+        '  }',
+        '}',
+        '```',
+        'Always accompany tool calls with conversational, professional explanations to the Product Owner.',
+      ].join('\n');
+
+    case 'qa':
+      return [
+        '## [AVAILABLE TOOLS AND PROTOCOL]',
+        'You are the Independent QA Engineer. You verify that the implementation satisfies the normative contracts.',
+        'When you create test cases or verification reports, emit ```tool_call blocks:',
+        '- `write_test_case(code: string, title: string, content: string, tracesTo?: string[])`: Records a QA test case in `.pocli/artifacts/contracts/`.',
+        '- `run_verification_test(testCommand: string)`: Runs an automated test command.',
+        '- `submit_qa_report(code: string, title: string, content: string, passed: boolean)`: Submits the verification report.',
+      ].join('\n');
+
+    default:
+      return '';
+  }
+}
+
 const BUILTIN_HARNESSES: Record<string, AgentHarness> = {
   architect: {
     role: 'architect',
