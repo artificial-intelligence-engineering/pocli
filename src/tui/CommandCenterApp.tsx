@@ -628,6 +628,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setMessageScrollOffset(0);
   }, [project?.id, activeRole]);
 
+  useEffect(() => {
+    if (viewMode === 'multipanel' && project?.id) {
+      orchestrator.ensureCoreWorkers(project.id);
+      refreshState(project.id);
+    }
+  }, [viewMode, project?.id]);
+
   // Enable SGR (1006) terminal mouse tracking + DEC Mode 2026 Synchronized Output
   // on stdout to eliminate screen-erase flicker when Ink redraws full-screen frames.
   useEffect(() => {
@@ -5988,110 +5995,328 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               </Box>
             </Box>
 
-            {/* Right Panel: Conversation & Activity */}
-            <Box
-              flexDirection="column"
-              width="58%"
-              borderStyle="single"
-              borderColor="gray"
-              paddingX={1}
-            >
-              <Text bold color="yellow">
-                {t.directChannelHeader(activeRoleDisplayName)}
-              </Text>
-              {messages.length === 0 ? (
-                <Text dimColor>{t.noMessagesInChannel}</Text>
-              ) : (
-                multipanelMessages.map((m, mIdx) => {
-                  const contentText =
-                    m.content.slice(0, 200) + (m.content.length > 200 ? '...' : '');
-                  const baseRow = 15 + mIdx * 3;
-                  const minCol = Math.floor(dimensions.columns * 0.44);
-                  const maxCol = dimensions.columns - 4;
+            {/* Right Panel: Worker Runtime & Context/Memory Inspector */}
+            {(() => {
+              const activeWorkerInfo = project
+                ? orchestrator.getWorkerStatus(project.id, activeRole)
+                : undefined;
+              const isCurrentRoleBusy =
+                Boolean(busyRoles[activeRole]) || activeWorkerInfo?.status === 'busy';
+              const resolvedWorkerStatus =
+                activeWorkerInfo?.status ?? (isCurrentRoleBusy ? 'busy' : 'idle');
+              const workerStatusColor = isCurrentRoleBusy
+                ? themePalette.yellow
+                : resolvedWorkerStatus === 'idle'
+                  ? themePalette.green
+                  : resolvedWorkerStatus === 'failed'
+                    ? themePalette.red
+                    : 'gray';
+              const workerStatusBadge = isCurrentRoleBusy
+                ? '● BUSY'
+                : resolvedWorkerStatus === 'idle'
+                  ? '● IDLE'
+                  : resolvedWorkerStatus === 'failed'
+                    ? '✖ FAILED'
+                    : '○ STOPPED';
 
-                  if (
-                    !renderedConversationLinesRef.current.some(
-                      (l) => l.y === baseRow + 1 && l.text === contentText,
+              const workerPidDisplay = activeWorkerInfo?.workerPid
+                ? String(activeWorkerInfo.workerPid)
+                : '—';
+              const workerModalityDisplay =
+                activeWorkerInfo?.modality ??
+                activeModelCfg.executionModality ??
+                'LOCAL_PROCESS';
+              const workerTurnsDisplay = activeWorkerInfo?.turnsCompleted ?? 0;
+              const workerModelDisplay = `${getModelVendorLabel(
+                activeModelCfg.provider,
+                activeModelCfg.modelId,
+              )}/${activeModelCfg.modelId}`;
+
+              const activeSummary =
+                expertSummaries.find((s) => s.expertRole === activeRole) ??
+                (project
+                  ? orchestrator.storage.getExpertChatSummary(
+                      project.id,
+                      activeRole,
                     )
-                  ) {
-                    renderedConversationLinesRef.current.push(
-                      {
-                        y: baseRow,
-                        minX: minCol,
-                        maxX: maxCol,
-                        text: `[${m.fromRole} → ${m.toRole}]:`,
-                        fullContent: m.content,
-                      },
-                      {
-                        y: baseRow + 1,
-                        minX: minCol,
-                        maxX: maxCol,
-                        text: contentText,
-                        fullContent: m.content,
-                      },
-                    );
-                  }
+                  : null);
+              const activeTokensCount = activeSummary?.activeContextTokens ?? 0;
+              const compactionCount = activeSummary?.compactionCount ?? 0;
+              const savedTokensCount =
+                activeSummary?.savedTokensByCompaction ?? 0;
+              const totalEncounteredTokens =
+                activeTokensCount + savedTokensCount;
+              const savingsRatio =
+                totalEncounteredTokens > 0 && savedTokensCount > 0
+                  ? Math.round((savedTokensCount / totalEncounteredTokens) * 100)
+                  : 0;
 
-                  const isLineSelected =
-                    selectionRange !== null &&
-                    ((selectionRange.startY <= baseRow + 1 &&
-                      selectionRange.endY >= baseRow + 1) ||
-                      (selectionRange.startY <= baseRow &&
-                        selectionRange.endY >= baseRow));
+              const latestCompactionCheckpoint = project
+                ? orchestrator.storage.getLatestCompactionCheckpoint(
+                    project.id,
+                    activeRole,
+                  )
+                : null;
 
-                  return (
-                    <Box key={m.id} flexDirection="column" marginTop={1}>
-                      <Text
-                        bold
-                        color={m.fromRole === 'product_owner' ? 'cyan' : 'green'}
-                      >
-                        [{m.fromRole} → {m.toRole}]:
-                        {queuedMessageIds.has(m.id) && (
-                          <Text color={themePalette.yellow} bold>
-                            {' '}[{language === 'es' ? 'en cola' : 'queued'}]
+              const uncompactedMessages = project
+                ? orchestrator.storage.listMessages(project.id, activeRole, true)
+                : [];
+              const totalRoleMessages = project
+                ? orchestrator.storage.listMessages(project.id, activeRole)
+                : [];
+
+              const activeMemories = project
+                ? orchestrator.storage.listMemories(
+                    project.id,
+                    undefined,
+                    activeRole,
+                  )
+                : [];
+              const memCounts = {
+                conv: activeMemories.filter((m) => m.layer === 'CONVERSATIONAL').length,
+                work: activeMemories.filter((m) => m.layer === 'WORKING').length,
+                proj: activeMemories.filter((m) => m.layer === 'PROJECT_PERSISTENT').length,
+                agent: activeMemories.filter((m) => m.layer === 'AGENT_SPECIFIC').length,
+              };
+
+              const lastPromptSnippet = activeSummary?.lastUserPrompt || '';
+              const lastReplySnippet = activeSummary?.lastExpertReply || '';
+
+              return (
+                <Box
+                  flexDirection="column"
+                  width="58%"
+                  borderStyle="single"
+                  borderColor={activeTheme.accentColor}
+                  paddingX={1}
+                >
+                  {/* Header */}
+                  <Box justifyContent="space-between" width="100%">
+                    <Text bold color={activeTheme.accentColor}>
+                      📊 {t.multipanelInspectorTitle(activeRoleDisplayName)}
+                    </Text>
+                    <Text dimColor>
+                      {project
+                        ? project.name
+                        : language === 'es'
+                          ? 'Sin proyecto'
+                          : 'No project'}
+                    </Text>
+                  </Box>
+
+                  {/* SECTION 1: WORKER RUNTIME STATUS */}
+                  <Box marginTop={1} flexDirection="column">
+                    <Text bold color="yellow">
+                      {t.multipanelWorkerHeader}
+                    </Text>
+                    <Box
+                      flexDirection="row"
+                      justifyContent="space-between"
+                      width="100%"
+                    >
+                      <Text>
+                        Status:{' '}
+                        <Text bold color={workerStatusColor}>
+                          {workerStatusBadge}
+                        </Text>
+                        {'  '}PID:{' '}
+                        <Text
+                          bold
+                          color={workerPidDisplay !== '—' ? 'white' : 'gray'}
+                        >
+                          {workerPidDisplay}
+                        </Text>
+                        {'  '}Modality:{' '}
+                        <Text bold color="cyan">
+                          {workerModalityDisplay}
+                        </Text>
+                      </Text>
+                      <Text>
+                        Turns:{' '}
+                        <Text bold color="white">
+                          {workerTurnsDisplay}
+                        </Text>
+                        {activeRoleQueuedCount > 0 && (
+                          <Text bold color="yellow">
+                            {' '}[{activeRoleQueuedCount}{' '}
+                            {language === 'es' ? 'en cola' : 'queued'}]
                           </Text>
                         )}
                       </Text>
-                      <Text
-                        backgroundColor={isLineSelected ? 'yellow' : undefined}
-                        color={isLineSelected ? 'black' : undefined}
-                      >
-                        {contentText}
+                    </Box>
+                    <Box flexDirection="row">
+                      <Text dimColor>
+                        Model: <Text color="cyan">{workerModelDisplay}</Text>
                       </Text>
                     </Box>
-                  );
-                })
-              )}
+                  </Box>
 
-              {/* Thinking / Waiting indicator in multipanel */}
-              {isActiveRoleBusy && !activeStreamingText && (
-                <Box flexDirection="column" marginTop={1}>
-                  <Text bold color={activeTheme.accentColor}>
-                    [{activeRoleDisplayName}]:
-                  </Text>
-                  <Text dimColor italic>
-                    {thinkingSpinner}{' '}
-                    {language === 'es'
-                      ? activeRoleQueuedCount > 0
-                        ? `[Pensando respuesta... · ${activeRoleQueuedCount} en cola]`
-                        : '[Pensando respuesta...]'
-                      : activeRoleQueuedCount > 0
-                        ? `[Thinking... · ${activeRoleQueuedCount} queued]`
-                        : '[Thinking...]'}
-                  </Text>
-                </Box>
-              )}
+                  {/* SECTION 2: CONTEXT WINDOW & COMPACTION STATISTICS */}
+                  <Box marginTop={1} flexDirection="column">
+                    <Text bold color="yellow">
+                      {t.multipanelContextStatsHeader}
+                    </Text>
+                    <Box
+                      flexDirection="row"
+                      justifyContent="space-between"
+                      width="100%"
+                    >
+                      <Text>
+                        {language === 'es'
+                          ? 'Tamaño Contexto:'
+                          : 'Context Size:'}{' '}
+                        <Text bold color="yellow">
+                          {activeTokensCount.toLocaleString()} tokens
+                        </Text>
+                      </Text>
+                      <Text dimColor>
+                        {language === 'es'
+                          ? `${uncompactedMessages.length} turnos activos · ${totalRoleMessages.length} msgs total`
+                          : `${uncompactedMessages.length} active turns · ${totalRoleMessages.length} total msgs`}
+                      </Text>
+                    </Box>
+                    <Box
+                      flexDirection="row"
+                      justifyContent="space-between"
+                      width="100%"
+                    >
+                      <Text>
+                        {language === 'es'
+                          ? 'Compactaciones:'
+                          : 'Compactions:'}{' '}
+                        <Text bold color="magenta">
+                          {compactionCount}{' '}
+                          {language === 'es'
+                            ? compactionCount === 1
+                              ? 'vez'
+                              : 'veces'
+                            : compactionCount === 1
+                              ? 'time'
+                              : 'times'}
+                        </Text>
+                      </Text>
+                      <Text>
+                        {language === 'es' ? 'Ahorro:' : 'Saved:'}{' '}
+                        <Text
+                          bold
+                          color={savedTokensCount > 0 ? 'green' : 'gray'}
+                        >
+                          {savedTokensCount > 0
+                            ? `-${savedTokensCount.toLocaleString()} tok (${savingsRatio}%)`
+                            : '0 tok'}
+                        </Text>
+                      </Text>
+                    </Box>
+                    <Box flexDirection="row">
+                      <Text dimColor wrap="truncate-end">
+                        {language === 'es'
+                          ? 'Último checkpoint:'
+                          : 'Latest checkpoint:'}{' '}
+                        {latestCompactionCheckpoint
+                          ? `${latestCompactionCheckpoint.compactedMessageCount} msgs (${latestCompactionCheckpoint.tokensBefore}→${latestCompactionCheckpoint.tokensAfter} tok) · ${new Date(latestCompactionCheckpoint.createdAt).toLocaleTimeString()}`
+                          : t.multipanelNoCompactionYet}
+                      </Text>
+                    </Box>
+                  </Box>
 
-              {/* Streaming response in multipanel */}
-              {activeStreamingText && (
-                <Box flexDirection="column" marginTop={1}>
-                  <Text bold color={activeTheme.accentColor}>
-                    [{activeRoleDisplayName} (streaming)]:
-                  </Text>
-                  <Text color="green">{activeStreamingText}█</Text>
+                  {/* SECTION 3: 4-LAYER PERSISTENT MEMORY & 3-TIER ARCHITECTURE */}
+                  <Box marginTop={1} flexDirection="column">
+                    <Text bold color="yellow">
+                      {t.multipanelMemoryHeader}
+                    </Text>
+                    <Box
+                      flexDirection="row"
+                      justifyContent="space-between"
+                      width="100%"
+                    >
+                      <Text>
+                        3-Tier:{' '}
+                        <Text color="cyan">T1:{artifacts.length} art</Text>
+                        {' · '}
+                        <Text color="magenta">
+                          T2:{activeMemories.length} mem
+                        </Text>
+                        {' · '}
+                        <Text color="green">
+                          T3:{uncompactedMessages.length} turn
+                        </Text>
+                      </Text>
+                      <Text dimColor>
+                        {activeMemories.length}{' '}
+                        {language === 'es' ? 'registros' : 'records'}
+                      </Text>
+                    </Box>
+                    <Box flexDirection="row">
+                      <Text>
+                        Layers:{' '}
+                        <Text color="cyan">Conv:{memCounts.conv}</Text>
+                        {' · '}
+                        <Text color="yellow">Work:{memCounts.work}</Text>
+                        {' · '}
+                        <Text color="green">Proj:{memCounts.proj}</Text>
+                        {' · '}
+                        <Text color="magenta">Agent:{memCounts.agent}</Text>
+                      </Text>
+                    </Box>
+                  </Box>
+
+                  {/* SECTION 4: ACTIVE ACTIVITY & RECENT EXCHANGE */}
+                  <Box marginTop={1} flexDirection="column">
+                    <Text bold color="yellow">
+                      {t.multipanelRecentExchangeHeader}
+                    </Text>
+                    {isActiveRoleBusy && !activeStreamingText ? (
+                      <Box flexDirection="row" marginTop={0}>
+                        <Text dimColor italic color="yellow">
+                          {thinkingSpinner}{' '}
+                          {language === 'es'
+                            ? activeRoleQueuedCount > 0
+                              ? `[Pensando respuesta... · ${activeRoleQueuedCount} en cola]`
+                              : '[Pensando respuesta...]'
+                            : activeRoleQueuedCount > 0
+                              ? `[Thinking... · ${activeRoleQueuedCount} queued]`
+                              : '[Thinking...]'}
+                        </Text>
+                      </Box>
+                    ) : activeStreamingText ? (
+                      <Box flexDirection="column" marginTop={0}>
+                        <Text bold color={activeTheme.accentColor}>
+                          [{activeRoleDisplayName} (streaming)]:
+                        </Text>
+                        <Text color="green" wrap="truncate-end">
+                          {activeStreamingText.slice(-250)}█
+                        </Text>
+                      </Box>
+                    ) : lastPromptSnippet || lastReplySnippet ? (
+                      <Box flexDirection="column" marginTop={0}>
+                        <Text wrap="truncate-end">
+                          <Text bold color="cyan">
+                            PO:{' '}
+                          </Text>
+                          <Text color="white">
+                            {lastPromptSnippet.length > 120
+                              ? `${lastPromptSnippet.slice(0, 117)}...`
+                              : lastPromptSnippet || '—'}
+                          </Text>
+                        </Text>
+                        <Text wrap="truncate-end">
+                          <Text bold color={activeTheme.accentColor}>
+                            {activeRoleDisplayName}:{' '}
+                          </Text>
+                          <Text color="gray">
+                            {lastReplySnippet.length > 150
+                              ? `${lastReplySnippet.slice(0, 147)}...`
+                              : lastReplySnippet || '—'}
+                          </Text>
+                        </Text>
+                      </Box>
+                    ) : (
+                      <Text dimColor>{t.multipanelNoExchangesYet}</Text>
+                    )}
+                  </Box>
                 </Box>
-              )}
-            </Box>
+              );
+            })()}
           </Box>
 
           {/* Slash Menu Popover inside Multipanel mode */}
