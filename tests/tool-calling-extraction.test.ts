@@ -5,6 +5,7 @@ import os from 'node:os';
 import { extractToolCalls } from '../src/runtime/llm-gateway.js';
 import { buildRoleToolsInstruction } from '../src/runtime/harnesses.js';
 import { PoCliDatabase } from '../src/storage/database.js';
+import { PoCliOrchestrator } from '../src/runtime/orchestrator.js';
 
 describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () => {
   describe('extractToolCalls', () => {
@@ -463,6 +464,54 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       expect(updatedProj.repositories).toContain('worker.git');
       expect(updatedProj.repositories).toContain('auth-service.git');
       expect(updatedProj.repositories.every((r) => r.endsWith('.git'))).toBe(true);
+    });
+
+    it('formats clean markdown table of created and modified artifacts (Issue #58)', () => {
+      const orchestrator = new PoCliOrchestrator(storage);
+      const ws = storage.getProject(projectId)!.workspaceDir;
+
+      const art1 = storage.saveArtifact({
+        projectId,
+        code: 'ARCH-001',
+        type: 'ARCHITECTURE',
+        title: 'Core Architecture',
+        content: '# ARCH-001',
+        authorRole: 'architect',
+      });
+
+      const art2 = storage.saveArtifact({
+        projectId,
+        code: 'SPEC-001',
+        type: 'SPECIFICATION',
+        title: 'Tech Spec',
+        content: '# SPEC-001',
+        authorRole: 'architect',
+      });
+
+      // art1 updated to version 2 (modified)
+      const art1v2 = storage.saveArtifact({
+        projectId,
+        code: 'ARCH-001',
+        type: 'ARCHITECTURE',
+        title: 'Core Architecture Updated',
+        content: '# ARCH-001 v2',
+        authorRole: 'architect',
+        expectedVersion: 1,
+      });
+
+      // Spanish summary table
+      const tableEs = orchestrator.formatArtifactsSummaryTable([art2, art1v2], 'es', ws);
+      expect(tableEs).toContain('### Resumen de Ficheros y Artefactos');
+      expect(tableEs).toContain('| Artefacto | Tipo | Versión | Operación | Fichero |');
+      expect(tableEs).toContain('| `SPEC-001` | Especificación | v1 | Creado | `contracts/specification/SPEC-001_v1.md` |');
+      expect(tableEs).toContain('| `ARCH-001` | Arquitectura | v2 | Modificado | `contracts/architecture/ARCH-001_v2.md` |');
+
+      // English summary table
+      const tableEn = orchestrator.formatArtifactsSummaryTable([art2, art1v2], 'en', ws);
+      expect(tableEn).toContain('### Artifacts & Files Summary');
+      expect(tableEn).toContain('| Artifact | Type | Version | Operation | File |');
+      expect(tableEn).toContain('| `SPEC-001` | Specification | v1 | Created | `contracts/specification/SPEC-001_v1.md` |');
+      expect(tableEn).toContain('| `ARCH-001` | Architecture | v2 | Modified | `contracts/architecture/ARCH-001_v2.md` |');
     });
   });
 });

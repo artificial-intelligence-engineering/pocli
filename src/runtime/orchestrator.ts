@@ -23,7 +23,7 @@ import {
 import { AuthorityGuard } from '../core/workflow.js';
 import { CompactionCheckpoint, PoCliDatabase } from '../storage/database.js';
 import { HarnessRegistry } from './harnesses.js';
-import { AgentToolCallRequest } from './llm-gateway.js';
+import { AgentToolCallRequest, extractToolCalls } from './llm-gateway.js';
 import { McpRegistry } from './mcp-client.js';
 import { IndexResult, NotebookRagEngine } from './notebook-rag.js';
 import { LinuxAgentProcessRunner, WorkerExecutionResult } from './process-runner.js';
@@ -343,11 +343,33 @@ export class PoCliOrchestrator extends EventEmitter {
       'ORCHESTRATOR',
       `Reply from '${params.targetRole}' (PID ${turnResult.workerPid}, ${createdArtifacts.length} artifacts created)`,
     );
+
+    const extractedClean = extractToolCalls(turnResult.replyText);
+    let messageContent = (
+      extractedClean.cleanText ||
+      (turnResult.toolCalls.length > 0 || extractedClean.toolCalls.length > 0
+        ? ''
+        : turnResult.replyText)
+    ).trim();
+
+    if (createdArtifacts.length > 0) {
+      const summaryTable = this.formatArtifactsSummaryTable(
+        createdArtifacts,
+        appSettings.language,
+        project.workspaceDir,
+      );
+      if (messageContent) {
+        messageContent = `${messageContent}\n\n${summaryTable}`;
+      } else {
+        messageContent = summaryTable;
+      }
+    }
+
     const replyMsg = this.storage.recordMessage({
       projectId: project.id,
       fromRole: params.targetRole,
       toRole: 'product_owner',
-      content: turnResult.replyText,
+      content: messageContent,
       metadata: {
         workerPid: turnResult.workerPid,
         modalityUsed: turnResult.modalityUsed,
@@ -1112,6 +1134,75 @@ export class PoCliOrchestrator extends EventEmitter {
           `[${a.code} v${a.version} | ${a.type} | Status: ${a.status} | TracesTo: ${a.tracesTo.join(',') || 'root'}] ${a.title}`,
       )
       .join('\n');
+  }
+
+  public formatArtifactsSummaryTable(
+    artifacts: Artifact[],
+    language: 'es' | 'en' = 'es',
+    workspaceDir: string = '',
+  ): string {
+    if (!artifacts || artifacts.length === 0) return '';
+    const isEs = language === 'es';
+    const headerTitle = isEs
+      ? '### Resumen de Ficheros y Artefactos'
+      : '### Artifacts & Files Summary';
+    const colCode = isEs ? 'Artefacto' : 'Artifact';
+    const colType = isEs ? 'Tipo' : 'Type';
+    const colVersion = isEs ? 'Versión' : 'Version';
+    const colStatus = isEs ? 'Operación' : 'Operation';
+    const colPath = isEs ? 'Fichero' : 'File';
+
+    const typeLabels: Record<string, { es: string; en: string }> = {
+      ARCHITECTURE: { es: 'Arquitectura', en: 'Architecture' },
+      SPECIFICATION: { es: 'Especificación', en: 'Specification' },
+      ADR: { es: 'Decisión (ADR)', en: 'Decision (ADR)' },
+      REQUIREMENT: { es: 'Requerimiento', en: 'Requirement' },
+      NON_FUNCTIONAL_REQUIREMENT: {
+        es: 'Requerimiento No Funcional',
+        en: 'Non-Functional Req',
+      },
+      USER_STORY: { es: 'Historia de Usuario', en: 'User Story' },
+      SOURCE_CODE: { es: 'Código Fuente', en: 'Source Code' },
+      TEST_CASE: { es: 'Caso de Prueba', en: 'Test Case' },
+      QA_REPORT: { es: 'Informe QA', en: 'QA Report' },
+      DEFECT: { es: 'Defecto', en: 'Defect' },
+      PM_REPORT: { es: 'Informe PM', en: 'PM Report' },
+      IMPLEMENTATION_PLAN: {
+        es: 'Plan de Implementación',
+        en: 'Implementation Plan',
+      },
+    };
+
+    const rows = artifacts.map((art) => {
+      const typeLabel =
+        (typeLabels[art.type]
+          ? isEs
+            ? typeLabels[art.type].es
+            : typeLabels[art.type].en
+          : art.type);
+      const versionLabel = `v${art.version}`;
+      const statusLabel =
+        art.version > 1
+          ? isEs
+            ? 'Modificado'
+            : 'Modified'
+          : isEs
+            ? 'Creado'
+            : 'Created';
+      let relPath = art.filePath;
+      if (workspaceDir && relPath.startsWith(workspaceDir)) {
+        relPath = path.relative(workspaceDir, relPath);
+      }
+      return `| \`${art.code}\` | ${typeLabel} | ${versionLabel} | ${statusLabel} | \`${relPath}\` |`;
+    });
+
+    return [
+      headerTitle,
+      '',
+      `| ${colCode} | ${colType} | ${colVersion} | ${colStatus} | ${colPath} |`,
+      `| :--- | :--- | :--- | :--- | :--- |`,
+      ...rows,
+    ].join('\n');
   }
 
   private async executeAgentToolCalls(

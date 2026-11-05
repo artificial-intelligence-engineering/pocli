@@ -1022,7 +1022,9 @@ export class LlmGateway {
         const extracted = extractToolCalls(result.text);
 
         return {
-          replyText: extracted.cleanText || result.text,
+          replyText:
+            extracted.cleanText ||
+            (extracted.toolCalls.length > 0 ? '' : result.text),
           toolCalls: extracted.toolCalls,
           providerUsed: result.providerId,
           modelUsed: result.modelUsed,
