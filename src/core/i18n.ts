@@ -257,7 +257,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     noMessagesInChannel: 'No messages in this channel yet.',
     copiedToClipboardMsg: (charCount) =>
       `✔ Copied ${charCount} character${charCount === 1 ? '' : 's'} to clipboard.`,
-    returnToCleanViewHint: 'Press Tab to return to clean view',
+    returnToCleanViewHint: '←/→ switch agent · Tab return to clean view',
     expertBoxTitles: {
       pm: 'Project Manager',
       architect: 'Architect',
@@ -542,7 +542,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
     noMessagesInChannel: 'No hay mensajes en este canal todavía.',
     copiedToClipboardMsg: (charCount) =>
       `✔ ${charCount} carácter(es) copiado(s) al portapapeles.`,
-    returnToCleanViewHint: 'Pulsa Tab para volver a vista limpia',
+    returnToCleanViewHint: '←/→ cambiar agente · Pulsa Tab para volver a vista limpia',
     expertBoxTitles: {
       pm: 'Project Manager',
       architect: 'Arquitecto',

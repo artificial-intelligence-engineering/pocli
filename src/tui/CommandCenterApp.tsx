@@ -42,6 +42,19 @@ export interface CommandCenterProps {
   initialProject?: Project | null;
 }
 
+export const MULTIPANEL_ROLES: ActorRole[] = ['pm', 'architect', 'developer', 'qa'];
+
+export function getNextCarouselRole(
+  currentRole: ActorRole,
+  direction: 'next' | 'prev',
+  roles: ActorRole[] = MULTIPANEL_ROLES,
+): ActorRole {
+  const currIdx = Math.max(0, roles.indexOf(currentRole));
+  const delta = direction === 'next' ? 1 : -1;
+  const nextIdx = (currIdx + delta + roles.length) % roles.length;
+  return roles[nextIdx];
+}
+
 const ASCII_LOGO = [
   '██████╗  ██████╗      ██████╗██╗     ██╗',
   '██╔══██╗██╔═══██╗    ██╔════╝██║     ██║',
@@ -2910,6 +2923,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         prev < filteredSlashCommands.length - 1 ? prev + 1 : 0,
       );
       return;
+    }
+
+    // Left / Right arrows navigate between agents in carousel mode inside Multipanel
+    if (viewMode === 'multipanel' && !isSlashMenuOpen) {
+      if (key.leftArrow) {
+        const prevRole = getNextCarouselRole(activeRole, 'prev');
+        switchActiveRole(prevRole);
+        return;
+      }
+      if (key.rightArrow) {
+        const nextRole = getNextCarouselRole(activeRole, 'next');
+        switchActiveRole(nextRole);
+        return;
+      }
     }
 
     if (key.return) {

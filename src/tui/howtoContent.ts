@@ -157,6 +157,10 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
             text: 'Alternar entre la Vista de Chat limpia y el Centro de Control Multipanel.',
           },
           {
+            command: '← / →',
+            text: 'En vista Multipanel, cambiar de agente en modo carrusel (PM ↔ Arquitecto ↔ Dev ↔ QA).',
+          },
+          {
             command: 'Ctrl+N / Shift+Tab',
             text: 'Rotar rápidamente el especialista activo (PM → Arquitecto → Developer → QA).',
           },
@@ -316,6 +320,10 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
         {
           command: 'Tab / Ctrl+Tab',
           text: 'Toggle between clean OpenCode Chat View and Multipanel Command Center.',
+        },
+        {
+          command: '← / →',
+          text: 'In Multipanel view, switch agent in carousel mode (PM ↔ Architect ↔ Dev ↔ QA).',
         },
         {
           command: 'Ctrl+N / Shift+Tab',
