@@ -652,6 +652,10 @@ const KNOWN_TOOLS = new Set([
   'write_specification',
   'write_spec',
   'request_po_approval',
+  'handoff_to_developer',
+  'initiate_developer',
+  'delegate_to_developer',
+  'start_implementation',
   'evaluate_consultation',
   'write_implementation_plan',
   'write_source_file',
@@ -671,7 +675,9 @@ function isRecognizedToolName(name: string): boolean {
     name.startsWith('write_') ||
     name.startsWith('record_') ||
     name.startsWith('propose_') ||
-    name.startsWith('create_')
+    name.startsWith('create_') ||
+    name.startsWith('handoff_') ||
+    name.startsWith('initiate_')
   );
 }
 

@@ -42,6 +42,11 @@ export interface HandoffBundle {
   markdownSummary: string;
 }
 
+export interface AutonomousHandoffTrigger {
+  nextRole: 'developer';
+  instructions: string;
+}
+
 export interface QueuedChatTurn {
   id: string;
   projectId: string;
@@ -56,6 +61,7 @@ export interface QueuedChatTurn {
     createdArtifacts: Artifact[];
     citations: RagCitation[];
     project: Project;
+    autonomousHandoff?: AutonomousHandoffTrigger;
   }) => void;
   reject: (reason?: any) => void;
   queuedAt: string;
@@ -175,6 +181,7 @@ export class PoCliOrchestrator extends EventEmitter {
     createdArtifacts: Artifact[];
     citations: RagCitation[];
     project: Project;
+    autonomousHandoff?: AutonomousHandoffTrigger;
   }> {
     const project = this.storage.getProject(params.projectId);
     if (!project) throw new Error(`Project ${params.projectId} not found.`);
@@ -276,6 +283,7 @@ export class PoCliOrchestrator extends EventEmitter {
     createdArtifacts: Artifact[];
     citations: RagCitation[];
     project: Project;
+    autonomousHandoff?: AutonomousHandoffTrigger;
   }> {
     const project = this.storage.getProject(params.projectId);
     if (!project) throw new Error(`Project ${params.projectId} not found.`);
@@ -332,11 +340,12 @@ export class PoCliOrchestrator extends EventEmitter {
     );
 
     // Execute tool calls emitted by the specialist via centralized coordinator
-    const createdArtifacts = await this.executeAgentToolCalls(
-      project.id,
-      params.targetRole,
-      turnResult.toolCalls,
-    );
+    const { createdArtifacts, autonomousHandoff } =
+      await this.executeAgentToolCalls(
+        project.id,
+        params.targetRole,
+        turnResult.toolCalls,
+      );
 
     // Record specialist's reply in the SQLite Session Tree (DAG)
     Logger.info(
@@ -417,6 +426,7 @@ export class PoCliOrchestrator extends EventEmitter {
       createdArtifacts,
       citations,
       project: updatedProject,
+      autonomousHandoff,
     };
   }
 
@@ -1209,8 +1219,12 @@ export class PoCliOrchestrator extends EventEmitter {
     projectId: string,
     role: ActorRole,
     toolCalls: AgentToolCallRequest[],
-  ): Promise<Artifact[]> {
+  ): Promise<{
+    createdArtifacts: Artifact[];
+    autonomousHandoff?: AutonomousHandoffTrigger;
+  }> {
     const created: Artifact[] = [];
+    let autonomousHandoff: AutonomousHandoffTrigger | undefined;
     const project = this.storage.getProject(projectId)!;
 
     for (const call of toolCalls) {
@@ -1313,6 +1327,46 @@ export class PoCliOrchestrator extends EventEmitter {
           );
         }
       } else if (
+        name === 'handoff_to_developer' ||
+        name === 'initiate_developer' ||
+        name === 'delegate_to_developer' ||
+        name === 'start_implementation'
+      ) {
+        const currentProject = this.storage.getProject(projectId)!;
+        if (
+          currentProject.phase === 'PHASE_2_ARCHITECT_ANALYSIS' ||
+          currentProject.phase === 'PHASE_3_ARCHITECTURE_APPROVAL'
+        ) {
+          const arch = this.storage.getLatestArtifactByCode(projectId, 'ARCH-001');
+          if (arch) {
+            this.storage.approveOrRejectArchitecture({
+              projectId,
+              artifactCode: arch.code,
+              approverRole: 'product_owner',
+              decision: 'APPROVED',
+              comments:
+                String(args.approvalComments ?? '') ||
+                'Architecture approved by Product Owner in conversation and handed off by Architect.',
+            });
+          }
+        }
+
+        this.performDeveloperHandoff(projectId);
+
+        const instructions =
+          String(args.instructions ?? args.order ?? args.notes ?? '') ||
+          'Implement the software strictly following the approved Handoff bundle and SPEC-001.';
+
+        autonomousHandoff = {
+          nextRole: 'developer',
+          instructions,
+        };
+
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': transitioned project ${projectId} to PHASE_5_IMPLEMENTATION and initiated Developer`,
+        );
+      } else if (
         name === 'write_implementation_plan' ||
         name === 'create_implementation_plan'
       ) {
@@ -1391,7 +1445,7 @@ export class PoCliOrchestrator extends EventEmitter {
       }
     }
 
-    return created;
+    return { createdArtifacts: created, autonomousHandoff };
   }
 
   // ==========================================================================

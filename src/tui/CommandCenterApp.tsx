@@ -1692,6 +1692,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       setChatScrollOffset(0);
       setMessagesVersion((prev) => prev + 1);
       refreshState();
+
+      if (res.autonomousHandoff?.nextRole === 'developer') {
+        switchActiveRole('developer');
+        setStatusBanner(
+          language === 'es'
+            ? '🤝 El Arquitecto ha transferido el proyecto al Desarrollador. Iniciando implementación...'
+            : '🤝 Architect handed off project to Senior Developer. Starting implementation...',
+        );
+        refreshState();
+        void sendChatMessage('developer', res.autonomousHandoff.instructions);
+      }
     } catch (err) {
       setQueuedMessageIds((prev) => {
         const next = new Set(prev);
