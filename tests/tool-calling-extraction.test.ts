@@ -96,6 +96,64 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       expect(res.toolCalls[0].arguments.relFilePath).toBe('app/main.py');
     });
 
+    it('robustly extracts tool calls containing nested markdown code blocks and ASCII diagrams without truncation', () => {
+      const raw = [
+        'I have designed the system architecture.',
+        '```tool_call',
+        '{',
+        '  "name": "write_architecture_doc",',
+        '  "arguments": {',
+        '    "code": "ARCH-001",',
+        '    "title": "Technical Architecture",',
+        '    "content": "# ARCH-001\\n\\n```\\n+-----+      HTTP      +-----+\\n| CLI | -------------> | API |\\n+-----+ <------------- +-----+\\n```\\n\\n## Details\\nModular structure.",',
+        '    "tracesTo": ["REQ-001", "ADR-001"]',
+        '  }',
+        '}',
+        '```',
+        '```tool_call',
+        '{',
+        '  "name": "write_specification",',
+        '  "arguments": {',
+        '    "code": "SPEC-001",',
+        '    "title": "Technical Specification",',
+        '    "content": "# SPEC-001\\n\\n```json\\n{\\"status\\": \\"ok\\"}\\n```"',
+        '  }',
+        '}',
+        '```',
+        'Please review and authorize.',
+      ].join('\n');
+
+      const res = extractToolCalls(raw);
+      expect(res.toolCalls).toHaveLength(2);
+      expect(res.toolCalls[0].name).toBe('write_architecture_doc');
+      expect(res.toolCalls[0].arguments.code).toBe('ARCH-001');
+      expect(res.toolCalls[0].arguments.content).toContain('+-----+      HTTP      +-----+');
+      expect(res.toolCalls[0].arguments.content).toContain('Modular structure.');
+      expect(res.toolCalls[0].arguments.tracesTo).toEqual(['REQ-001', 'ADR-001']);
+
+      expect(res.toolCalls[1].name).toBe('write_specification');
+      expect(res.toolCalls[1].arguments.code).toBe('SPEC-001');
+      expect(res.toolCalls[1].arguments.content).toContain('{"status": "ok"}');
+
+      expect(res.cleanText).toBe('I have designed the system architecture.\n\nPlease review and authorize.');
+      expect(res.cleanText).not.toContain('```tool_call');
+      expect(res.cleanText).not.toContain('ARCH-001');
+    });
+
+    it('extracts raw inline tool JSON objects without code fences', () => {
+      const raw = [
+        'Here is the requirement proposal:',
+        '{"name": "propose_requirement", "arguments": {"code": "REQ-001", "title": "User Authentication"}}',
+        'Let me know your feedback.',
+      ].join('\n');
+
+      const res = extractToolCalls(raw);
+      expect(res.toolCalls).toHaveLength(1);
+      expect(res.toolCalls[0].name).toBe('propose_requirement');
+      expect(res.toolCalls[0].arguments.code).toBe('REQ-001');
+      expect(res.cleanText).toBe('Here is the requirement proposal:\n\nLet me know your feedback.');
+    });
+
     it('buildRoleToolsInstruction provides actionable tool instructions for architect, developer, qa', () => {
       const archPrompt = buildRoleToolsInstruction('architect');
       expect(archPrompt).toContain('write_specification');
@@ -298,6 +356,45 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       expect(devContext.formattedPromptContext).toContain('app/core');
       expect(devContext.formattedPromptContext).toContain('app/models');
       expect(devContext.formattedPromptContext).toContain('app/api');
+    });
+
+    it('creates architecture directory and ARCH-001_v1.md when tool call contains ASCII diagram with code blocks', async () => {
+      const llmOutput = [
+        'He completado el diseño arquitectónico.',
+        '```tool_call',
+        '{',
+        '  "name": "write_architecture_doc",',
+        '  "arguments": {',
+        '    "code": "ARCH-001",',
+        '    "title": "Technical Architecture",',
+        '    "content": "# ARCH-001\\n\\n```\\n+-----+ --> +-----+\\n| CLI |     | API |\\n+-----+ <-- +-----+\\n```\\nMonorepo in workspace.",',
+        '    "tracesTo": ["REQ-001", "ADR-001"]',
+        '  }',
+        '}',
+        '```',
+        'Awaiting approval.',
+      ].join('\n');
+
+      const extracted = extractToolCalls(llmOutput);
+      expect(extracted.toolCalls).toHaveLength(1);
+      expect(extracted.toolCalls[0].name).toBe('write_architecture_doc');
+
+      const call = extracted.toolCalls[0];
+      const art = storage.saveArtifact({
+        projectId,
+        code: call.arguments.code as string,
+        type: 'ARCHITECTURE',
+        title: call.arguments.title as string,
+        content: call.arguments.content as string,
+        authorRole: 'architect',
+        tracesTo: call.arguments.tracesTo as string[],
+      });
+
+      expect(fs.existsSync(art.filePath)).toBe(true);
+      expect(art.filePath).toContain(
+        path.join('.pocli', 'artifacts', 'contracts', 'architecture', 'ARCH-001_v1.md'),
+      );
+      expect(fs.readFileSync(art.filePath, 'utf8')).toContain('+-----+ --> +-----+');
     });
   });
 });

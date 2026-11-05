@@ -644,9 +644,84 @@ export interface AgentTurnOutput {
   modelUsed: string;
 }
 
+const KNOWN_TOOLS = new Set([
+  'propose_requirement',
+  'record_adr',
+  'write_architecture_doc',
+  'write_architecture',
+  'write_specification',
+  'write_spec',
+  'request_po_approval',
+  'evaluate_consultation',
+  'write_implementation_plan',
+  'write_source_file',
+  'consult_architect',
+  'submit_for_qa',
+  'write_test_case',
+  'run_verification_test',
+  'submit_qa_report',
+  'write_pm_report',
+  'write_llm_artifact',
+  'run_command',
+]);
+
+function isRecognizedToolName(name: string): boolean {
+  return (
+    KNOWN_TOOLS.has(name) ||
+    name.startsWith('write_') ||
+    name.startsWith('record_') ||
+    name.startsWith('propose_') ||
+    name.startsWith('create_')
+  );
+}
+
 /**
- * Extracts and cleans structured tool calls from LLM response text,
- * supporting ```tool_call blocks and standard JSON tool calling syntax.
+ * Scans a string starting at `startIndex` (which must be '{' or '[')
+ * and returns the slice ending at the matching closing '}' or ']',
+ * correctly ignoring braces inside JSON string literals and escaped quotes.
+ */
+function extractBalancedJson(
+  text: string,
+  startIndex: number,
+): { endIndex: number; jsonStr: string } | null {
+  const openChar = text[startIndex];
+  const closeChar = openChar === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = startIndex; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (ch === openChar) {
+        depth++;
+      } else if (ch === closeChar) {
+        depth--;
+        if (depth === 0) {
+          return { endIndex: i + 1, jsonStr: text.slice(startIndex, i + 1) };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Robustly extracts and cleans structured tool calls from LLM response text,
+ * supporting ```tool_call blocks, ```json blocks, <tool_call> tags, and inline JSON,
+ * even when the tool call arguments contain internal markdown code blocks or diagrams.
  */
 export function extractToolCalls(rawText: string): {
   cleanText: string;
@@ -657,68 +732,98 @@ export function extractToolCalls(rawText: string): {
     return { cleanText: '', toolCalls: [] };
   }
 
-  // 1. Match code blocks with tool_call, toolCall, or json:tool_call tag
-  const blockRegex = /```(?:tool_call|toolCall|json:tool_call)\s*([\s\S]*?)```/gi;
-  let cleanText = rawText.replace(blockRegex, (_match, jsonStr) => {
-    try {
-      const parsed = JSON.parse(jsonStr.trim());
-      if (Array.isArray(parsed)) {
-        for (const item of parsed) {
-          if (item && typeof item === 'object') {
-            const name = item.name || item.tool;
-            const args = item.arguments || item.params || item.args || {};
-            if (name && typeof name === 'string') {
-              toolCalls.push({
-                name,
-                arguments: typeof args === 'string' ? JSON.parse(args) : args,
-              });
-            }
-          }
+  const removalRanges: Array<{ start: number; end: number }> = [];
+
+  function processParsedObject(
+    parsed: unknown,
+    blockStart?: number,
+    blockEnd?: number,
+  ): boolean {
+    let matched = false;
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    for (const item of items) {
+      if (item && typeof item === 'object') {
+        const candidate = item as Record<string, unknown>;
+        const name = candidate.name || candidate.tool;
+        let args = candidate.arguments || candidate.params || candidate.args || {};
+        if (typeof args === 'string') {
+          try {
+            args = JSON.parse(args);
+          } catch {}
         }
-      } else if (parsed && typeof parsed === 'object') {
-        const name = parsed.name || parsed.tool;
-        const args = parsed.arguments || parsed.params || parsed.args || {};
-        if (name && typeof name === 'string') {
+        if (typeof name === 'string' && isRecognizedToolName(name)) {
           toolCalls.push({
             name,
-            arguments: typeof args === 'string' ? JSON.parse(args) : args,
+            arguments: (args as Record<string, unknown>) ?? {},
           });
+          matched = true;
         }
       }
-    } catch {
-      // ignore parse error
     }
-    return '';
-  });
+    if (matched && blockStart !== undefined && blockEnd !== undefined) {
+      removalRanges.push({ start: blockStart, end: blockEnd });
+    }
+    return matched;
+  }
 
-  // 2. Match general json blocks that explicitly contain a recognized tool call
-  const knownTools =
-    'propose_requirement|record_adr|write_architecture_doc|write_specification|request_po_approval|write_implementation_plan|write_source_file|consult_architect|submit_for_qa|write_test_case|run_verification_test|submit_qa_report';
-  const toolJsonRegex = new RegExp(
-    '```(?:json)?\\s*(\\{\\s*"(?:name|tool)"\\s*:\\s*"(?:' +
-      knownTools +
-      ')"\\s*,[\\s\\S]*?\\})\\s*```',
-    'gi',
-  );
-
-  cleanText = cleanText.replace(toolJsonRegex, (_match, jsonStr) => {
-    try {
-      const parsed = JSON.parse(jsonStr.trim());
-      const name = parsed.name || parsed.tool;
-      const args = parsed.arguments || parsed.params || parsed.args || {};
-      if (name && typeof name === 'string') {
-        toolCalls.push({
-          name,
-          arguments: typeof args === 'string' ? JSON.parse(args) : args,
-        });
+  // Pass 1: Find fenced code blocks (```tool_call, ```json, ```) or <tool_call> tags
+  const fenceRegex = /(?:```(?:tool_call|toolCall|json:tool_call|json)?|<tool_call>)\s*/gi;
+  let fenceMatch: RegExpExecArray | null;
+  while ((fenceMatch = fenceRegex.exec(rawText)) !== null) {
+    const tagStart = fenceMatch.index;
+    const contentStart = tagStart + fenceMatch[0].length;
+    const firstChar = rawText[contentStart];
+    if (firstChar === '{' || firstChar === '[') {
+      const extracted = extractBalancedJson(rawText, contentStart);
+      if (extracted) {
+        try {
+          const parsed = JSON.parse(extracted.jsonStr);
+          let blockEnd = extracted.endIndex;
+          const remaining = rawText.slice(extracted.endIndex);
+          const closeMatch = remaining.match(/^\s*(?:```|<\/tool_call>)/);
+          if (closeMatch) {
+            blockEnd = extracted.endIndex + closeMatch[0].length;
+          }
+          if (processParsedObject(parsed, tagStart, blockEnd)) {
+            fenceRegex.lastIndex = blockEnd;
+          }
+        } catch {
+          // not valid json, ignore
+        }
       }
-      return '';
-    } catch {
-      return _match;
     }
-  });
+  }
 
-  cleanText = cleanText.replace(/\n{3,}/g, '\n\n').trim();
+  // Pass 2: Look for raw JSON objects that might not be wrapped in code fences
+  for (let i = 0; i < rawText.length; i++) {
+    if (removalRanges.some((r) => i >= r.start && i < r.end)) continue;
+    if (rawText[i] === '{' || rawText[i] === '[') {
+      const preview = rawText.slice(i, i + 120);
+      if (preview.includes('"name"') || preview.includes('"tool"')) {
+        const extracted = extractBalancedJson(rawText, i);
+        if (extracted) {
+          try {
+            const parsed = JSON.parse(extracted.jsonStr);
+            if (processParsedObject(parsed, i, extracted.endIndex)) {
+              i = extracted.endIndex - 1;
+            }
+          } catch {}
+        }
+      }
+    }
+  }
+
+  // Construct cleanText by removing identified ranges
+  removalRanges.sort((a, b) => b.start - a.start);
+  let cleanText = rawText;
+  for (const range of removalRanges) {
+    cleanText = cleanText.slice(0, range.start) + cleanText.slice(range.end);
+  }
+
+  cleanText = cleanText
+    .replace(/^\s*```\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
   return { cleanText, toolCalls };
 }
@@ -1059,7 +1164,7 @@ export class LlmGateway {
       },
       body: JSON.stringify({
         model: modelId,
-        max_tokens: 2048,
+        max_tokens: 8192,
         temperature,
         system: this.assembleSpecialistSystemPrompt(input, ragBlock),
         messages: [{ role: 'user', content: input.userPrompt }],

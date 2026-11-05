@@ -1111,87 +1111,154 @@ export class PoCliOrchestrator extends EventEmitter {
 
     for (const call of toolCalls) {
       const args = call.arguments;
-      if (call.name === 'propose_requirement') {
+      const name = call.name.toLowerCase();
+
+      if (
+        name === 'propose_requirement' ||
+        name === 'write_requirement' ||
+        name === 'create_requirement'
+      ) {
         const art = await this.coordinator.saveArtifact({
           projectId,
           role,
           code: String(args.code ?? 'REQ-001'),
           type: 'REQUIREMENT',
           title: String(args.title ?? 'Functional Requirements'),
-          content: String(args.content ?? ''),
+          content: String(args.content ?? args.body ?? ''),
           citations: (args.citations as string[]) ?? [],
         });
         created.push(art);
-      } else if (call.name === 'record_adr') {
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': saved ${art.code} (${art.filePath})`,
+        );
+      } else if (
+        name === 'record_adr' ||
+        name === 'write_adr' ||
+        name === 'create_adr'
+      ) {
         const art = await this.coordinator.saveArtifact({
           projectId,
           role,
           code: String(args.code ?? 'ADR-001'),
           type: 'ADR',
           title: String(args.title ?? 'Architectural Decision Record'),
-          content: String(args.content ?? ''),
+          content: String(args.content ?? args.body ?? ''),
           tracesTo: (args.tracesTo as string[]) ?? [],
           citations: (args.citations as string[]) ?? [],
         });
         created.push(art);
-      } else if (call.name === 'write_architecture_doc') {
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': saved ${art.code} (${art.filePath})`,
+        );
+      } else if (
+        name === 'write_architecture_doc' ||
+        name === 'write_architecture' ||
+        name === 'record_architecture' ||
+        name === 'create_architecture'
+      ) {
         const art = await this.coordinator.saveArtifact({
           projectId,
           role,
           code: String(args.code ?? 'ARCH-001'),
           type: 'ARCHITECTURE',
           title: String(args.title ?? 'Technical Architecture'),
-          content: String(args.content ?? ''),
+          content: String(args.content ?? args.body ?? ''),
           tracesTo: (args.tracesTo as string[]) ?? [],
           citations: (args.citations as string[]) ?? [],
         });
         created.push(art);
-      } else if (call.name === 'write_specification') {
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': saved ${art.code} (${art.filePath})`,
+        );
+      } else if (
+        name === 'write_specification' ||
+        name === 'write_spec' ||
+        name === 'create_specification'
+      ) {
         const art = await this.coordinator.saveArtifact({
           projectId,
           role,
           code: String(args.code ?? 'SPEC-001'),
           type: 'SPECIFICATION',
           title: String(args.title ?? 'Technical Specification'),
-          content: String(args.content ?? ''),
+          content: String(args.content ?? args.body ?? ''),
           tracesTo: (args.tracesTo as string[]) ?? [],
           citations: (args.citations as string[]) ?? [],
         });
         created.push(art);
-      } else if (call.name === 'request_po_approval') {
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': saved ${art.code} (${art.filePath})`,
+        );
+      } else if (
+        name === 'request_po_approval' ||
+        name === 'request_approval'
+      ) {
         if (project.phase === 'PHASE_2_ARCHITECT_ANALYSIS') {
           await this.coordinator.transitionPhase({
             projectId,
             role,
             targetPhase: 'PHASE_3_ARCHITECTURE_APPROVAL',
           });
+          Logger.info(
+            'ORCHESTRATOR',
+            `Executed tool call '${call.name}': transitioned project ${projectId} to PHASE_3_ARCHITECTURE_APPROVAL`,
+          );
         }
-      } else if (call.name === 'write_implementation_plan') {
+      } else if (
+        name === 'write_implementation_plan' ||
+        name === 'create_implementation_plan'
+      ) {
         const art = await this.coordinator.saveArtifact({
           projectId,
           role,
           code: String(args.code ?? 'PLAN-001'),
           type: 'IMPLEMENTATION_PLAN',
           title: String(args.title ?? 'Implementation Plan'),
-          content: String(args.content ?? ''),
+          content: String(args.content ?? args.body ?? ''),
           tracesTo: (args.tracesTo as string[]) ?? [],
           citations: (args.citations as string[]) ?? [],
         });
         created.push(art);
-      } else if (call.name === 'write_source_file') {
-        const relFilePath = String(args.relFilePath ?? 'src/app-module.js');
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': saved ${art.code} (${art.filePath})`,
+        );
+      } else if (
+        name === 'write_source_file' ||
+        name === 'create_source_file' ||
+        name === 'update_source_file'
+      ) {
+        const relFilePath = String(
+          args.relFilePath ??
+            args.filePath ??
+            args.path ??
+            args.filename ??
+            args.file ??
+            'src/app-module.js',
+        );
+        const fileContent = String(
+          args.content ?? args.code ?? args.body ?? '',
+        );
         const art = await this.coordinator.saveArtifact({
           projectId,
           role,
           code: String(args.code ?? 'CODE-001'),
           type: 'SOURCE_CODE',
           title: `Source Code (${relFilePath})`,
-          content: String(args.content ?? ''),
+          content: fileContent,
           customRelPath: relFilePath,
           tracesTo: (args.tracesTo as string[]) ?? [],
           citations: (args.citations as string[]) ?? [],
         });
         created.push(art);
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': wrote source file ${relFilePath} (${art.filePath})`,
+        );
       } else if (call.name === 'write_llm_artifact') {
         const relFilePath = String(
           args.relFilePath ?? 'outputs/llm_generated_output.txt',
