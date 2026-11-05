@@ -2838,7 +2838,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         input === 's' ||
         input === 'S'
       ) {
-        exit();
+        orchestrator.stopAllWorkers().finally(() => exit());
         return;
       }
       return;
