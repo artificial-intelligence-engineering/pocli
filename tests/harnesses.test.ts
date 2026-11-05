@@ -58,6 +58,19 @@ describe('HarnessRegistry & Behavior System Prompts', () => {
 
     // 4. Include into Technical Specification (SPEC-*)
     expect(prompt).toMatch(/Technical Specification \(SPEC-\*\)/i);
+
+    // 5. Enforce repos/ layout and .git extension
+    expect(prompt).toMatch(/repos\//i);
+    expect(prompt).toMatch(/\.git/i);
+  });
+
+  it('verifies Senior Developer instructions enforce repos/ layout and .git repository naming', () => {
+    const devHarness = HarnessRegistry.getHarness('developer');
+    const prompt = devHarness.systemPrompt;
+
+    expect(prompt).toMatch(/repos\/<repo-name>\.git/i);
+    expect(prompt).toMatch(/\.git\b/i);
+    expect(prompt).toMatch(/write_source_file/i);
   });
 });
 

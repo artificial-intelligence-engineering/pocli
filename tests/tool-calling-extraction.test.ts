@@ -392,5 +392,77 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       );
       expect(fs.readFileSync(art.filePath, 'utf8')).toContain('+-----+ --> +-----+');
     });
+
+    it('enforces workspace repos/ layout with .git extension and routes source code into repos/', () => {
+      const project = storage.getProject(projectId)!;
+      const ws = project.workspaceDir;
+
+      // 1. repos/ directory exists by default
+      expect(fs.existsSync(path.join(ws, 'repos'))).toBe(true);
+      expect(fs.existsSync(path.join(ws, 'contracts'))).toBe(true);
+      expect(fs.existsSync(path.join(ws, 'deliveries'))).toBe(true);
+      expect(fs.existsSync(path.join(ws, 'outputs'))).toBe(true);
+      expect(fs.existsSync(path.join(ws, 'scripts'))).toBe(true);
+
+      // 2. Default single repository directory ends with .git
+      const defaultRepoDir = path.join(ws, 'repos', 'SSOT-Demo-Project.git');
+      expect(fs.existsSync(defaultRepoDir)).toBe(true);
+      expect(project.repositories).toContain('SSOT-Demo-Project.git');
+
+      // 3. write_source_file with bare path routes into repos/<project-name>.git/
+      const art1 = storage.saveArtifact({
+        projectId,
+        code: 'CODE-001',
+        type: 'SOURCE_CODE',
+        title: 'Source Code (src/index.ts)',
+        content: 'console.log("hello world");',
+        authorRole: 'developer',
+        customRelPath: 'src/index.ts',
+      });
+
+      expect(fs.existsSync(art1.filePath)).toBe(true);
+      expect(art1.filePath).toBe(
+        path.join(ws, 'repos', 'SSOT-Demo-Project.git', 'src', 'index.ts'),
+      );
+
+      // 4. write_source_file with multi-repo path ending with .git
+      const art2 = storage.saveArtifact({
+        projectId,
+        code: 'CODE-002',
+        type: 'SOURCE_CODE',
+        title: 'Source Code (repos/worker.git/main.rs)',
+        content: 'fn main() {}',
+        authorRole: 'developer',
+        customRelPath: 'repos/worker.git/main.rs',
+      });
+
+      expect(fs.existsSync(art2.filePath)).toBe(true);
+      expect(art2.filePath).toBe(
+        path.join(ws, 'repos', 'worker.git', 'main.rs'),
+      );
+
+      // 5. write_source_file with un-suffixed repo name normalizes to .git
+      const art3 = storage.saveArtifact({
+        projectId,
+        code: 'CODE-003',
+        type: 'SOURCE_CODE',
+        title: 'Source Code (auth-service/server.py)',
+        content: 'import sys',
+        authorRole: 'developer',
+        customRelPath: 'repos/auth-service/server.py',
+      });
+
+      expect(fs.existsSync(art3.filePath)).toBe(true);
+      expect(art3.filePath).toBe(
+        path.join(ws, 'repos', 'auth-service.git', 'server.py'),
+      );
+
+      // 6. Project repositories in SQLite reflect all discovered .git repos
+      const updatedProj = storage.getProject(projectId)!;
+      expect(updatedProj.repositories).toContain('SSOT-Demo-Project.git');
+      expect(updatedProj.repositories).toContain('worker.git');
+      expect(updatedProj.repositories).toContain('auth-service.git');
+      expect(updatedProj.repositories.every((r) => r.endsWith('.git'))).toBe(true);
+    });
   });
 });
