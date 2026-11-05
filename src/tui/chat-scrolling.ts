@@ -32,6 +32,73 @@ export const wrapTextLines = (text: string, maxCols: number): string[] => {
   return result;
 };
 
+export function filterToolingStream(rawStream: string): {
+  displayText: string;
+  isTooling: boolean;
+} {
+  if (!rawStream) return { displayText: '', isTooling: false };
+
+  const toolMarkers = [
+    '```tool_call',
+    '```tool',
+    '```json\n{"name"',
+    '```json\r\n{"name"',
+    '```json\n{"tool"',
+    '```json\r\n{"tool"',
+    '{"name": "write_',
+    '{"name":"write_',
+    '{"name": "record_adr',
+    '{"name":"record_adr',
+    '{"name": "propose_requirement',
+    '{"name":"propose_requirement',
+    '{"name": "evaluate_consultation',
+    '{"name":"evaluate_consultation',
+    '{"name": "consult_architect',
+    '{"name":"consult_architect',
+    '{"name": "submit_for_qa',
+    '{"name":"submit_for_qa',
+    '{"tool": "write_',
+    '{"tool":"write_',
+    '{"tool": "record_adr',
+    '{"tool":"record_adr',
+    '{"tool": "propose_requirement',
+    '{"tool":"propose_requirement',
+    '{"name": "write_source_file',
+    '{"tool": "write_source_file',
+  ];
+
+  let earliestIdx = -1;
+  for (const marker of toolMarkers) {
+    const idx = rawStream.indexOf(marker);
+    if (idx !== -1 && (earliestIdx === -1 || idx < earliestIdx)) {
+      earliestIdx = idx;
+    }
+  }
+
+  if (earliestIdx !== -1) {
+    const before = rawStream.slice(0, earliestIdx).trimEnd();
+    return {
+      displayText: before,
+      isTooling: true,
+    };
+  }
+
+  const partialMarker = '```tool';
+  const lastFenceIdx = rawStream.lastIndexOf('```');
+  if (lastFenceIdx !== -1 && lastFenceIdx >= rawStream.length - 12) {
+    const tail = rawStream.slice(lastFenceIdx);
+    if (partialMarker.startsWith(tail)) {
+      const before = rawStream.slice(0, lastFenceIdx).trimEnd();
+      return {
+        displayText: before,
+        isTooling: true,
+      };
+    }
+  }
+
+  return { displayText: rawStream, isTooling: false };
+}
+
 export type ChatVisualItemKind =
   | 'empty-state'
   | 'user-card-pad'
@@ -325,22 +392,6 @@ export function buildChatVisualLines(
         });
       }
 
-      // Tool calls header and block
-      toolCalls.forEach((tc, tcIdx) => {
-        result.push({
-          id: `msg-${m.id}-tc-header-${tcIdx}`,
-          kind: 'assistant-tool-header',
-          text: `→ Tool call: ${tc.name}`,
-          sourceMessageId: m.id,
-        });
-        result.push({
-          id: `msg-${m.id}-tc-box-${tcIdx}`,
-          kind: 'assistant-tool-box',
-          text: `$ ${tc.name} ${JSON.stringify(tc.arguments ?? {})}`,
-          sourceMessageId: m.id,
-        });
-      });
-
       // Decompose content text lines and code blocks
       const contentLines = m.content.split('\n');
       let inCodeBlock = false;
@@ -451,26 +502,43 @@ export function buildChatVisualLines(
     });
   }
 
-  // 4. Active streaming text
+  // 4. Active streaming text & Tooling indicator
   if (activeStreamingText) {
-    result.push({
-      id: 'streaming-header',
-      kind: 'streaming-header',
-      text: `${activeRoleDisplayName} · streaming`,
-    });
+    const { displayText, isTooling } = filterToolingStream(activeStreamingText);
 
-    const streamLines = wrapTextLines(
-      activeStreamingText,
-      Math.max(10, safeWidth - 4),
-    );
-    streamLines.forEach((sLine, sIdx) => {
-      const isLast = sIdx === streamLines.length - 1;
+    if (displayText) {
       result.push({
-        id: `streaming-line-${sIdx}`,
-        kind: 'streaming-line',
-        text: isLast ? `${sLine}█` : sLine,
+        id: 'streaming-header',
+        kind: 'streaming-header',
+        text: `${activeRoleDisplayName} · streaming`,
       });
-    });
+
+      const streamLines = wrapTextLines(
+        displayText,
+        Math.max(10, safeWidth - 4),
+      );
+      streamLines.forEach((sLine, sIdx) => {
+        const isLast = sIdx === streamLines.length - 1 && !isTooling;
+        result.push({
+          id: `streaming-line-${sIdx}`,
+          kind: 'streaming-line',
+          text: isLast ? `${sLine}█` : sLine,
+        });
+      });
+    }
+
+    if (isTooling) {
+      const toolingNote =
+        language === 'es'
+          ? '[Creando artefactos...]'
+          : '[Creating artifacts...]';
+
+      result.push({
+        id: 'busy-tooling-indicator',
+        kind: 'thinking',
+        text: `${activeRoleDisplayName} ${thinkingSpinner} ${toolingNote}`,
+      });
+    }
   }
 
   return result;

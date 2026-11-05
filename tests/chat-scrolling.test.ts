@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   wrapTextLines,
+  filterToolingStream,
   computeScrollbar,
   calculateScrollJump,
   sliceChatLines,
@@ -276,6 +277,102 @@ describe('Chat Scrolling & Scrollbar Geometry', () => {
       expect(streamHeader?.text).toContain('Software Architect · streaming');
       expect(streamLines.length).toBeGreaterThan(0);
       expect(streamLines[streamLines.length - 1].text).toContain('█');
+    });
+
+    it('suppresses raw tool call dumps from assistant messages', () => {
+      const lines = buildChatVisualLines({
+        messages: [
+          {
+            id: 5,
+            fromRole: 'architect',
+            content: 'Architecture design completed.',
+            metadataJson: JSON.stringify({
+              toolCalls: [
+                {
+                  name: 'write_architecture_doc',
+                  arguments: {
+                    code: 'ARCH-001',
+                    content: '# Very long architecture content with raw diagrams',
+                  },
+                },
+              ],
+            }),
+          },
+        ],
+        chatContentWidth: 60,
+      });
+
+      // Does not contain any assistant-tool-box or raw JSON payload
+      const toolBoxes = lines.filter((l) => l.kind === 'assistant-tool-box');
+      const toolHeaders = lines.filter((l) => l.kind === 'assistant-tool-header');
+      expect(toolBoxes).toHaveLength(0);
+      expect(toolHeaders).toHaveLength(0);
+
+      // Conversational content is preserved
+      expect(lines.some((l) => l.text.includes('Architecture design completed.'))).toBe(true);
+    });
+
+    it('displays artifact creation indicator when streaming tool calls instead of raw JSON', () => {
+      const linesEs = buildChatVisualLines({
+        messages: [],
+        activeStreamingText:
+          'Iniciando diseño.\n```tool_call\n{"name": "write_specification", "arguments": {"code": "SPEC-001"}}',
+        chatContentWidth: 60,
+        activeRoleDisplayName: 'Software Architect',
+        language: 'es',
+      });
+
+      // Conversational stream header and text before tool call are rendered
+      expect(linesEs.some((l) => l.text.includes('Iniciando diseño.'))).toBe(true);
+      // Raw tool_call JSON is NOT rendered in streaming lines
+      expect(linesEs.some((l) => l.text.includes('write_specification'))).toBe(false);
+
+      // Tooling indicator identical to thinking is displayed
+      const toolingIndEs = linesEs.find((l) => l.id === 'busy-tooling-indicator');
+      expect(toolingIndEs).toBeDefined();
+      expect(toolingIndEs?.text).toContain('[Creando artefactos...]');
+
+      // Test English translation
+      const linesEn = buildChatVisualLines({
+        messages: [],
+        activeStreamingText: '```tool_call\n{"name": "write_architecture_doc"}',
+        chatContentWidth: 60,
+        activeRoleDisplayName: 'Software Architect',
+        language: 'en',
+      });
+      const toolingIndEn = linesEn.find((l) => l.id === 'busy-tooling-indicator');
+      expect(toolingIndEn).toBeDefined();
+      expect(toolingIndEn?.text).toContain('[Creating artifacts...]');
+    });
+  });
+
+  describe('filterToolingStream', () => {
+    it('returns original stream when no tool call is present', () => {
+      const res = filterToolingStream('Everything looks good, proceeding with analysis.');
+      expect(res.displayText).toBe('Everything looks good, proceeding with analysis.');
+      expect(res.isTooling).toBe(false);
+    });
+
+    it('extracts conversational text and flags tooling when ```tool_call starts', () => {
+      const raw =
+        'He diseñado la estructura.\n```tool_call\n{"name": "write_architecture_doc", "arguments": {}}';
+      const res = filterToolingStream(raw);
+      expect(res.displayText).toBe('He diseñado la estructura.');
+      expect(res.isTooling).toBe(true);
+    });
+
+    it('handles direct tool calls without conversational text', () => {
+      const raw = '{"name": "write_source_file", "arguments": {"relFilePath": "index.ts"}}';
+      const res = filterToolingStream(raw);
+      expect(res.displayText).toBe('');
+      expect(res.isTooling).toBe(true);
+    });
+
+    it('detects partial opening of tool block while streaming', () => {
+      const raw = 'Generando especificación técnica...\n```tool';
+      const res = filterToolingStream(raw);
+      expect(res.displayText).toBe('Generando especificación técnica...');
+      expect(res.isTooling).toBe(true);
     });
   });
 });

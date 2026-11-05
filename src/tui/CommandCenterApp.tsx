@@ -38,6 +38,7 @@ import {
 import { getHowtoRenderLines } from './howtoContent.js';
 import {
   wrapTextLines,
+  filterToolingStream,
   computeScrollbar,
   calculateScrollJump,
   sliceChatLines,
@@ -504,6 +505,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   );
   const isActiveRoleBusy = Boolean(busyRoles[activeRole]);
   const activeStreamingText = streamingByRole[activeRole] || '';
+  const activeStreamResult = useMemo(
+    () => filterToolingStream(activeStreamingText),
+    [activeStreamingText],
+  );
 
   // Animated thinking spinner frames: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
   const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -5597,11 +5602,26 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           if (item.text === '') {
             return <Box height={1} flexShrink={0} />;
           }
+          const isTableLine = item.text.trim().startsWith('|');
+          const isTableSep = isTableLine && item.text.includes('---');
+          const isTableHeader =
+            isTableLine &&
+            !isTableSep &&
+            (item.text.includes('Artefacto') || item.text.includes('Artifact'));
           return (
             <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
               <Text
-                color={item.isError ? 'red' : 'white'}
-                bold={item.isError}
+                color={
+                  item.isError
+                    ? 'red'
+                    : isTableSep
+                      ? 'gray'
+                      : isTableHeader
+                        ? 'cyan'
+                        : 'white'
+                }
+                bold={item.isError || isTableHeader}
+                dimColor={isTableSep}
                 backgroundColor={isLineSelected ? 'yellow' : undefined}
               >
                 {item.text}
@@ -5858,12 +5878,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 for (const item of AVAILABLE_AGENTS) {
                   if (!busyRoles[item.role]) continue;
                   const rTheme = getRoleTheme(item.role, theme);
-                  const isStreamingThis = Boolean(streamingByRole[item.role]);
-                  const statusLabel = isStreamingThis
-                    ? 'streaming'
-                    : language === 'es'
-                      ? 'pensando'
-                      : 'thinking';
+                  const roleStreamText = streamingByRole[item.role] || '';
+                  const { isTooling } = filterToolingStream(roleStreamText);
+                  const isStreamingThis = Boolean(roleStreamText);
+                  const statusLabel = isTooling
+                    ? (language === 'es' ? 'creando artefactos' : 'creating artifacts')
+                    : isStreamingThis
+                      ? 'streaming'
+                      : language === 'es'
+                        ? 'pensando'
+                        : 'thinking';
                   sidebarLines.push({
                     text: `${thinkingSpinner} ${getRoleDisplayName(item.role, language)} (${statusLabel})`,
                     color: rTheme.accentColor,
@@ -6002,16 +6026,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               const boxTitle = t.expertBoxTitles[roleKey];
               const isSelected = activeRole === roleKey;
               const isCardBusy = Boolean(busyRoles[roleKey]);
-              const isCardStreaming = Boolean(streamingByRole[roleKey]);
-              const statsBadge = isCardStreaming
-                ? `[streaming]`
-                : isCardBusy
-                  ? `${thinkingSpinner} [thinking]`
-                  : `(${summary.totalMessages}m·${summary.activeContextTokens}t${
-                      summary.savedTokensByCompaction > 0
-                        ? `·-${summary.savedTokensByCompaction}t`
-                        : ''
-                    })`;
+              const roleStreamText = streamingByRole[roleKey] || '';
+              const { isTooling } = filterToolingStream(roleStreamText);
+              const isCardStreaming = Boolean(roleStreamText);
+              const statsBadge = isTooling
+                ? `${thinkingSpinner} [${language === 'es' ? 'creando artefactos' : 'creating artifacts'}]`
+                : isCardStreaming
+                  ? `[streaming]`
+                  : isCardBusy
+                    ? `${thinkingSpinner} [thinking]`
+                    : `(${summary.totalMessages}m·${summary.activeContextTokens}t${
+                        summary.savedTokensByCompaction > 0
+                          ? `·-${summary.savedTokensByCompaction}t`
+                          : ''
+                      })`;
 
               const titlePrefix = isSelected ? ` ▶ ${boxTitle}` : ` ${boxTitle}`;
               const headerGap = Math.max(
@@ -6478,13 +6506,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                               : '[Thinking...]'}
                         </Text>
                       </Box>
+                    ) : activeStreamingText && activeStreamResult.isTooling ? (
+                      <Box flexDirection="row" marginTop={0}>
+                        <Text dimColor italic color="yellow">
+                          {thinkingSpinner}{' '}
+                          {language === 'es'
+                            ? '[Creando artefactos...]'
+                            : '[Creating artifacts...]'}
+                        </Text>
+                      </Box>
                     ) : activeStreamingText ? (
                       <Box flexDirection="column" marginTop={0}>
                         <Text bold color={activeTheme.accentColor}>
                           [{activeRoleDisplayName} (streaming)]:
                         </Text>
                         <Text color="green" wrap="truncate-end">
-                          {activeStreamingText.slice(-250)}█
+                          {activeStreamResult.displayText.slice(-250)}█
                         </Text>
                       </Box>
                     ) : lastPromptSnippet || lastReplySnippet ? (
