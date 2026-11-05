@@ -36,6 +36,15 @@ import {
   parseMouseEvents,
 } from './mouse.js';
 import { getHowtoRenderLines } from './howtoContent.js';
+import {
+  wrapTextLines,
+  computeScrollbar,
+  calculateScrollJump,
+  sliceChatLines,
+  buildChatVisualLines,
+  ChatVisualItem,
+} from './chat-scrolling.js';
+export { wrapTextLines };
 
 export interface CommandCenterProps {
   orchestrator: PoCliOrchestrator;
@@ -87,36 +96,7 @@ export const SOLARIZED_COLORS = {
   green: '#859900',
 } as const;
 
-/**
- * Utility to split text into wrapped lines up to maxCols characters,
- * respecting explicit newlines and word boundaries.
- */
-export const wrapTextLines = (text: string, maxCols: number): string[] => {
-  if (!text) return [''];
-  const safeCols = Math.max(10, maxCols);
-  const result: string[] = [];
-  const paragraphs = text.split('\n');
 
-  for (const para of paragraphs) {
-    if (para.length <= safeCols) {
-      result.push(para);
-    } else {
-      let remaining = para;
-      while (remaining.length > safeCols) {
-        let breakIdx = remaining.lastIndexOf(' ', safeCols);
-        if (breakIdx <= 0) {
-          result.push(remaining.slice(0, safeCols));
-          remaining = remaining.slice(safeCols);
-        } else {
-          result.push(remaining.slice(0, breakIdx));
-          remaining = remaining.slice(breakIdx + 1);
-        }
-      }
-      result.push(remaining);
-    }
-  }
-  return result;
-};
 
 export interface RoleColorTheme {
   bgColor: string;
@@ -503,6 +483,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [inputValue, setInputValue] = useState<string>('');
   const [selectedSlashIdx, setSelectedSlashIdx] = useState<number>(0);
   const [messageScrollOffset, setMessageScrollOffset] = useState<number>(0);
+  const [chatScrollOffset, setChatScrollOffset] = useState<number>(0);
+  const chatMaxScrollRef = useRef<number>(0);
+  const chatViewportHeightRef = useRef<number>(10);
   const [messagesVersion, setMessagesVersion] = useState<number>(0);
   const [busyRoles, setBusyRoles] = useState<Partial<Record<ActorRole, boolean>>>({});
   const [streamingByRole, setStreamingByRole] = useState<Partial<Record<ActorRole, string>>>({});
@@ -626,6 +609,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       refreshState();
     }
     setMessageScrollOffset(0);
+    setChatScrollOffset(0);
   }, [project?.id, activeRole]);
 
   useEffect(() => {
@@ -1636,6 +1620,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       content: messageText,
     });
     setMessageScrollOffset(0);
+    setChatScrollOffset(0);
     setMessagesVersion((prev) => prev + 1);
     refreshState();
 
@@ -1699,6 +1684,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         ),
       );
       setMessageScrollOffset(0);
+      setChatScrollOffset(0);
       setMessagesVersion((prev) => prev + 1);
       refreshState();
     } catch (err) {
@@ -1739,6 +1725,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         },
       });
       setMessageScrollOffset(0);
+      setChatScrollOffset(0);
       setMessagesVersion((prev) => prev + 1);
       refreshState();
     } finally {
@@ -1845,6 +1832,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
 
       // Scroll through conversation history with the active agent
+      if (viewMode === 'chat') {
+        const step = 3;
+        setChatScrollOffset((prev) =>
+          isUp
+            ? Math.min(chatMaxScrollRef.current, prev + step)
+            : Math.max(0, prev - step),
+        );
+        return;
+      }
+
       const allMsgs = project
         ? orchestrator.storage.listMessages(project.id, activeRole)
         : [];
@@ -2088,6 +2085,25 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             return;
           }
         }
+      }
+
+      // 2l. Chat Scrollbar Click Jump
+      if (
+        viewMode === 'chat' &&
+        !anyModalOpen &&
+        ev.x >= unifiedChatBoxWidth - 2 &&
+        ev.x <= unifiedChatBoxWidth + 1 &&
+        ev.y >= 2 &&
+        ev.y < 2 + chatViewportHeightRef.current
+      ) {
+        const clickRow = ev.y - 2;
+        const newOffset = calculateScrollJump(
+          clickRow,
+          chatViewportHeightRef.current,
+          chatMaxScrollRef.current,
+        );
+        setChatScrollOffset(newOffset);
+        return;
       }
 
       // 3. Conversation Text Selection / Click Tracking
@@ -2965,6 +2981,56 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         prev < filteredSlashCommands.length - 1 ? prev + 1 : 0,
       );
       return;
+    }
+
+    // Chat view: keyboard scrolling navigation (PgUp, PgDn, Home, End, Up/Down arrows)
+    if (viewMode === 'chat' && !isSlashMenuOpen && !anyModalOpen) {
+      const pageStep = Math.max(1, chatViewportHeightRef.current - 2);
+
+      if (key.pageUp || rawSeq === '\x1b[5~') {
+        setChatScrollOffset((prev) =>
+          Math.min(chatMaxScrollRef.current, prev + pageStep),
+        );
+        return;
+      }
+      if (key.pageDown || rawSeq === '\x1b[6~') {
+        setChatScrollOffset((prev) => Math.max(0, prev - pageStep));
+        return;
+      }
+      if (
+        Boolean((key as any).home) ||
+        rawSeq === '\x1b[H' ||
+        rawSeq === '\x1b[1~' ||
+        (key.ctrl && (input === 'u' || input === 'U'))
+      ) {
+        setChatScrollOffset(chatMaxScrollRef.current);
+        return;
+      }
+      if (
+        Boolean((key as any).end) ||
+        rawSeq === '\x1b[F' ||
+        rawSeq === '\x1b[4~' ||
+        (key.ctrl && (input === 'd' || input === 'D'))
+      ) {
+        setChatScrollOffset(0);
+        return;
+      }
+      if (
+        key.upArrow &&
+        (inputValue === '' || key.shift || chatScrollOffset > 0)
+      ) {
+        setChatScrollOffset((prev) =>
+          Math.min(chatMaxScrollRef.current, prev + 1),
+        );
+        return;
+      }
+      if (
+        key.downArrow &&
+        (inputValue === '' || key.shift || chatScrollOffset > 0)
+      ) {
+        setChatScrollOffset((prev) => Math.max(0, prev - 1));
+        return;
+      }
     }
 
     // Left / Right arrows navigate between agents in carousel mode inside Multipanel
@@ -5377,6 +5443,236 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         : wrapTextLines(inputValue, Math.max(10, chatAreaWidth - 2)).length,
     );
     const messagesViewportHeight = Math.max(3, contentHeight - (promptBoxLines + 1));
+    chatViewportHeightRef.current = messagesViewportHeight;
+    const chatContentWidth = Math.max(10, chatAreaWidth - 3);
+
+    const chatVisualLines = buildChatVisualLines({
+      messages,
+      activeStreamingText,
+      isActiveRoleBusy,
+      activeRoleQueuedCount,
+      activeRoleDisplayName,
+      activeModelDisplayName: activeModelEntry.displayName,
+      chatContentWidth,
+      language,
+      thinkingSpinner,
+      queuedMessageIds: queuedMessageIds as Set<string | number>,
+    });
+
+    const scrollbarState = computeScrollbar(
+      chatVisualLines.length,
+      messagesViewportHeight,
+      chatScrollOffset,
+    );
+    chatMaxScrollRef.current = scrollbarState.maxScroll;
+
+    const chatSlice = sliceChatLines(
+      chatVisualLines,
+      messagesViewportHeight,
+      chatScrollOffset,
+    );
+
+    const renderChatVisualItem = (
+      item: ChatVisualItem,
+      isLineSelected: boolean,
+      contentWidth: number,
+    ) => {
+      const textWidth = Math.max(10, contentWidth - 2);
+
+      switch (item.kind) {
+        case 'empty-state':
+          return (
+            <Text dimColor>
+              {item.text}
+            </Text>
+          );
+
+        case 'user-card-pad':
+          return (
+            <Box flexDirection="row" flexShrink={0} width={contentWidth}>
+              <Text color="cyan" backgroundColor={themePalette.cardBg} bold>
+                │{' '}
+              </Text>
+              <Text backgroundColor={themePalette.cardBg}>
+                {' '.repeat(Math.max(0, textWidth))}
+              </Text>
+            </Box>
+          );
+
+        case 'user-card-line':
+          return (
+            <Box flexDirection="row" flexShrink={0} width={contentWidth}>
+              <Text color="cyan" backgroundColor={themePalette.cardBg} bold>
+                │{' '}
+              </Text>
+              <Text
+                color="cyan"
+                bold
+                backgroundColor={isLineSelected ? 'yellow' : themePalette.cardBg}
+              >
+                {item.text}
+              </Text>
+              {item.queueBadge ? (
+                <Text
+                  color={themePalette.yellow}
+                  backgroundColor={themePalette.cardBg}
+                  bold
+                >
+                  {item.queueBadge}
+                </Text>
+              ) : null}
+              <Text backgroundColor={themePalette.cardBg}>
+                {' '.repeat(
+                  Math.max(
+                    0,
+                    textWidth -
+                      item.text.length -
+                      (item.queueBadge?.length || 0),
+                  ),
+                )}
+              </Text>
+            </Box>
+          );
+
+        case 'assistant-citation-header':
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text dimColor>{item.text}</Text>
+            </Box>
+          );
+
+        case 'assistant-citation-box':
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text dimColor>{item.text}</Text>
+            </Box>
+          );
+
+        case 'assistant-tool-header':
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text dimColor>{item.text}</Text>
+            </Box>
+          );
+
+        case 'assistant-tool-box':
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text color="cyan">{item.text}</Text>
+            </Box>
+          );
+
+        case 'assistant-code-top': {
+          const lang = item.text || 'code';
+          const dashes = Math.max(0, contentWidth - 10 - lang.length);
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text dimColor>┌─ [{lang}] {'─'.repeat(dashes)}┐</Text>
+            </Box>
+          );
+        }
+
+        case 'assistant-code-line':
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text
+                color={item.text.startsWith('$') ? 'cyan' : 'white'}
+                dimColor={!item.text.startsWith('$')}
+              >
+                │ {item.text}
+              </Text>
+            </Box>
+          );
+
+        case 'assistant-code-bottom': {
+          const dashes = Math.max(0, contentWidth - 4);
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text dimColor>└{'─'.repeat(dashes)}┘</Text>
+            </Box>
+          );
+        }
+
+        case 'assistant-text':
+          if (item.text === '') {
+            return <Box height={1} flexShrink={0} />;
+          }
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text
+                color={item.isError ? 'red' : 'white'}
+                bold={item.isError}
+                backgroundColor={isLineSelected ? 'yellow' : undefined}
+              >
+                {item.text}
+              </Text>
+            </Box>
+          );
+
+        case 'assistant-footer':
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              {item.isError ? (
+                <>
+                  <Text color="red" bold>
+                    Error
+                  </Text>
+                  <Text dimColor>
+                    {' '}
+                    · {activeRoleDisplayName} ·{' '}
+                    {language === 'es' ? 'No accesible' : 'Unreachable'}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text color="cyan" bold>
+                    Build
+                  </Text>
+                  <Text dimColor>
+                    {' '}
+                    · {activeRoleDisplayName} · {item.text}
+                  </Text>
+                </>
+              )}
+            </Box>
+          );
+
+        case 'thinking':
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text color={activeTheme.accentColor} bold>
+                {activeRoleDisplayName}
+              </Text>
+              <Text dimColor italic>
+                {' '}
+                {thinkingSpinner}{' '}
+                {item.text.replace(activeRoleDisplayName, '').trim()}
+              </Text>
+            </Box>
+          );
+
+        case 'streaming-header':
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text color={activeTheme.accentColor} bold>
+                {activeRoleDisplayName}
+              </Text>
+              <Text dimColor> · streaming</Text>
+            </Box>
+          );
+
+        case 'streaming-line':
+          return (
+            <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
+              <Text color="green">{item.text}</Text>
+            </Box>
+          );
+
+        case 'separator':
+        default:
+          return <Box height={1} flexShrink={0} />;
+      }
+    };
 
     return (
       <Box
@@ -5426,255 +5722,95 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               justifyContent="space-between"
               marginRight={2}
             >
-              {/* Scrollable Conversation messages.
-                  Fixed-height clipping viewport anchored to the bottom: message
-                  blocks never shrink (flexShrink=0), so they can never overlap;
-                  older content is clipped at the top instead. */}
+              {/* Scrollable Conversation messages with vertical scrollbar */}
               <Box
-                flexDirection="column"
+                flexDirection="row"
+                width={chatAreaWidth}
                 height={messagesViewportHeight}
                 flexShrink={0}
                 overflowY="hidden"
-                justifyContent="flex-end"
               >
+                {/* Visual Line Messages Column */}
                 <Box
                   flexDirection="column"
+                  width={chatContentWidth}
+                  height={messagesViewportHeight}
                   flexShrink={0}
-                  minHeight={messagesViewportHeight}
+                  overflowY="hidden"
                 >
-                {openCodeMessages.length === 0 && !activeStreamingText ? (
-                  <Box flexDirection="column" marginY={1}>
-                    <Text dimColor>
-                      {language === 'es'
-                        ? `→ Sesión iniciada con ${activeRoleDisplayName}. Escribe una consulta para comenzar.`
-                        : `→ Active session with ${activeRoleDisplayName}. Enter a prompt to start.`}
-                    </Text>
-                  </Box>
-                ) : (
-                  openCodeMessages.map((m, mIdx) => {
-                    const isUser = m.fromRole === 'product_owner';
-                    const baseRow = 4 + mIdx * 3;
-                    const minCol = 4;
-                    const maxCol = chatAreaWidth;
+                  {(() => {
+                    renderedConversationLinesRef.current = [];
+                    return chatSlice.visibleLines.map((item, vIdx) => {
+                      const screenRow = 2 + vIdx;
+                      if (item.text) {
+                        renderedConversationLinesRef.current.push({
+                          y: screenRow,
+                          minX: 4,
+                          maxX: chatContentWidth,
+                          text: item.text,
+                          fullContent: item.text,
+                        });
+                      }
 
-                    // Register rendered line coordinates for mouse click/drag selection
-                    if (
-                      !renderedConversationLinesRef.current.some(
-                        (l) => l.y === baseRow && l.text === m.content,
-                      )
-                    ) {
-                      renderedConversationLinesRef.current.push({
-                        y: baseRow,
-                        minX: minCol,
-                        maxX: maxCol,
-                        text: m.content,
-                        fullContent: m.content,
-                      });
-                    }
+                      const isLineSelected =
+                        selectionRange !== null &&
+                        selectionRange.startY <= screenRow &&
+                        selectionRange.endY >= screenRow;
 
-                    const isLineSelected =
-                      selectionRange !== null &&
-                      selectionRange.startY <= baseRow &&
-                      selectionRange.endY >= baseRow;
+                      return (
+                        <Box
+                          key={item.id}
+                          height={1}
+                          flexShrink={0}
+                          overflowX="hidden"
+                        >
+                          {renderChatVisualItem(
+                            item,
+                            isLineSelected,
+                            chatContentWidth,
+                          )}
+                        </Box>
+                      );
+                    });
+                  })()}
+                  {chatSlice.emptyPaddingRows > 0 && (
+                    <Box
+                      height={chatSlice.emptyPaddingRows}
+                      flexShrink={0}
+                    />
+                  )}
+                </Box>
 
-                    return (
-                      <Box
-                        key={m.id}
-                        flexDirection="column"
-                        flexShrink={0}
-                        marginBottom={1}
-                      >
-                        {isUser ? (
-                          // User message card (OpenCode style): full-width shaded
-                          // background, cyan left bar, one padding line above/below
-                          (() => {
-                            const textWidth = Math.max(10, chatAreaWidth - 2);
-                            const queueBadge = queuedMessageIds.has(m.id)
-                              ? language === 'es'
-                                ? ' [en cola]'
-                                : ' [queued]'
-                              : '';
-                            const rawMsgLines = wrapTextLines(
-                              m.content,
-                              Math.max(10, textWidth - queueBadge.length - 1),
-                            );
-                            const cardLines = ['', ...rawMsgLines, ''];
-
-                            return (
-                              <Box
-                                flexDirection="column"
-                                flexShrink={0}
-                                width={chatAreaWidth}
-                              >
-                                {cardLines.map((line, lIdx) => {
-                                  const badge = lIdx === 1 ? queueBadge : '';
-                                  return (
-                                    <Box
-                                      key={lIdx}
-                                      flexDirection="row"
-                                      flexShrink={0}
-                                      width={chatAreaWidth}
-                                    >
-                                      <Text
-                                        color="cyan"
-                                        backgroundColor={themePalette.cardBg}
-                                        bold
-                                      >
-                                        │{' '}
-                                      </Text>
-                                      <Text
-                                        color="cyan"
-                                        bold
-                                        backgroundColor={
-                                          isLineSelected ? 'yellow' : themePalette.cardBg
-                                        }
-                                      >
-                                        {line}
-                                      </Text>
-                                      {badge ? (
-                                        <Text
-                                          color={themePalette.yellow}
-                                          backgroundColor={themePalette.cardBg}
-                                          bold
-                                        >
-                                          {badge}
-                                        </Text>
-                                      ) : null}
-                                      <Text backgroundColor={themePalette.cardBg}>
-                                        {' '.repeat(
-                                          Math.max(0, textWidth - line.length - badge.length),
-                                        )}
-                                      </Text>
-                                    </Box>
-                                  );
-                                })}
-                              </Box>
-                            );
-                          })()
-                        ) : (
-                          // Assistant message + optional tool/RAG step
-                          (() => {
-                            let citations: string[] = [];
-                            let toolCalls: any[] = [];
-                            try {
-                              const meta = JSON.parse(m.metadataJson || '{}') as {
-                                citations?: string[];
-                                toolCalls?: any[];
-                              };
-                              if (Array.isArray(meta.citations)) citations = meta.citations;
-                              if (Array.isArray(meta.toolCalls)) toolCalls = meta.toolCalls;
-                            } catch {
-                              // ignore
-                            }
-
-                            return (
-                              <Box flexDirection="column" flexShrink={0}>
-                                {citations.length > 0 && (
-                                  <>
-                                    <Box flexDirection="row" paddingLeft={2}>
-                                      <Text dimColor>
-                                        → Explored: {citations.length} reads
-                                      </Text>
-                                    </Box>
-                                    <Box
-                                      borderStyle="round"
-                                      borderColor="gray"
-                                      paddingX={1}
-                                      flexDirection="column"
-                                      marginY={0}
-                                    >
-                                      <Text dimColor>
-                                        $ Notebook Citations: {citations.slice(0, 3).join(' ')}
-                                      </Text>
-                                    </Box>
-                                  </>
-                                )}
-                                {toolCalls.map((tc, tcIdx) => (
-                                  <Box key={tcIdx} flexDirection="column" marginY={0}>
-                                    <Box flexDirection="row" paddingLeft={2}>
-                                      <Text dimColor>
-                                        → Tool call: {tc.name}
-                                      </Text>
-                                    </Box>
-                                    <Box
-                                      borderStyle="round"
-                                      borderColor="gray"
-                                      paddingX={1}
-                                      flexDirection="column"
-                                      marginY={0}
-                                    >
-                                      <Text color="cyan">$ {tc.name} {JSON.stringify(tc.arguments ?? {})}</Text>
-                                    </Box>
-                                  </Box>
-                                ))}
-                                <Box flexDirection="column" flexShrink={0} paddingLeft={2}>
-                                  {renderFormattedContent(m.content, isLineSelected)}
-                                </Box>
-                                {(() => {
-                                  let isErrMsg = m.content.startsWith('✖');
-                                  try {
-                                    const parsed = JSON.parse(m.metadataJson || '{}');
-                                    if (parsed.isError) isErrMsg = true;
-                                  } catch {
-                                    // ignore
-                                  }
-                                  return (
-                                    <Box flexDirection="row" flexShrink={0} marginTop={1} paddingLeft={2}>
-                                      {isErrMsg ? (
-                                        <>
-                                          <Text color="red" bold>Error</Text>
-                                          <Text dimColor> · {activeRoleDisplayName} · {language === 'es' ? 'No accesible' : 'Unreachable'}</Text>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Text color="cyan" bold>Build</Text>
-                                          <Text dimColor> · {activeRoleDisplayName} · {activeModelEntry.displayName}</Text>
-                                        </>
-                                      )}
-                                    </Box>
-                                  );
-                                })()}
-                              </Box>
-                            );
-                          })()
-                        )}
-                      </Box>
-                    );
-                  })
-                )}
-
-                {/* Thinking / Waiting indicator */}
-                {isActiveRoleBusy && !activeStreamingText && (
-                  <Box flexDirection="row" flexShrink={0} marginBottom={1} paddingLeft={2}>
-                    <Text color={activeTheme.accentColor} bold>
-                      {activeRoleDisplayName}
-                    </Text>
-                    <Text dimColor italic>
-                      {' '}
-                      {thinkingSpinner}{' '}
-                      {language === 'es'
-                        ? activeRoleQueuedCount > 0
-                          ? `[Pensando respuesta... · ${activeRoleQueuedCount} en cola]`
-                          : '[Pensando respuesta...]'
-                        : activeRoleQueuedCount > 0
-                          ? `[Thinking... · ${activeRoleQueuedCount} queued]`
-                          : '[Thinking...]'}
-                    </Text>
-                  </Box>
-                )}
-
-                {/* Streaming response */}
-                {activeStreamingText && (
-                  <Box flexDirection="column" flexShrink={0} marginBottom={1} paddingLeft={2}>
-                    <Box flexDirection="row" marginBottom={0}>
-                      <Text color={activeTheme.accentColor} bold>
-                        {activeRoleDisplayName}
-                      </Text>
-                      <Text dimColor> · streaming</Text>
-                    </Box>
-                    <Text color="green">{activeStreamingText}█</Text>
-                  </Box>
-                )}
+                {/* Vertical Scrollbar Column */}
+                <Box
+                  flexDirection="column"
+                  width={2}
+                  height={messagesViewportHeight}
+                  flexShrink={0}
+                  alignItems="flex-end"
+                >
+                  {scrollbarState.showScrollbar ? (
+                    scrollbarState.trackRows.map((char, rIdx) => {
+                      const isThumb = char === '█';
+                      return (
+                        <Box key={rIdx} height={1} flexShrink={0}>
+                          <Text
+                            color={isThumb ? activeTheme.accentColor : 'gray'}
+                            dimColor={!isThumb}
+                            bold={isThumb}
+                          >
+                            {char}{' '}
+                          </Text>
+                        </Box>
+                      );
+                    })
+                  ) : (
+                    <Box
+                      width={2}
+                      height={messagesViewportHeight}
+                      flexShrink={0}
+                    />
+                  )}
                 </Box>
               </Box>
 
