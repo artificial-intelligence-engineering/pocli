@@ -12,6 +12,7 @@ import { AuthStorage } from '../core/auth.js';
 import { I18N_DICTIONARY, SupportedLanguage } from '../core/i18n.js';
 import { NotebookRagEngine } from './notebook-rag.js';
 import { buildDefaultFreeProviders, DEFAULT_FREE_PROVIDERS, LLMRouter } from './llm-router.js';
+import { buildRoleToolsInstruction } from './harnesses.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -643,6 +644,190 @@ export interface AgentTurnOutput {
   modelUsed: string;
 }
 
+const KNOWN_TOOLS = new Set([
+  'propose_requirement',
+  'record_adr',
+  'write_architecture_doc',
+  'write_architecture',
+  'write_specification',
+  'write_spec',
+  'request_po_approval',
+  'evaluate_consultation',
+  'write_implementation_plan',
+  'write_source_file',
+  'consult_architect',
+  'submit_for_qa',
+  'write_test_case',
+  'run_verification_test',
+  'submit_qa_report',
+  'write_pm_report',
+  'write_llm_artifact',
+  'run_command',
+]);
+
+function isRecognizedToolName(name: string): boolean {
+  return (
+    KNOWN_TOOLS.has(name) ||
+    name.startsWith('write_') ||
+    name.startsWith('record_') ||
+    name.startsWith('propose_') ||
+    name.startsWith('create_')
+  );
+}
+
+/**
+ * Scans a string starting at `startIndex` (which must be '{' or '[')
+ * and returns the slice ending at the matching closing '}' or ']',
+ * correctly ignoring braces inside JSON string literals and escaped quotes.
+ */
+function extractBalancedJson(
+  text: string,
+  startIndex: number,
+): { endIndex: number; jsonStr: string } | null {
+  const openChar = text[startIndex];
+  const closeChar = openChar === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = startIndex; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (ch === openChar) {
+        depth++;
+      } else if (ch === closeChar) {
+        depth--;
+        if (depth === 0) {
+          return { endIndex: i + 1, jsonStr: text.slice(startIndex, i + 1) };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Robustly extracts and cleans structured tool calls from LLM response text,
+ * supporting ```tool_call blocks, ```json blocks, <tool_call> tags, and inline JSON,
+ * even when the tool call arguments contain internal markdown code blocks or diagrams.
+ */
+export function extractToolCalls(rawText: string): {
+  cleanText: string;
+  toolCalls: AgentToolCallRequest[];
+} {
+  const toolCalls: AgentToolCallRequest[] = [];
+  if (!rawText) {
+    return { cleanText: '', toolCalls: [] };
+  }
+
+  const removalRanges: Array<{ start: number; end: number }> = [];
+
+  function processParsedObject(
+    parsed: unknown,
+    blockStart?: number,
+    blockEnd?: number,
+  ): boolean {
+    let matched = false;
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    for (const item of items) {
+      if (item && typeof item === 'object') {
+        const candidate = item as Record<string, unknown>;
+        const name = candidate.name || candidate.tool;
+        let args = candidate.arguments || candidate.params || candidate.args || {};
+        if (typeof args === 'string') {
+          try {
+            args = JSON.parse(args);
+          } catch {}
+        }
+        if (typeof name === 'string' && isRecognizedToolName(name)) {
+          toolCalls.push({
+            name,
+            arguments: (args as Record<string, unknown>) ?? {},
+          });
+          matched = true;
+        }
+      }
+    }
+    if (matched && blockStart !== undefined && blockEnd !== undefined) {
+      removalRanges.push({ start: blockStart, end: blockEnd });
+    }
+    return matched;
+  }
+
+  // Pass 1: Find fenced code blocks (```tool_call, ```json, ```) or <tool_call> tags
+  const fenceRegex = /(?:```(?:tool_call|toolCall|json:tool_call|json)?|<tool_call>)\s*/gi;
+  let fenceMatch: RegExpExecArray | null;
+  while ((fenceMatch = fenceRegex.exec(rawText)) !== null) {
+    const tagStart = fenceMatch.index;
+    const contentStart = tagStart + fenceMatch[0].length;
+    const firstChar = rawText[contentStart];
+    if (firstChar === '{' || firstChar === '[') {
+      const extracted = extractBalancedJson(rawText, contentStart);
+      if (extracted) {
+        try {
+          const parsed = JSON.parse(extracted.jsonStr);
+          let blockEnd = extracted.endIndex;
+          const remaining = rawText.slice(extracted.endIndex);
+          const closeMatch = remaining.match(/^\s*(?:```|<\/tool_call>)/);
+          if (closeMatch) {
+            blockEnd = extracted.endIndex + closeMatch[0].length;
+          }
+          if (processParsedObject(parsed, tagStart, blockEnd)) {
+            fenceRegex.lastIndex = blockEnd;
+          }
+        } catch {
+          // not valid json, ignore
+        }
+      }
+    }
+  }
+
+  // Pass 2: Look for raw JSON objects that might not be wrapped in code fences
+  for (let i = 0; i < rawText.length; i++) {
+    if (removalRanges.some((r) => i >= r.start && i < r.end)) continue;
+    if (rawText[i] === '{' || rawText[i] === '[') {
+      const preview = rawText.slice(i, i + 120);
+      if (preview.includes('"name"') || preview.includes('"tool"')) {
+        const extracted = extractBalancedJson(rawText, i);
+        if (extracted) {
+          try {
+            const parsed = JSON.parse(extracted.jsonStr);
+            if (processParsedObject(parsed, i, extracted.endIndex)) {
+              i = extracted.endIndex - 1;
+            }
+          } catch {}
+        }
+      }
+    }
+  }
+
+  // Construct cleanText by removing identified ranges
+  removalRanges.sort((a, b) => b.start - a.start);
+  let cleanText = rawText;
+  for (const range of removalRanges) {
+    cleanText = cleanText.slice(0, range.start) + cleanText.slice(range.end);
+  }
+
+  cleanText = cleanText
+    .replace(/^\s*```\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return { cleanText, toolCalls };
+}
+
 /**
  * Multi-Model LLM Gateway.
  * Decouples workflow execution from specific LLM providers and allows different
@@ -819,14 +1004,10 @@ export class LlmGateway {
 
         const systemContent = [
           `System: You are acting as the ${input.role.toUpperCase()} specialist in PO CLI.`,
-          input.systemPrompt,
-          input.normativeArtifactsSummary
-            ? `\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}`
-            : '',
-          ragBlock ? `\n[RAG NOTEBOOK SOURCES]\n${ragBlock}` : '',
+          this.assembleSpecialistSystemPrompt(input, ragBlock),
         ]
           .filter(Boolean)
-          .join('\n');
+          .join('\n\n');
 
         const result = await this.freeRouter.completion({
           model: modelId,
@@ -838,9 +1019,11 @@ export class LlmGateway {
           onStreamChunk: onStreamToken,
         });
 
+        const extracted = extractToolCalls(result.text);
+
         return {
-          replyText: result.text,
-          toolCalls: [],
+          replyText: extracted.cleanText || result.text,
+          toolCalls: extracted.toolCalls,
           providerUsed: result.providerId,
           modelUsed: result.modelUsed,
         };
@@ -866,6 +1049,23 @@ export class LlmGateway {
     }
 
     throw new Error(I18N_DICTIONARY[lang].llmMissingApiKeyError(provider));
+  }
+
+  private assembleSpecialistSystemPrompt(
+    input: AgentTurnInput,
+    ragBlock: string,
+  ): string {
+    const roleTools = buildRoleToolsInstruction(input.role);
+    return [
+      input.systemPrompt,
+      roleTools,
+      input.normativeArtifactsSummary
+        ? `[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}`
+        : '',
+      ragBlock ? `[RAG NOTEBOOK SOURCES]\n${ragBlock}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
   }
 
   private async callOpenAiCompatible(
@@ -895,7 +1095,7 @@ export class LlmGateway {
         messages: [
           {
             role: 'system',
-            content: `${input.systemPrompt}\n\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}\n\n[RAG NOTEBOOK SOURCES]\n${ragBlock}`,
+            content: this.assembleSpecialistSystemPrompt(input, ragBlock),
           },
           { role: 'user', content: input.userPrompt },
         ],
@@ -907,14 +1107,38 @@ export class LlmGateway {
     }
 
     const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{
+        message?: {
+          content?: string;
+          tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>;
+        };
+      }>;
     };
-    const replyText = data.choices?.[0]?.message?.content ?? '';
-    if (onStreamToken && replyText) onStreamToken(replyText);
+    const choiceMsg = data.choices?.[0]?.message;
+    const rawText = choiceMsg?.content ?? '';
+
+    const nativeToolCalls: AgentToolCallRequest[] = [];
+    if (Array.isArray(choiceMsg?.tool_calls)) {
+      for (const tc of choiceMsg.tool_calls) {
+        if (tc.function?.name) {
+          let args = {};
+          try {
+            args = JSON.parse(tc.function.arguments || '{}');
+          } catch {}
+          nativeToolCalls.push({ name: tc.function.name, arguments: args });
+        }
+      }
+    }
+
+    const extracted = extractToolCalls(rawText);
+    const combinedToolCalls = [...nativeToolCalls, ...extracted.toolCalls];
+    const finalReplyText =
+      extracted.cleanText || (combinedToolCalls.length > 0 ? '' : rawText);
+    if (onStreamToken && finalReplyText) onStreamToken(finalReplyText);
 
     return {
-      replyText,
-      toolCalls: [],
+      replyText: finalReplyText,
+      toolCalls: combinedToolCalls,
       providerUsed: input.modelConfig.provider,
       modelUsed: modelId,
     };
@@ -940,9 +1164,9 @@ export class LlmGateway {
       },
       body: JSON.stringify({
         model: modelId,
-        max_tokens: 2048,
+        max_tokens: 8192,
         temperature,
-        system: `${input.systemPrompt}\n\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}\n\n[RAG NOTEBOOK SOURCES]\n${ragBlock}`,
+        system: this.assembleSpecialistSystemPrompt(input, ragBlock),
         messages: [{ role: 'user', content: input.userPrompt }],
       }),
     });
@@ -952,15 +1176,35 @@ export class LlmGateway {
     }
 
     const data = (await response.json()) as {
-      content?: Array<{ type: string; text?: string }>;
+      content?: Array<
+        | { type: 'text'; text?: string }
+        | { type: 'tool_use'; name?: string; input?: Record<string, unknown> }
+      >;
     };
-    const replyText =
-      data.content?.filter((b) => b.type === 'text').map((b) => b.text).join('\n') ?? '';
-    if (onStreamToken && replyText) onStreamToken(replyText);
+    let rawText = '';
+    const nativeToolCalls: AgentToolCallRequest[] = [];
+    if (Array.isArray(data.content)) {
+      for (const block of data.content) {
+        if (block.type === 'text') {
+          rawText += block.text ?? '';
+        } else if (block.type === 'tool_use' && block.name) {
+          nativeToolCalls.push({
+            name: block.name,
+            arguments: block.input ?? {},
+          });
+        }
+      }
+    }
+
+    const extracted = extractToolCalls(rawText);
+    const combinedToolCalls = [...nativeToolCalls, ...extracted.toolCalls];
+    const finalReplyText =
+      extracted.cleanText || (combinedToolCalls.length > 0 ? '' : rawText);
+    if (onStreamToken && finalReplyText) onStreamToken(finalReplyText);
 
     return {
-      replyText,
-      toolCalls: [],
+      replyText: finalReplyText,
+      toolCalls: combinedToolCalls,
       providerUsed: 'anthropic',
       modelUsed: modelId,
     };
@@ -985,7 +1229,7 @@ export class LlmGateway {
         systemInstruction: {
           parts: [
             {
-              text: `${input.systemPrompt}\n\n[NORMATIVE ARTIFACTS]\n${input.normativeArtifactsSummary}\n\n[RAG NOTEBOOK SOURCES]\n${ragBlock}`,
+              text: this.assembleSpecialistSystemPrompt(input, ragBlock),
             },
           ],
         },
@@ -999,15 +1243,37 @@ export class LlmGateway {
     }
 
     const data = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      candidates?: Array<{
+        content?: {
+          parts?: Array<{
+            text?: string;
+            functionCall?: { name?: string; args?: Record<string, unknown> };
+          }>;
+        };
+      }>;
     };
-    const replyText =
-      data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('\n') ?? '';
-    if (onStreamToken && replyText) onStreamToken(replyText);
+    const parts = data.candidates?.[0]?.content?.parts ?? [];
+    let rawText = '';
+    const nativeToolCalls: AgentToolCallRequest[] = [];
+    for (const p of parts) {
+      if (p.text) rawText += p.text;
+      if (p.functionCall?.name) {
+        nativeToolCalls.push({
+          name: p.functionCall.name,
+          arguments: p.functionCall.args ?? {},
+        });
+      }
+    }
+
+    const extracted = extractToolCalls(rawText);
+    const combinedToolCalls = [...nativeToolCalls, ...extracted.toolCalls];
+    const finalReplyText =
+      extracted.cleanText || (combinedToolCalls.length > 0 ? '' : rawText);
+    if (onStreamToken && finalReplyText) onStreamToken(finalReplyText);
 
     return {
-      replyText,
-      toolCalls: [],
+      replyText: finalReplyText,
+      toolCalls: combinedToolCalls,
       providerUsed: 'gemini',
       modelUsed: modelId,
     };
@@ -1207,7 +1473,7 @@ export class LlmGateway {
             relFilePath: 'scripts/pocli_task_helper.py',
             content: [
               '#!/usr/bin/env python3',
-              '"""Auto-generated LLM helper script stored in project .pocli/artifacts/scripts."""',
+              '"""Auto-generated LLM helper script stored in project scripts/."""',
               'import json',
               '',
               'def summarize_project():',
@@ -1222,7 +1488,7 @@ export class LlmGateway {
       }
       replyText =
         `[Project Manager (PM)] Consolidated status check for **${input.projectName}** (Phase: \`${input.phase}\`). ` +
-        `I can execute parallel or sequential inquiries across the active Architect, Developer, and QA agents and store requested outputs (Python scripts, spreadsheets, reports) in the project artifacts directory (.pocli/artifacts/).${citationFooter}`;
+        `I can execute parallel or sequential inquiries across the active Architect, Developer, and QA agents and store requested outputs (Python scripts, spreadsheets, reports) in the project workspace (scripts/, outputs/, deliveries/).${citationFooter}`;
     } else {
       replyText = `[Specialist ${input.role}] Analysis completed for ${input.projectName}.${citationFooter}`;
     }

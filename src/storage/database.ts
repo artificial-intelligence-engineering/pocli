@@ -149,11 +149,10 @@ export class PoCliDatabase {
   }
 
   public ensureProjectArtifactsStructure(workspaceDir: string): void {
-    const base = path.join(workspaceDir, '.pocli', 'artifacts');
-    fs.mkdirSync(path.join(base, 'contracts'), { recursive: true });
-    fs.mkdirSync(path.join(base, 'scripts'), { recursive: true });
-    fs.mkdirSync(path.join(base, 'deliveries'), { recursive: true });
-    fs.mkdirSync(path.join(base, 'outputs'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'contracts'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'deliveries'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'outputs'), { recursive: true });
   }
 
   private syncSettingsFiles(settings: AppSettings): void {
@@ -1600,16 +1599,25 @@ export class PoCliDatabase {
     projectId: string,
     expertRole: ActorRole,
   ): AssembledContextWindow {
+    const project = this.getProject(projectId);
     const artifacts = this.listArtifacts(projectId, true);
     const normativePrefix =
       artifacts.length === 0
         ? 'No normative artifacts registered yet.'
         : artifacts
-            .map(
-              (a) =>
-                `[${a.code} v${a.version} | ${a.type} | Status: ${a.status} | TracesTo: ${a.tracesTo.join(',') || 'root'}] ${a.title}`,
-            )
-            .join('\n');
+            .map((a) => {
+              const relPath =
+                project?.workspaceDir && a.filePath.startsWith(project.workspaceDir)
+                  ? path.relative(project.workspaceDir, a.filePath)
+                  : a.filePath;
+              return [
+                `### [${a.code} v${a.version} | ${a.type} | Status: ${a.status} | File: ${relPath}]`,
+                `**Title**: ${a.title}`,
+                `**Traces To**: ${a.tracesTo.join(', ') || 'root'}`,
+                `\n${a.content}`,
+              ].join('\n');
+            })
+            .join('\n\n---\n\n');
 
     const persistentMems = this.listMemories(projectId, undefined, expertRole);
     const persistentMemoryBlock =
@@ -1742,7 +1750,7 @@ export class PoCliDatabase {
           `${params.code}_v${nextVersion}.md`,
         );
       }
-      absPath = path.join(project.workspaceDir, '.pocli', 'artifacts', relPath);
+      absPath = path.join(project.workspaceDir, relPath);
     }
 
     fs.mkdirSync(path.dirname(absPath), { recursive: true });
@@ -1924,17 +1932,28 @@ export class PoCliDatabase {
   }
 
   private mapArtifactRow(row: Record<string, unknown>): Artifact {
+    const filePath = String(row.file_path);
+    // Filesystem as Single Source of Truth: load live content from disk
+    let liveContent = String(row.content);
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        liveContent = fs.readFileSync(filePath, 'utf8');
+      } catch {
+        // fallback to stored row content
+      }
+    }
+
     return {
       id: String(row.id),
       projectId: String(row.project_id),
       code: String(row.code),
       type: row.type as ArtifactType,
       title: String(row.title),
-      content: String(row.content),
+      content: liveContent,
       version: Number(row.version),
       status: row.status as ArtifactStatus,
       authorRole: String(row.author_role),
-      filePath: String(row.file_path),
+      filePath,
       sha256: String(row.sha256),
       tracesTo: JSON.parse(String(row.traces_to_json || '[]')),
       citations: JSON.parse(String(row.citations_json || '[]')),
