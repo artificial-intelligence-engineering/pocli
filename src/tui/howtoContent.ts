@@ -74,47 +74,22 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
       {
         badge: '[3]',
         badgeColor: 'yellow',
-        title: 'PASO 3: APROBAR O RECHAZAR (/approve | /reject)',
+        title: 'PASO 3: APROBACIÓN CONVERSACIONAL Y TRASPASO AL DESARROLLADOR',
         titleColor: 'yellow',
         paragraphs: [
-          'Como Product Owner, tienes autoridad absoluta: el Senior Developer tiene estrictamente prohibido tocar código sin una arquitectura aprobada.',
-          '¡Flujo Autónomo Conversacional! Puedes darle el visto bueno al Arquitecto directamente en el chat (ej: "ok", "aprobado", "comunícaselo al desarrollador"). El Arquitecto formalizará la aprobación, transferirá el proyecto e iniciará al Senior Developer sin necesidad de comandos manuales.',
+          'Como Product Owner, revisas las especificaciones técnicas (SPEC-001) y la arquitectura directamente en el chat con el Arquitecto.',
+          'Cuando estés conforme, dale el visto bueno conversacionalmente (ej: "adelante", "comunícaselo al desarrollador"). El Arquitecto aprobará formalmente los contratos, realizará el traspaso normativo y ordenará al Senior Developer iniciar la implementación en repos/ sin necesidad de comandos manuales.',
         ],
         bullets: [
           {
-            command: '/approve',
-            text: '(Opcional) Aprueba manualmente la propuesta si no usas el diálogo conversacional con el Arquitecto.',
-          },
-          {
-            command: '/reject',
-            text: 'Rechaza la propuesta y solicita ajustes si detectas deficiencias o deseas otro enfoque.',
+            text: 'Si deseas modificaciones o ajustes, indícaselos al Arquitecto en el chat para que refine la propuesta antes de aprobar.',
           },
         ],
       },
       {
         badge: '[4]',
-        badgeColor: 'blue',
-        title: 'PASO 4: TRANSFERIR E IMPLEMENTAR (/handoff & /implement)',
-        titleColor: 'blue',
-        bullets: [
-          {
-            command: '/handoff',
-            text: 'Entrega el paquete normativo aprobado al Senior Developer.',
-          },
-          {
-            command: '/implement',
-            text: 'Ordena la implementación. El Developer generará y modificará el código en tu directorio de trabajo.',
-          },
-          {
-            command: '/consult',
-            text: 'Si el Developer encuentra dudas técnicas, consultará formalmente al Arquitecto en vez de improvisar.',
-          },
-        ],
-      },
-      {
-        badge: '[5]',
         badgeColor: 'red',
-        title: 'PASO 5: VALIDACIÓN INDEPENDIENTE DE CALIDAD (/qa & /validate)',
+        title: 'PASO 4: VALIDACIÓN INDEPENDIENTE DE CALIDAD (/qa & /validate)',
         titleColor: 'red',
         paragraphs: [
           'Principio de "No Auto-Revisión": el QA Engineer trabaja de forma independiente al Developer y ejecuta comprobaciones empíricas reales.',
@@ -130,9 +105,9 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
         ],
       },
       {
-        badge: '[6]',
+        badge: '[5]',
         badgeColor: 'green',
-        title: 'PASO 6: ACEPTACIÓN FINAL (/accept)',
+        title: 'PASO 5: ACEPTACIÓN FINAL (/accept)',
         titleColor: 'green',
         paragraphs: [
           'Revisa el código entregado y el informe de QA. Como Product Owner, ejecuta /accept para cerrar formalmente el ciclo y registrar la entrega.',
@@ -240,47 +215,22 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
     {
       badge: '[3]',
       badgeColor: 'yellow',
-      title: 'STEP 3: APPROVE OR REJECT (/approve | /reject)',
+      title: 'STEP 3: CONVERSATIONAL APPROVAL & DEVELOPER HANDOFF',
       titleColor: 'yellow',
       paragraphs: [
-        'As Product Owner, you have ultimate authority: the Senior Developer is strictly blocked from writing code without approved architecture.',
-        'Conversational Autonomous Flow! You can give approval directly to the Architect in chat (e.g. "ok", "approved", "tell the developer to begin"). The Architect will formally approve contracts, execute the handoff, and initiate the Senior Developer automatically without manual slash commands.',
+        'As Product Owner, you review technical specifications (SPEC-001) and architecture directly in dialogue with the Architect.',
+        'When satisfied, give your approval in chat (e.g. "go ahead", "hand off to developer"). The Architect will formally approve contracts, deliver the normative bundle, and instruct the Senior Developer to start implementing in repos/ immediately without manual slash commands.',
       ],
       bullets: [
         {
-          command: '/approve',
-          text: '(Optional) Manually approve the proposal if not using conversational approval with the Architect.',
-        },
-        {
-          command: '/reject',
-          text: 'Reject the proposal and request adjustments if you want changes or a different approach.',
+          text: 'If you want revisions or adjustments, discuss them directly with the Architect in chat before giving your approval.',
         },
       ],
     },
     {
       badge: '[4]',
-      badgeColor: 'blue',
-      title: 'STEP 4: HANDOFF & IMPLEMENTATION (/handoff & /implement)',
-      titleColor: 'blue',
-      bullets: [
-        {
-          command: '/handoff',
-          text: 'Transfer the approved normative bundle to the Senior Developer.',
-        },
-        {
-          command: '/implement',
-          text: 'Instruct the Developer to implement the code in your workspace directory.',
-        },
-        {
-          command: '/consult',
-          text: 'If the Developer encounters ambiguities, they formally consult the Architect instead of guessing.',
-        },
-      ],
-    },
-    {
-      badge: '[5]',
       badgeColor: 'red',
-      title: 'STEP 5: INDEPENDENT QA VALIDATION (/qa & /validate)',
+      title: 'STEP 4: INDEPENDENT QA VALIDATION (/qa & /validate)',
       titleColor: 'red',
       paragraphs: [
         'Strict "No Self-Review": the Independent QA Engineer executes real empirical tests rather than trusting developer claims.',
@@ -296,9 +246,9 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
       ],
     },
     {
-      badge: '[6]',
+      badge: '[5]',
       badgeColor: 'green',
-      title: 'STEP 6: FINAL ACCEPTANCE (/accept)',
+      title: 'STEP 5: FINAL ACCEPTANCE (/accept)',
       titleColor: 'green',
       paragraphs: [
         'Review the code delivery and QA verification evidence. As Product Owner, execute /accept to complete the iteration.',

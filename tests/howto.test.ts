@@ -18,7 +18,6 @@ describe('Feature #42 — /howto Workflow Guide Modal', () => {
     expect(badges).toContain('[3]');
     expect(badges).toContain('[4]');
     expect(badges).toContain('[5]');
-    expect(badges).toContain('[6]');
     expect(badges).toContain('[PM]');
     expect(badges).toContain('[★]');
 
@@ -37,19 +36,15 @@ describe('Feature #42 — /howto Workflow Guide Modal', () => {
 
     const step3 = sections.find((s) => s.badge === '[3]');
     expect(step3?.title).toContain('PASO 3');
-    expect(step3?.bullets?.some((b) => b.command === '/approve')).toBe(true);
+    expect(step3?.paragraphs?.[1]).toContain('comunícaselo al desarrollador');
 
     const step4 = sections.find((s) => s.badge === '[4]');
     expect(step4?.title).toContain('PASO 4');
-    expect(step4?.bullets?.some((b) => b.command === '/implement')).toBe(true);
+    expect(step4?.bullets?.some((b) => b.command === '/validate')).toBe(true);
 
     const step5 = sections.find((s) => s.badge === '[5]');
     expect(step5?.title).toContain('PASO 5');
-    expect(step5?.bullets?.some((b) => b.command === '/validate')).toBe(true);
-
-    const step6 = sections.find((s) => s.badge === '[6]');
-    expect(step6?.title).toContain('PASO 6');
-    expect(step6?.paragraphs?.[0]).toContain('/accept');
+    expect(step5?.paragraphs?.[0]).toContain('/accept');
 
     const shortcuts = sections.find((s) => s.badge === '[★]');
     expect(shortcuts?.title).toContain('ATAJOS');
@@ -67,7 +62,6 @@ describe('Feature #42 — /howto Workflow Guide Modal', () => {
     expect(badges).toContain('[3]');
     expect(badges).toContain('[4]');
     expect(badges).toContain('[5]');
-    expect(badges).toContain('[6]');
     expect(badges).toContain('[PM]');
     expect(badges).toContain('[★]');
 
@@ -82,6 +76,18 @@ describe('Feature #42 — /howto Workflow Guide Modal', () => {
     const step2 = sections.find((s) => s.badge === '[2]');
     expect(step2?.title).toContain('STEP 2');
     expect(step2?.bullets?.some((b) => b.command === '/propose')).toBe(true);
+
+    const step3 = sections.find((s) => s.badge === '[3]');
+    expect(step3?.title).toContain('STEP 3');
+    expect(step3?.paragraphs?.[1]).toContain('hand off to developer');
+
+    const step4 = sections.find((s) => s.badge === '[4]');
+    expect(step4?.title).toContain('STEP 4');
+    expect(step4?.bullets?.some((b) => b.command === '/validate')).toBe(true);
+
+    const step5 = sections.find((s) => s.badge === '[5]');
+    expect(step5?.title).toContain('STEP 5');
+    expect(step5?.paragraphs?.[0]).toContain('/accept');
   });
 
   it('3. Renders wrapped lines correctly for various widths', () => {

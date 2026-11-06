@@ -201,11 +201,7 @@ npm run build
   * `/projects` — List all existing projects in SQLite with their `[ACTIVE]` status, phase, filesystem directory, and discovered repositories, allowing interactive project switching with `↑`/`↓` + `Enter`.
   * `/switch` — Switch the active project by name or ID (`/switch <name-or-id>`) or open the interactive project selector.
   * `/architect`, `/developer`, `/qa`, `/pm` — Switch active professional interlocutor (or run parallel/sequential PM inquiries).
-  * `/propose` — Request a formal architecture and requirements proposal from the Architect.
-  * `/approve` / `/reject` — Formally approve or reject `ARCH-001` as Product Owner.
-  * `/handoff` — Transfer the approved normative bundle to the Developer.
-  * `/implement` — Instruct the Developer to implement the approved handoff.
-  * `/consult` — Trigger a formal Developer → Architect authority consultation.
+  * `/propose` — Request a formal architecture and requirements proposal from the Architect. Conversational approval directly in chat triggers automatic Developer handoff and implementation initiation.
   * `/validate` — Execute independent QA validation tests and collect evidence.
   * `/accept` — Final project acceptance by the Product Owner.
   * `/notebooks` — Re-index and inspect linked RAG Notebooks.
