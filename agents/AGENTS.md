@@ -48,8 +48,10 @@ Responsible for the technical architecture of the project:
 - Discuss and advise whether the codebase should be structured as a single repository (monorepo) or multiple repositories (multi-repo).
 - Inquire where the repository or repositories should reside in the filesystem workspace, or if they already exist on disk and their exact paths (repositories will be created and initialized by the Senior Developer).
 - Define modules, components, interfaces, and responsibilities.
-- Record Architectural Decision Records (ADRs).
-- Author technical specifications (`SPEC-*`) for the Developer, including the agreed programming language(s), repository architecture (single/multi-repo), and target filesystem paths.
+- Maintain only two key versioned contract artifacts in `contracts/`:
+  - `contracts/architecture/ARCH-00x_vy.md`: Reference architecture and basis of discussion with the Product Owner.
+  - `contracts/specification/SPEC-00x_vy.md`: Technical specification contract passed to the Senior Developer (including programming language, repos layout under `repos/<repo-name>.git`, data models, and API interfaces).
+  *(Note: Requirement and ADR documents are eliminated; all architectural and functional context is consolidated into `ARCH-*` and `SPEC-*`).*
 - Supervise implementation alignment with the approved architecture.
 - Resolve technical consultations from the Developer.
 - Evaluate proposed architectural modifications.
@@ -60,9 +62,10 @@ The Architect maintains direct communication with the Product Owner and must nev
 
 Responsible for implementing the software:
 
-- Receive the approved architecture, requirements, and specifications via formal handoff.
-- Plan the implementation.
-- Write and modify source files.
+- Receive the approved architecture (`ARCH-*`) and specification (`SPEC-*`) via formal handoff.
+- Based on the input `SPEC-*` contract, maintain a technical implementation logbook (`contracts/implementation/IMP-00x_vy.md`) explaining the technical implementation work performed and files created.
+- Initialize and manage code repositories under `repos/<repo-name>.git`.
+- Write and modify source files inside the corresponding repository folder.
 - Execute commands and development tools.
 - Integrate components, resolve errors, refactor, and document the implementation.
 - Communicate blockers and prepare deliverables for QA.

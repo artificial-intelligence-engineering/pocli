@@ -60,6 +60,7 @@ const ROLE_ARTIFACT_WRITE_PERMISSIONS: Record<string, ArtifactType[]> = {
     'DOCUMENTATION',
   ],
   developer: [
+    'IMPLEMENTATION',
     'IMPLEMENTATION_PLAN',
     'SOURCE_CODE',
     'TEST_CASE',

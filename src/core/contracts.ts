@@ -42,6 +42,7 @@ export const ArtifactTypeSchema = z.enum([
   'ARCHITECTURE',
   'ADR',
   'SPECIFICATION',
+  'IMPLEMENTATION',
   'IMPLEMENTATION_PLAN',
   'SOURCE_CODE',
   'TEST_CASE',

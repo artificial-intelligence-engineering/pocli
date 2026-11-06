@@ -24,8 +24,8 @@ A native Linux TUI/CLI software engineering environment powered by a **virtual t
 
 In **POCLI**, the **human user is the Product Owner** and retains final authority over the project, working alongside four permanently active virtual specialists:
 
-* **Software Architect (`architect`):** Primary technical interlocutor. Analyzes requirements, proposes architectural options and trade-offs, records ADRs (`ADR-*`), authors the reference architecture (`ARCH-*`) and specifications (`SPEC-*`), and evaluates developer consultations. Never marks an architecture as approved without explicit Product Owner approval.
-* **Senior Developer (`developer`):** Implements code (`CODE-*`) and plans (`PLAN-*`) strictly from the approved architecture handoff bundle. Cannot unilaterally modify architectural decisions; must use `consult_architect` when encountering ambiguities or blockers.
+* **Software Architect (`architect`):** Primary technical interlocutor. Discusses vision and trade-offs, maintaining only two key versioned contract files: the Reference Architecture (`ARCH-*`) and Developer Specifications (`SPEC-*`). Never marks an architecture as approved without explicit Product Owner approval.
+* **Senior Developer (`developer`):** Implements code (`CODE-*`) and maintains a technical implementation logbook (`IMP-*` in `contracts/implementation/`) strictly from the approved specification (`SPEC-*`) and architecture (`ARCH-*`). Cannot unilaterally modify architectural decisions; must use `consult_architect` when encountering ambiguities or blockers.
 * **Independent QA Engineer (`qa`):** Independently verifies deliverables against requirements and acceptance criteria by executing real verification checks, capturing evidence, classifying defects (`DEF-*`), and issuing `ACCEPT` or `REJECT` verdicts (`QA-*`).
 * **Project Manager (`pm`):** Queries permanently active agents (`Architect`, `Developer`, `QA`) at any time using **Parallel Inquiries** (simultaneous status collection across multiple agents) or **Sequential Inquiries** (chained inquiries where each agent's answer contextualizes the next question). Consolidates individual responses, detects cross-agent discrepancies, and reports back to the Product Owner—without authority to direct, modify, or interrupt the agents' engineering work.
 
@@ -91,7 +91,7 @@ POCLI manages prompts through a decoupled two-layer architecture separating **im
 
 #### 1. Decoupled Role Prompts (`behavior/system/*.md` & `src/runtime/harnesses.ts`)
 The baseline behavioral prompt for each virtual engineering role is decoupled into standalone Markdown files under `behavior/system/`:
-* `behavior/system/architect.md` — Software Architect directives and ADR/spec boundaries.
+* `behavior/system/architect.md` — Software Architect directives and architecture/spec boundaries.
 * `behavior/system/developer.md` — Senior Developer implementation constraints and handoff compliance.
 * `behavior/system/qa.md` — Independent QA empirical verification and verdict rules.
 * `behavior/system/pm.md` — Project Manager inquiry coordination and strict non-interference limits.

@@ -657,6 +657,8 @@ const KNOWN_TOOLS = new Set([
   'delegate_to_developer',
   'start_implementation',
   'evaluate_consultation',
+  'write_implementation_log',
+  'record_implementation_log',
   'write_implementation_plan',
   'write_source_file',
   'consult_architect',
@@ -1335,31 +1337,11 @@ export class LlmGateway {
       ) {
         toolCalls.push(
           {
-            name: 'propose_requirement',
-            arguments: {
-              code: 'REQ-001',
-              title: `Functional Requirements — ${input.projectName}`,
-              content: `# REQ-001: Functional Requirements\n\n- Context: ${input.userPrompt}\n- Acceptance criterion: Deterministic processing verified by automated QA tests.`,
-              citations: citationTags,
-            },
-          },
-          {
-            name: 'record_adr',
-            arguments: {
-              code: 'ADR-001',
-              title: 'Modular Architecture with Typed Contracts',
-              content: `# ADR-001: Typed Contracts and Layer Separation\n\nAdopts a modular architecture with schema validation and decoupled persistence.`,
-              tracesTo: ['REQ-001'],
-              citations: citationTags,
-            },
-          },
-          {
             name: 'write_architecture_doc',
             arguments: {
               code: 'ARCH-001',
               title: `Reference Architecture — ${input.projectName}`,
-              content: `# ARCH-001: Technical Architecture\n\n## Modules and Contracts\n1. \`domain\`: Core entities and validation.\n2. \`service\`: Business logic compliant with REQ-001 and ADR-001.\n\n## Constraints\n- Presentation and persistence layers must remain strictly decoupled.`,
-              tracesTo: ['REQ-001', 'ADR-001'],
+              content: `# ARCH-001: Technical Architecture\n\n## Modules and Contracts\n1. \`domain\`: Core entities and validation.\n2. \`service\`: Business logic.\n\n## Constraints\n- Presentation and persistence layers must remain strictly decoupled.`,
               citations: citationTags,
             },
           },
@@ -1368,8 +1350,8 @@ export class LlmGateway {
             arguments: {
               code: 'SPEC-001',
               title: `Developer Technical Specification — ${input.projectName}`,
-              content: `# SPEC-001: Implementation Specification\n\n- Implement the primary module fulfilling \`ARCH-001\` and \`REQ-001\`.\n- Export pure functions verifiable by independent QA.`,
-              tracesTo: ['REQ-001', 'ARCH-001'],
+              content: `# SPEC-001: Implementation Specification\n\n- Implement the primary module fulfilling \`ARCH-001\`.\n- Export pure functions verifiable by independent QA.`,
+              tracesTo: ['ARCH-001'],
               citations: citationTags,
             },
           },
@@ -1381,16 +1363,14 @@ export class LlmGateway {
           },
         );
         replyText =
-          `I have analyzed the requirements for **${input.projectName}** and prepared the formal proposal:\n` +
-          `- \`REQ-001\`: Functional requirements and acceptance criteria.\n` +
-          `- \`ADR-001\`: Architectural decision record on contracts and modularity.\n` +
-          `- \`ARCH-001\`: Proposed technical architecture (status \`PENDING_APPROVAL\`).\n` +
-          `- \`SPEC-001\`: Detailed technical specification for the Developer.\n\n` +
+          `I have analyzed the technical requirements for **${input.projectName}** and prepared the contracts:\n` +
+          `- \`ARCH-001\`: Reference technical architecture (status \`PENDING_APPROVAL\`).\n` +
+          `- \`SPEC-001\`: Developer technical specification contract.\n\n` +
           `Awaiting your review and **Formal Approval** as Product Owner before handoff to the Developer.${citationFooter}`;
       } else {
         replyText =
           `[Software Architect] I have analyzed your inquiry regarding **${input.projectName}** (Current phase: \`${input.phase}\`). ` +
-          `I can evaluate architectural alternatives, record new ADRs, or prepare the formal \`ARCH-001\` proposal for your approval.${citationFooter}`;
+          `I can evaluate architectural alternatives and maintain the Reference Architecture (\`ARCH-001\`) and Developer Specification (\`SPEC-001\`).${citationFooter}`;
       }
     } else if (input.role === 'developer') {
       const promptLower = input.userPrompt.toLowerCase();
@@ -1414,11 +1394,11 @@ export class LlmGateway {
       } else {
         toolCalls.push(
           {
-            name: 'write_implementation_plan',
+            name: 'write_implementation_log',
             arguments: {
-              code: 'PLAN-001',
-              title: `Implementation Plan — ${input.projectName}`,
-              content: `# PLAN-001: Implementation Plan\n\nBased on \`ARCH-001\` and \`SPEC-001\`:\n1. Implement core domain module.\n2. Prepare verification deliverable for QA.`,
+              code: 'IMP-001',
+              title: `Technical Implementation Log — ${input.projectName}`,
+              content: `# IMP-001: Technical Implementation Log\n\nBased on input contract \`SPEC-001\` and reference architecture \`ARCH-001\`:\n- Implemented application module in compliance with specifications.\n- Prepared deliverable for independent QA verification.`,
               tracesTo: ['ARCH-001', 'SPEC-001'],
               citations: citationTags,
             },
@@ -1429,14 +1409,14 @@ export class LlmGateway {
               code: 'CODE-001',
               relFilePath: 'src/app-module.js',
               content: `// Generated in compliance with ARCH-001 and SPEC-001\nexport function executeBusinessLogic(input) {\n  if (!input || typeof input.value !== 'number') {\n    throw new Error('INVALID_INPUT');\n  }\n  return { ok: true, result: input.value * 2, architectureVersion: 'ARCH-001' };\n}\n`,
-              tracesTo: ['REQ-001', 'ARCH-001', 'SPEC-001'],
+              tracesTo: ['ARCH-001', 'SPEC-001'],
               citations: citationTags,
             },
           },
         );
         replyText =
-          `[Senior Developer] Worked on the approved Handoff bundle (\`REQ-001\`, \`ARCH-001\`, \`SPEC-001\`) and produced:\n` +
-          `- \`PLAN-001\`: Implementation plan.\n` +
+          `[Senior Developer] Worked on the approved Handoff bundle (\`ARCH-001\`, \`SPEC-001\`) and produced:\n` +
+          `- \`IMP-001\`: Technical implementation logbook.\n` +
           `- \`CODE-001\` (\`src/app-module.js\`): Source implementation aligned with approved contracts.${citationFooter}`;
       }
     } else if (input.role === 'qa') {

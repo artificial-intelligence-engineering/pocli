@@ -84,8 +84,6 @@ describe('PO CLI — End-to-End Implementation Plan Verification (Phases 0 to 7)
     });
 
     expect(archTurn.createdArtifacts.map((a) => a.code)).toEqual([
-      'REQ-001',
-      'ADR-001',
       'ARCH-001',
       'SPEC-001',
     ]);

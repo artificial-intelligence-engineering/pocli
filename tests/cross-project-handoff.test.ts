@@ -108,6 +108,15 @@ describe('Feature #66 — Cross-Project Task and Autonomous Handoff Isolation', 
 
     const artifactsA = storage.listArtifacts(projectA.id);
     expect(artifactsA.some((a) => a.code === 'ARCH-001')).toBe(true);
+    expect(artifactsA.some((a) => a.code === 'SPEC-001')).toBe(true);
+    expect(artifactsA.some((a) => a.code === 'IMP-001')).toBe(true);
+
+    // Verify simplified contracts directory structure
+    expect(fs.existsSync(path.join(wsA, 'contracts', 'architecture', 'ARCH-001_v1.md'))).toBe(true);
+    expect(fs.existsSync(path.join(wsA, 'contracts', 'specification', 'SPEC-001_v1.md'))).toBe(true);
+    expect(fs.existsSync(path.join(wsA, 'contracts', 'implementation', 'IMP-001_v1.md'))).toBe(true);
+    expect(fs.existsSync(path.join(wsA, 'contracts', 'adr'))).toBe(false);
+    expect(fs.existsSync(path.join(wsA, 'contracts', 'requirement'))).toBe(false);
 
     // 7. Verify Project B database and workspace remain completely untouched
     const msgsB = storage.listMessages(projectB.id);
@@ -116,11 +125,10 @@ describe('Feature #66 — Cross-Project Task and Autonomous Handoff Isolation', 
     const artifactsB = storage.listArtifacts(projectB.id);
     expect(artifactsB.length).toBe(0);
 
-    // Ensure no files leaked into Project B workspace directory
-    const bFiles = fs.existsSync(path.join(wsB, 'contracts'))
-      ? fs.readdirSync(path.join(wsB, 'contracts'))
-      : [];
-    expect(bFiles.length).toBe(0);
+    // Ensure no artifact files leaked into Project B workspace directory
+    expect(fs.readdirSync(path.join(wsB, 'contracts', 'architecture'))).toHaveLength(0);
+    expect(fs.readdirSync(path.join(wsB, 'contracts', 'specification'))).toHaveLength(0);
+    expect(fs.readdirSync(path.join(wsB, 'contracts', 'implementation'))).toHaveLength(0);
   });
 
   it('3. Message queuing remains isolated between projects under concurrent load', async () => {
