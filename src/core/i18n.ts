@@ -161,7 +161,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Available commands (↑/↓ select · Tab autocomplete · Enter execute)',
     noCommandMatches: 'No matches for',
     inputPlaceholderHint:
-      'Type your instruction or "/" for commands (/propose, /approve, /handoff, /implement, /validate, /settings)',
+      'Type your instruction or "/" for commands (/project, /validate, /accept, /settings)',
     bottomShortcutsHint:
       '/ commands · Mouse click/wheel · Ctrl+N cycle · Tab multipanel · Esc exit',
     initialStatusBanner:
@@ -337,36 +337,6 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         description: 'Switch to Project Manager or run parallel/sequential team inquiry',
       },
       {
-        command: '/propose',
-        description: 'Ask the Architect for a formal architecture & requirements proposal',
-        phaseHint: 'Phase 2 → 3',
-      },
-      {
-        command: '/approve',
-        description: 'Formally approve the architecture (ARCH-001) as Product Owner',
-        phaseHint: 'Phase 3 → 4',
-      },
-      {
-        command: '/reject',
-        description: 'Reject the proposed architecture and return to analysis',
-        phaseHint: 'Phase 3 → 2',
-      },
-      {
-        command: '/handoff',
-        description: 'Transfer approved normative bundle to the Developer',
-        phaseHint: 'Phase 4 → 5',
-      },
-      {
-        command: '/implement',
-        description: 'Instruct the Developer to implement the approved Handoff',
-        phaseHint: 'Phase 5',
-      },
-      {
-        command: '/consult',
-        description: 'Trigger a formal Developer → Architect authority consultation',
-        phaseHint: 'Phase 5',
-      },
-      {
         command: '/validate',
         description: 'Run independent QA validation with tests and evidence',
         phaseHint: 'Phase 6 / 7',
@@ -460,7 +430,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Comandos disponibles (↑/↓ seleccionar · Tab autocompletar · Enter ejecutar)',
     noCommandMatches: 'Sin coincidencias para',
     inputPlaceholderHint:
-      'Escribe tu instrucción o "/" para comandos (/propose, /approve, /handoff, /implement, /validate, /settings)',
+      'Escribe tu instrucción o "/" para comandos (/project, /validate, /accept, /settings)',
     bottomShortcutsHint:
       '/ comandos · Ratón clic/rueda · Ctrl+N carrusel · Tab multipanel · Esc salir',
     initialStatusBanner:
@@ -634,36 +604,6 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/pm',
         description: 'Cambiar al Project Manager o lanzar consulta paralela/secuencial',
-      },
-      {
-        command: '/propose',
-        description: 'Pedir al Arquitecto propuesta formal de requisitos y arquitectura',
-        phaseHint: 'Fase 2 → 3',
-      },
-      {
-        command: '/approve',
-        description: 'Aprobar formalmente la arquitectura (ARCH-001) como Product Owner',
-        phaseHint: 'Fase 3 → 4',
-      },
-      {
-        command: '/reject',
-        description: 'Rechazar la arquitectura propuesta y devolver a análisis',
-        phaseHint: 'Fase 3 → 2',
-      },
-      {
-        command: '/handoff',
-        description: 'Transferir paquete normativo aprobado al Desarrollador',
-        phaseHint: 'Fase 4 → 5',
-      },
-      {
-        command: '/implement',
-        description: 'Ordenar al Desarrollador implementar según el Handoff aprobado',
-        phaseHint: 'Fase 5',
-      },
-      {
-        command: '/consult',
-        description: 'Lanzar consulta técnica formal Desarrollador → Arquitecto',
-        phaseHint: 'Fase 5',
       },
       {
         command: '/validate',

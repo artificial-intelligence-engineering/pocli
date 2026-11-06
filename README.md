@@ -200,12 +200,7 @@ npm run build
   * `/project` — Interactive wizard (or inline `/project <name> <directory>`) to create a new project in a filesystem directory, initialize `.pocli/artifacts`, automatically discover and register any existing repositories inside that directory, and set it as the active project.
   * `/projects` — List all existing projects in SQLite with their `[ACTIVE]` status, phase, filesystem directory, and discovered repositories, allowing interactive project switching with `↑`/`↓` + `Enter`.
   * `/switch` — Switch the active project by name or ID (`/switch <name-or-id>`) or open the interactive project selector.
-  * `/architect`, `/developer`, `/qa`, `/pm` — Switch active professional interlocutor (or run parallel/sequential PM inquiries).
-  * `/propose` — Request a formal architecture and requirements proposal from the Architect.
-  * `/approve` / `/reject` — Formally approve or reject `ARCH-001` as Product Owner.
-  * `/handoff` — Transfer the approved normative bundle to the Developer.
-  * `/implement` — Instruct the Developer to implement the approved handoff.
-  * `/consult` — Trigger a formal Developer → Architect authority consultation.
+  * `/architect`, `/developer`, `/qa`, `/pm` — Switch active professional interlocutor (or run parallel/sequential PM inquiries). Architecture design is entirely conversational: discuss goals and constraints with the Architect, and when satisfied, instruct the Architect in chat to transfer the specification to the Developer to begin implementation.
   * `/validate` — Execute independent QA validation tests and collect evidence.
   * `/accept` — Final project acceptance by the Product Owner.
   * `/notebooks` — Re-index and inspect linked RAG Notebooks.
@@ -213,7 +208,7 @@ npm run build
   * `/system` — Open the interactive **System Prompts Inspector** dialog to view the read-only prompt for any specialist (`Architect`, `Developer`, `QA`, `PM`) or inspect `System Prompt Locations` to see active file paths, user overrides (`$HOME/.pocli/behavior/system/`), and in-memory fallbacks.
   * `/db` — Inspect the SQLite database directly inside the TUI (`/db`, `/db .tables`, `/db .experts`, or `/db SELECT ...`), complementing the standalone `pocli db` REPL.
   * `/settings` — Open the interactive Settings modal or configure UI language (`/settings lang en|es`) and the **Central Working & Artifacts Directory** (`/settings dir <path>`, which defaults to `$HOME/.pocli/` and stores all CLI customizations, LLM-generated Python helper scripts in `artifacts/scripts/`, spreadsheets and Project Manager outputs in `artifacts/outputs/`, and mirrored project artifacts).
-  * `/howto` — Open the interactive Getting Started and Workflow Guide modal, explaining the Product Owner authority model, the 6-step SDLC process, agent roles, and keyboard shortcuts.
+  * `/howto` — Open the interactive Getting Started and Workflow Guide modal, explaining the Product Owner authority model, the 5-step SDLC process, agent roles, and keyboard shortcuts.
   * `/help` — Display all available commands and keyboard shortcuts.
   * `/view`, `/clear`, `/exit`, `/quit`, `/q`.
 

@@ -1291,12 +1291,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       const projectRequiredCommands = [
         '/pm',
-        '/propose',
-        '/approve',
-        '/reject',
-        '/handoff',
-        '/implement',
-        '/consult',
         '/validate',
         '/accept',
         '/notebooks',
@@ -1335,86 +1329,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             setBusyRoles((prev) => ({ ...prev, pm: false }));
           }
           return;
-        }
-        return;
-      }
-      if (cmdToken === '/propose') {
-        switchActiveRole('architect');
-        const proposePrompt =
-          parts.slice(1).join(' ').trim() ||
-          (language === 'es'
-            ? 'Diseña y propón la arquitectura y requisitos formales para este proyecto.'
-            : 'Design and propose the formal architecture and requirements for this project.');
-        void sendChatMessage('architect', proposePrompt);
-        return;
-      }
-      if (cmdToken === '/approve') {
-        try {
-          const { approval } = orchestrator.reviewArchitectureByPo({
-            projectId: project!.id,
-            artifactCode: 'ARCH-001',
-            decision: 'APPROVED',
-            comments: 'Architecture formally approved by the Product Owner.',
-          });
-          setStatusBanner(t.archApprovedMsg(approval.artifactVersion));
-          refreshState();
-        } catch (err) {
-          setStatusBanner(`✖ Error: ${(err as Error).message}`);
-        }
-        return;
-      }
-      if (cmdToken === '/reject') {
-        try {
-          orchestrator.reviewArchitectureByPo({
-            projectId: project!.id,
-            artifactCode: 'ARCH-001',
-            decision: 'REJECTED',
-            comments: 'Product Owner requested architectural revisions.',
-          });
-          setStatusBanner(t.archRejectedMsg);
-          refreshState();
-        } catch (err) {
-          setStatusBanner(`✖ Error: ${(err as Error).message}`);
-        }
-        return;
-      }
-      if (cmdToken === '/handoff') {
-        try {
-          const bundle = orchestrator.performDeveloperHandoff(project!.id);
-          switchActiveRole('developer');
-          setStatusBanner(
-            t.handoffCompletedMsg(bundle.approvedArchitectureVersion),
-          );
-          refreshState();
-        } catch (err) {
-          setStatusBanner(`✖ Error: ${(err as Error).message}`);
-        }
-        return;
-      }
-      if (cmdToken === '/implement') {
-        switchActiveRole('developer');
-        void sendChatMessage(
-          'developer',
-          'Implement the software strictly following the approved Handoff bundle.',
-        );
-        return;
-      }
-      if (cmdToken === '/consult') {
-        setBusyRoles((prev) => ({ ...prev, developer: true, architect: true }));
-        try {
-          const cons = await orchestrator.consultArchitectFromDeveloper({
-            projectId: project!.id,
-            subject: 'Consultation regarding contract validation during implementation',
-            ambiguityOrBlocker: 'Detected ambiguity in invalid input error handling',
-            proposedAlternative: 'Throw typed Error compliant with SPEC-001',
-            impactedArtifacts: ['ARCH-001', 'SPEC-001'],
-          });
-          setStatusBanner(t.consultationEvaluatedMsg(cons.status));
-          refreshState();
-        } catch (err) {
-          setStatusBanner(`✖ Error: ${(err as Error).message}`);
-        } finally {
-          setBusyRoles((prev) => ({ ...prev, developer: false, architect: false }));
         }
         return;
       }
