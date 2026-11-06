@@ -58,16 +58,16 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
       {
         badge: '[2]',
         badgeColor: 'cyan',
-        title: 'PASO 2: DISEÑO CON EL ARQUITECTO (/architect & /propose)',
+        title: 'PASO 2: DISEÑO CON EL ARQUITECTO (/architect)',
         titleColor: 'cyan',
+        paragraphs: [
+          'Todo el proceso de análisis y diseño es hablado. Conversa directamente con el Software Architect sobre tu idea, objetivos, casos de uso y restricciones.',
+          'Durante la conversación, el Arquitecto formulará la arquitectura técnica (ARCH-001), decisiones de diseño (ADR) y especificaciones (SPEC) directamente en contracts/.',
+        ],
         bullets: [
           {
             command: '/architect',
-            text: 'Cambia al Software Architect y conversa sobre tu idea, objetivos y requisitos.',
-          },
-          {
-            command: '/propose',
-            text: 'Solicita una propuesta técnica formal. El Arquitecto redactará la arquitectura (ARCH-001) y especificaciones (SPEC) para tu revisión.',
+            text: 'Cambia al Software Architect para debatir la arquitectura técnica e iterar sobre los requisitos.',
           },
         ],
       },
@@ -77,12 +77,12 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
         title: 'PASO 3: APROBACIÓN CONVERSACIONAL Y TRASPASO AL DESARROLLADOR',
         titleColor: 'yellow',
         paragraphs: [
-          'Como Product Owner, revisas las especificaciones técnicas (SPEC-001) y la arquitectura directamente en el chat con el Arquitecto.',
-          'Cuando estés conforme, dale el visto bueno conversacionalmente (ej: "adelante", "comunícaselo al desarrollador"). El Arquitecto aprobará formalmente los contratos, realizará el traspaso normativo y ordenará al Senior Developer iniciar la implementación en repos/ sin necesidad de comandos manuales.',
+          'Como Product Owner, discutes y revisas la arquitectura y las especificaciones directamente hablando con el Arquitecto en el chat.',
+          'Cuando lo tengas claro, simplemente dile al Arquitecto que transfiera la especificación al Developer para que la implemente (ej: "transfiere la especificación al desarrollador", "adelante con la implementación"). Todo es hablado: el Arquitecto aprobará formalmente los contratos, realizará el traspaso normativo y ordenará al Senior Developer implementar el software en repos/.',
         ],
         bullets: [
           {
-            text: 'Si deseas modificaciones o ajustes, indícaselos al Arquitecto en el chat para que refine la propuesta antes de aprobar.',
+            text: 'Si deseas modificaciones o ajustes, indícaselos al Arquitecto en el chat para que refine la propuesta antes de dar la orden de traspaso.',
           },
         ],
       },
@@ -199,16 +199,16 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
     {
       badge: '[2]',
       badgeColor: 'cyan',
-      title: 'STEP 2: ARCHITECTURE DESIGN (/architect & /propose)',
+      title: 'STEP 2: ARCHITECTURE DESIGN (/architect)',
       titleColor: 'cyan',
+      paragraphs: [
+        'All technical analysis and design is conversational. Discuss your goals, user stories, constraints, and requirements directly with the Software Architect.',
+        'During the dialogue, the Architect formalizes architectural decisions (ADR), reference architecture (ARCH-001), and technical specifications (SPEC) in contracts/.',
+      ],
       bullets: [
         {
           command: '/architect',
-          text: 'Converse with the Software Architect about goals, constraints, and requirements.',
-        },
-        {
-          command: '/propose',
-          text: 'Request a formal technical proposal. The Architect writes the reference architecture (ARCH-001) and specifications (SPEC) for your review.',
+          text: 'Switch to the Software Architect to discuss technical architecture and iterate on requirements.',
         },
       ],
     },
@@ -219,11 +219,11 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
       titleColor: 'yellow',
       paragraphs: [
         'As Product Owner, you review technical specifications (SPEC-001) and architecture directly in dialogue with the Architect.',
-        'When satisfied, give your approval in chat (e.g. "go ahead", "hand off to developer"). The Architect will formally approve contracts, deliver the normative bundle, and instruct the Senior Developer to start implementing in repos/ immediately without manual slash commands.',
+        'Once you are satisfied, simply tell the Architect in chat to transfer the architecture specification to the Developer to implement it (e.g. "transfer specification to developer", "go ahead and implement"). Everything is conversational: the Architect formally approves contracts, delivers the normative bundle, and instructs the Senior Developer to implement the code in repos/.',
       ],
       bullets: [
         {
-          text: 'If you want revisions or adjustments, discuss them directly with the Architect in chat before giving your approval.',
+          text: 'If you want revisions or adjustments, discuss them directly with the Architect in chat before instructing them to perform the handoff.',
         },
       ],
     },

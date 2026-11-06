@@ -1291,7 +1291,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       const projectRequiredCommands = [
         '/pm',
-        '/propose',
         '/validate',
         '/accept',
         '/notebooks',
@@ -1331,16 +1330,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           }
           return;
         }
-        return;
-      }
-      if (cmdToken === '/propose') {
-        switchActiveRole('architect');
-        const proposePrompt =
-          parts.slice(1).join(' ').trim() ||
-          (language === 'es'
-            ? 'Diseña y propón la arquitectura y requisitos formales para este proyecto.'
-            : 'Design and propose the formal architecture and requirements for this project.');
-        void sendChatMessage('architect', proposePrompt);
         return;
       }
       if (cmdToken === '/validate') {

@@ -161,7 +161,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Available commands (↑/↓ select · Tab autocomplete · Enter execute)',
     noCommandMatches: 'No matches for',
     inputPlaceholderHint:
-      'Type your instruction or "/" for commands (/project, /propose, /validate, /accept, /settings)',
+      'Type your instruction or "/" for commands (/project, /validate, /accept, /settings)',
     bottomShortcutsHint:
       '/ commands · Mouse click/wheel · Ctrl+N cycle · Tab multipanel · Esc exit',
     initialStatusBanner:
@@ -337,11 +337,6 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         description: 'Switch to Project Manager or run parallel/sequential team inquiry',
       },
       {
-        command: '/propose',
-        description: 'Ask the Architect for a formal architecture & requirements proposal',
-        phaseHint: 'Phase 2 → 3',
-      },
-      {
         command: '/validate',
         description: 'Run independent QA validation with tests and evidence',
         phaseHint: 'Phase 6 / 7',
@@ -435,7 +430,7 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       'Comandos disponibles (↑/↓ seleccionar · Tab autocompletar · Enter ejecutar)',
     noCommandMatches: 'Sin coincidencias para',
     inputPlaceholderHint:
-      'Escribe tu instrucción o "/" para comandos (/project, /propose, /validate, /accept, /settings)',
+      'Escribe tu instrucción o "/" para comandos (/project, /validate, /accept, /settings)',
     bottomShortcutsHint:
       '/ comandos · Ratón clic/rueda · Ctrl+N carrusel · Tab multipanel · Esc salir',
     initialStatusBanner:
@@ -609,11 +604,6 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/pm',
         description: 'Cambiar al Project Manager o lanzar consulta paralela/secuencial',
-      },
-      {
-        command: '/propose',
-        description: 'Pedir al Arquitecto propuesta formal de requisitos y arquitectura',
-        phaseHint: 'Fase 2 → 3',
       },
       {
         command: '/validate',

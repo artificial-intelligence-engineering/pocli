@@ -32,11 +32,12 @@ describe('Feature #42 — /howto Workflow Guide Modal', () => {
 
     const step2 = sections.find((s) => s.badge === '[2]');
     expect(step2?.title).toContain('PASO 2');
-    expect(step2?.bullets?.some((b) => b.command === '/propose')).toBe(true);
+    expect(step2?.bullets?.some((b) => b.command === '/architect')).toBe(true);
+    expect(step2?.bullets?.some((b) => b.command === '/propose')).toBe(false);
 
     const step3 = sections.find((s) => s.badge === '[3]');
     expect(step3?.title).toContain('PASO 3');
-    expect(step3?.paragraphs?.[1]).toContain('comunícaselo al desarrollador');
+    expect(step3?.paragraphs?.[1]).toContain('transfiera la especificación');
 
     const step4 = sections.find((s) => s.badge === '[4]');
     expect(step4?.title).toContain('PASO 4');
@@ -75,11 +76,12 @@ describe('Feature #42 — /howto Workflow Guide Modal', () => {
 
     const step2 = sections.find((s) => s.badge === '[2]');
     expect(step2?.title).toContain('STEP 2');
-    expect(step2?.bullets?.some((b) => b.command === '/propose')).toBe(true);
+    expect(step2?.bullets?.some((b) => b.command === '/architect')).toBe(true);
+    expect(step2?.bullets?.some((b) => b.command === '/propose')).toBe(false);
 
     const step3 = sections.find((s) => s.badge === '[3]');
     expect(step3?.title).toContain('STEP 3');
-    expect(step3?.paragraphs?.[1]).toContain('hand off to developer');
+    expect(step3?.paragraphs?.[1]).toContain('transfer the architecture specification');
 
     const step4 = sections.find((s) => s.badge === '[4]');
     expect(step4?.title).toContain('STEP 4');
