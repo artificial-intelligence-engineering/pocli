@@ -423,6 +423,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   // Active project & repository / artifact / SQLite summary state
   const [project, setProject] = useState<Project | null>(initialProject ?? null);
+  const currentProjectIdRef = useRef<string | undefined>(initialProject?.id);
+  useEffect(() => {
+    currentProjectIdRef.current = project?.id;
+  }, [project?.id]);
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -537,7 +541,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       messageId: string;
       queueLength: number;
     }) => {
-      if (project && payload.projectId === project.id) {
+      if (currentProjectIdRef.current === payload.projectId) {
         setQueuedMessageIds((prev) => new Set(prev).add(payload.messageId));
         setBusyRoles((prev) => ({ ...prev, [payload.role]: true }));
         setMessagesVersion((prev) => prev + 1);
@@ -549,7 +553,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       messageId: string;
       remainingQueueLength: number;
     }) => {
-      if (project && payload.projectId === project.id) {
+      if (currentProjectIdRef.current === payload.projectId) {
         setQueuedMessageIds((prev) => {
           const next = new Set(prev);
           next.delete(payload.messageId);
@@ -560,7 +564,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
     };
     const onIdle = (payload: { projectId: string; role: ActorRole }) => {
-      if (project && payload.projectId === project.id) {
+      if (currentProjectIdRef.current === payload.projectId) {
         setBusyRoles((prev) => ({ ...prev, [payload.role]: false }));
         setMessagesVersion((prev) => prev + 1);
       }
@@ -574,7 +578,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       orchestrator.off('agent:messageDequeued', onDequeued);
       orchestrator.off('agent:idle', onIdle);
     };
-  }, [orchestrator, project?.id]);
+  }, [orchestrator]);
 
   const thinkingSpinner = SPINNER_FRAMES[spinnerIdx];
 
@@ -916,7 +920,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       description: `Project '${cleanName}' managed by PO CLI in ${resolvedDir}`,
       workspaceDir: resolvedDir,
     });
+    currentProjectIdRef.current = created.id;
     setProject(created);
+    setBusyRoles({});
+    setStreamingByRole({});
+    setQueuedMessageIds(new Set());
     refreshState(created.id);
     setViewMode('chat');
     setStatusBanner(
@@ -931,8 +939,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const switchProjectTo = (nameOrId: string) => {
     try {
       const switched = orchestrator.storage.switchActiveProject(nameOrId);
+      currentProjectIdRef.current = switched.id;
       setProject(switched);
       refreshState(switched.id);
+
+      // Re-hydrate busy roles specifically for the switched project
+      const nextBusy: Partial<Record<ActorRole, boolean>> = {};
+      for (const r of ['architect', 'developer', 'qa', 'pm'] as ActorRole[]) {
+        if (orchestrator.isRoleBusy(switched.id, r)) {
+          nextBusy[r] = true;
+        }
+      }
+      setBusyRoles(nextBusy);
+      setStreamingByRole({});
+      setQueuedMessageIds(new Set());
 
       // Find the last agent who interacted in this project to restore their conversation
       const allMsgs = orchestrator.storage.listMessages(switched.id);
@@ -1308,6 +1328,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         switchActiveRole('pm');
         const modeArg = parts[1]?.toLowerCase();
         if (modeArg === 'parallel' || modeArg === 'sequential') {
+          const targetPid = project!.id;
           setBusyRoles((prev) => ({ ...prev, pm: true }));
           const modality = modeArg === 'sequential' ? 'SEQUENTIAL' : 'PARALLEL';
           setStatusBanner(
@@ -1315,75 +1336,97 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           );
           try {
             const res = await orchestrator.executePmInquiry({
-              projectId: project!.id,
+              projectId: targetPid,
               topic: parts.slice(2).join(' ') || 'Project status across all roles',
               modality,
             });
-            setStatusBanner(
-              `✔ PM emitted ${res.artifact.code} (${modality}): ${res.report.individualResponses.length} agents consulted.`,
-            );
-            refreshState();
+            if (currentProjectIdRef.current === targetPid) {
+              setStatusBanner(
+                `✔ PM emitted ${res.artifact.code} (${modality}): ${res.report.individualResponses.length} agents consulted.`,
+              );
+              refreshState();
+            }
           } catch (err) {
-            setStatusBanner(`✖ Error: ${(err as Error).message}`);
+            if (currentProjectIdRef.current === targetPid) {
+              setStatusBanner(`✖ Error: ${(err as Error).message}`);
+            }
           } finally {
-            setBusyRoles((prev) => ({ ...prev, pm: false }));
+            if (currentProjectIdRef.current === targetPid) {
+              setBusyRoles((prev) => ({ ...prev, pm: false }));
+            }
           }
           return;
         }
         return;
       }
       if (cmdToken === '/validate') {
+        const targetPid = project!.id;
         setBusyRoles((prev) => ({ ...prev, qa: true }));
         switchActiveRole('qa');
         setStatusBanner(t.qaRunningMsg);
         try {
           const res = await orchestrator.submitToQaAndValidate({
-            projectId: project!.id,
+            projectId: targetPid,
           });
-          setStatusBanner(
-            t.qaCompletedMsg(
-              res.qaArtifact.code,
-              res.payload.recommendation,
-              res.payload.passedTests.length,
-              res.payload.executedTests.length,
-            ),
-          );
-          refreshState();
+          if (currentProjectIdRef.current === targetPid) {
+            setStatusBanner(
+              t.qaCompletedMsg(
+                res.qaArtifact.code,
+                res.payload.recommendation,
+                res.payload.passedTests.length,
+                res.payload.executedTests.length,
+              ),
+            );
+            refreshState();
+          }
         } catch (err) {
-          setStatusBanner(`✖ Error: ${(err as Error).message}`);
+          if (currentProjectIdRef.current === targetPid) {
+            setStatusBanner(`✖ Error: ${(err as Error).message}`);
+          }
         } finally {
-          setBusyRoles((prev) => ({ ...prev, qa: false }));
+          if (currentProjectIdRef.current === targetPid) {
+            setBusyRoles((prev) => ({ ...prev, qa: false }));
+          }
         }
         return;
       }
       if (cmdToken === '/accept') {
+        const targetPid = project!.id;
         try {
           orchestrator.acceptProjectByPo({
-            projectId: project!.id,
+            projectId: targetPid,
             comments: 'Project finally accepted by the Product Owner.',
           });
-          setStatusBanner(t.projectAcceptedMsg);
-          refreshState();
+          if (currentProjectIdRef.current === targetPid) {
+            setStatusBanner(t.projectAcceptedMsg);
+            refreshState();
+          }
         } catch (err) {
-          setStatusBanner(`✖ Error: ${(err as Error).message}`);
+          if (currentProjectIdRef.current === targetPid) {
+            setStatusBanner(`✖ Error: ${(err as Error).message}`);
+          }
         }
         return;
       }
       if (cmdToken === '/notebooks') {
-        const nbs = orchestrator.storage.getProjectNotebooks(project!.id);
+        const targetPid = project!.id;
+        const nbs = orchestrator.storage.getProjectNotebooks(targetPid);
         for (const nb of nbs) {
           orchestrator.rag.indexNotebook(nb.id);
         }
-        refreshState();
-        setStatusBanner(
-          t.notebooksIndexedMsg(
-            nbs.length,
-            nbs.map((n) => n.name).join(', '),
-          ),
-        );
+        if (currentProjectIdRef.current === targetPid) {
+          refreshState();
+          setStatusBanner(
+            t.notebooksIndexedMsg(
+              nbs.length,
+              nbs.map((n) => n.name).join(', '),
+            ),
+          );
+        }
         return;
       }
       if (cmdToken === '/compact') {
+        const targetPid = project!.id;
         const targetArg = parts[1]?.toLowerCase();
         const targetRole =
           targetArg === 'all'
@@ -1395,18 +1438,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               ? (targetArg as ActorRole)
               : activeRole;
         const res = orchestrator.compactContext({
-          projectId: project!.id,
+          projectId: targetPid,
           targetRole,
           keepRecentCount: 1,
         });
-        refreshState();
-        setStatusBanner(
-          t.compactedMsg(
-            String(targetRole),
-            res.totalCompactedMessages,
-            res.totalSavedTokens,
-          ),
-        );
+        if (currentProjectIdRef.current === targetPid) {
+          refreshState();
+          setStatusBanner(
+            t.compactedMsg(
+              String(targetRole),
+              res.totalCompactedMessages,
+              res.totalSavedTokens,
+            ),
+          );
+        }
         return;
       }
       if (cmdToken === '/models' || cmdToken === '/model') {
@@ -1521,8 +1566,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
   cycleNextAgentRef.current = cycleNextAgent;
 
-  const sendChatMessage = async (targetRole: ActorRole, messageText: string) => {
-    if (!project) {
+  const sendChatMessage = async (
+    targetRole: ActorRole,
+    messageText: string,
+    targetProjectId?: string,
+  ) => {
+    const taskProjectId = targetProjectId ?? project?.id;
+    if (!taskProjectId) {
       setStatusBanner(
         language === 'es'
           ? 'No hay ningún proyecto activo. Usa /project para crear uno.'
@@ -1533,140 +1583,170 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // 1. Immediately record user prompt to SQLite so it appears in the chat log without delay
     const userMsg = orchestrator.storage.recordMessage({
-      projectId: project.id,
+      projectId: taskProjectId,
       fromRole: 'product_owner',
       toRole: targetRole,
       content: messageText,
     });
-    setMessageScrollOffset(0);
-    setChatScrollOffset(0);
-    setMessagesVersion((prev) => prev + 1);
-    refreshState();
+    if (currentProjectIdRef.current === taskProjectId) {
+      setMessageScrollOffset(0);
+      setChatScrollOffset(0);
+      setMessagesVersion((prev) => prev + 1);
+      refreshState();
+    }
 
-    const isBusy = orchestrator.isRoleBusy(project.id, targetRole);
+    const isBusy = orchestrator.isRoleBusy(taskProjectId, targetRole);
     if (isBusy) {
-      setQueuedMessageIds((prev) => new Set(prev).add(userMsg.id));
-      const currentQueueLen =
-        orchestrator.getQueuedMessages(project.id, targetRole).length + 1;
-      setStatusBanner(
-        language === 'es'
-          ? `⏳ ${getRoleDisplayName(targetRole, language)} está procesando. Mensaje añadido a la cola (${currentQueueLen} en cola).`
-          : `⏳ ${getRoleDisplayName(targetRole, language)} is thinking. Message added to queue (${currentQueueLen} queued).`,
-      );
+      if (currentProjectIdRef.current === taskProjectId) {
+        setQueuedMessageIds((prev) => new Set(prev).add(userMsg.id));
+        const currentQueueLen =
+          orchestrator.getQueuedMessages(taskProjectId, targetRole).length + 1;
+        setStatusBanner(
+          language === 'es'
+            ? `⏳ ${getRoleDisplayName(targetRole, language)} está procesando. Mensaje añadido a la cola (${currentQueueLen} en cola).`
+            : `⏳ ${getRoleDisplayName(targetRole, language)} is thinking. Message added to queue (${currentQueueLen} queued).`,
+        );
+      }
     } else {
-      setBusyRoles((prev) => ({ ...prev, [targetRole]: true }));
-      setStreamingByRole((prev) => ({ ...prev, [targetRole]: '' }));
-      setStatusBanner(t.consultingAgentMsg(targetRole));
+      if (currentProjectIdRef.current === taskProjectId) {
+        setBusyRoles((prev) => ({ ...prev, [targetRole]: true }));
+        setStreamingByRole((prev) => ({ ...prev, [targetRole]: '' }));
+        setStatusBanner(t.consultingAgentMsg(targetRole));
+      }
     }
 
     try {
       const res = await orchestrator.chatWithProfessional({
-        projectId: project.id,
+        projectId: taskProjectId,
         targetRole,
         message: messageText,
         messageId: userMsg.id,
         alreadyRecorded: true,
         onStreamChunk: (chunk) => {
-          setQueuedMessageIds((prev) => {
-            if (prev.has(userMsg.id)) {
-              const next = new Set(prev);
-              next.delete(userMsg.id);
-              return next;
-            }
-            return prev;
-          });
-          setBusyRoles((prev) => ({ ...prev, [targetRole]: true }));
-          setStreamingByRole((prev) => ({
-            ...prev,
-            [targetRole]: (prev[targetRole] || '') + chunk,
-          }));
+          if (currentProjectIdRef.current === taskProjectId) {
+            setQueuedMessageIds((prev) => {
+              if (prev.has(userMsg.id)) {
+                const next = new Set(prev);
+                next.delete(userMsg.id);
+                return next;
+              }
+              return prev;
+            });
+            setBusyRoles((prev) => ({ ...prev, [targetRole]: true }));
+            setStreamingByRole((prev) => ({
+              ...prev,
+              [targetRole]: (prev[targetRole] || '') + chunk,
+            }));
+          }
         },
       });
-      setQueuedMessageIds((prev) => {
-        if (prev.has(userMsg.id)) {
-          const next = new Set(prev);
-          next.delete(userMsg.id);
-          return next;
-        }
-        return prev;
-      });
-      setStreamingByRole((prev) => {
-        const next = { ...prev };
-        delete next[targetRole];
-        return next;
-      });
-      setStatusBanner(
-        t.agentRepliedMsg(
-          targetRole,
-          res.workerPid,
-          res.createdArtifacts.length,
-        ),
-      );
-      setMessageScrollOffset(0);
-      setChatScrollOffset(0);
-      setMessagesVersion((prev) => prev + 1);
-      refreshState();
-
-      if (res.autonomousHandoff?.nextRole === 'developer') {
-        switchActiveRole('developer');
-        setStatusBanner(
-          language === 'es'
-            ? '🤝 El Arquitecto ha transferido el proyecto al Desarrollador. Iniciando implementación...'
-            : '🤝 Architect handed off project to Senior Developer. Starting implementation...',
-        );
-        refreshState();
-        void sendChatMessage('developer', res.autonomousHandoff.instructions);
-      }
-    } catch (err) {
-      setQueuedMessageIds((prev) => {
-        const next = new Set(prev);
-        next.delete(userMsg.id);
-        return next;
-      });
-      setStreamingByRole((prev) => {
-        const next = { ...prev };
-        delete next[targetRole];
-        return next;
-      });
-      setBusyRoles((prev) => ({ ...prev, [targetRole]: false }));
-
-      const rawMsg = (err as Error).message || String(err);
-      const cleanMsg = rawMsg.replace(
-        /^Worker JSON-RPC Error \(-?\d+\):\s*/,
-        '',
-      );
-
-      const cfg = orchestrator.storage.getRoleConfig(project.id, targetRole);
-      const bannerText = cleanMsg.includes('API key')
-        ? t.llmStatusBannerError(cfg.provider)
-        : `✖ Error: ${cleanMsg}`;
-
-      setStatusBanner(bannerText);
-
-      // Record specialist's error response directly in the chat history
-      orchestrator.storage.recordMessage({
-        projectId: project.id,
-        fromRole: targetRole,
-        toRole: 'product_owner',
-        content: cleanMsg,
-        metadata: {
-          isError: true,
-          errorReason: cleanMsg,
-        },
-      });
-      setMessageScrollOffset(0);
-      setChatScrollOffset(0);
-      setMessagesVersion((prev) => prev + 1);
-      refreshState();
-    } finally {
-      const stillBusy = orchestrator.isRoleBusy(project.id, targetRole);
-      setBusyRoles((prev) => ({ ...prev, [targetRole]: stillBusy }));
-      if (!stillBusy) {
+      if (currentProjectIdRef.current === taskProjectId) {
+        setQueuedMessageIds((prev) => {
+          if (prev.has(userMsg.id)) {
+            const next = new Set(prev);
+            next.delete(userMsg.id);
+            return next;
+          }
+          return prev;
+        });
         setStreamingByRole((prev) => {
           const next = { ...prev };
           delete next[targetRole];
           return next;
         });
+        setStatusBanner(
+          t.agentRepliedMsg(
+            targetRole,
+            res.workerPid,
+            res.createdArtifacts.length,
+          ),
+        );
+        setMessageScrollOffset(0);
+        setChatScrollOffset(0);
+        setMessagesVersion((prev) => prev + 1);
+        refreshState();
+      }
+
+      if (res.autonomousHandoff?.nextRole === 'developer') {
+        if (currentProjectIdRef.current === taskProjectId) {
+          switchActiveRole('developer');
+          setStatusBanner(
+            language === 'es'
+              ? '🤝 El Arquitecto ha transferido el proyecto al Desarrollador. Iniciando implementación...'
+              : '🤝 Architect handed off project to Senior Developer. Starting implementation...',
+          );
+          refreshState();
+        }
+        void sendChatMessage('developer', res.autonomousHandoff.instructions, taskProjectId);
+      }
+    } catch (err) {
+      if (currentProjectIdRef.current === taskProjectId) {
+        setQueuedMessageIds((prev) => {
+          const next = new Set(prev);
+          next.delete(userMsg.id);
+          return next;
+        });
+        setStreamingByRole((prev) => {
+          const next = { ...prev };
+          delete next[targetRole];
+          return next;
+        });
+        setBusyRoles((prev) => ({ ...prev, [targetRole]: false }));
+
+        const rawMsg = (err as Error).message || String(err);
+        const cleanMsg = rawMsg.replace(
+          /^Worker JSON-RPC Error \(-?\d+\):\s*/,
+          '',
+        );
+
+        const cfg = orchestrator.storage.getRoleConfig(taskProjectId, targetRole);
+        const bannerText = cleanMsg.includes('API key')
+          ? t.llmStatusBannerError(cfg.provider)
+          : `✖ Error: ${cleanMsg}`;
+
+        setStatusBanner(bannerText);
+
+        // Record specialist's error response directly in the chat history
+        orchestrator.storage.recordMessage({
+          projectId: taskProjectId,
+          fromRole: targetRole,
+          toRole: 'product_owner',
+          content: cleanMsg,
+          metadata: {
+            isError: true,
+            errorReason: cleanMsg,
+          },
+        });
+        setMessageScrollOffset(0);
+        setChatScrollOffset(0);
+        setMessagesVersion((prev) => prev + 1);
+        refreshState();
+      } else {
+        orchestrator.storage.recordMessage({
+          projectId: taskProjectId,
+          fromRole: targetRole,
+          toRole: 'product_owner',
+          content: ((err as Error).message || String(err)).replace(
+            /^Worker JSON-RPC Error \(-?\d+\):\s*/,
+            '',
+          ),
+          metadata: {
+            isError: true,
+            errorReason: String(err),
+          },
+        });
+      }
+    } finally {
+      if (currentProjectIdRef.current === taskProjectId) {
+        const stillBusy = orchestrator.isRoleBusy(taskProjectId, targetRole);
+        setBusyRoles((prev) => ({ ...prev, [targetRole]: stillBusy }));
+        if (!stillBusy) {
+          setStreamingByRole((prev) => {
+            const next = { ...prev };
+            delete next[targetRole];
+            return next;
+          });
+        }
       }
     }
   };
