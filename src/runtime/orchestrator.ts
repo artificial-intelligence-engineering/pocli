@@ -492,7 +492,7 @@ export class PoCliOrchestrator extends EventEmitter {
       .listConsultations(projectId)
       .filter((c) => c.status === 'RESOLVED_BY_ARCHITECT' || c.status === 'APPROVED_BY_PO');
 
-    const markdownSummary = [
+    const summarySections = [
       `# Normative Developer Handoff Bundle`,
       `**Project:** ${project.name}`,
       `**Approved Architecture:** ${arch.code} v${arch.version} (SHA-256: \`${arch.sha256.slice(0, 12)}\`)`,
@@ -500,15 +500,26 @@ export class PoCliOrchestrator extends EventEmitter {
       `## 1. Approved Architecture (${arch.code})`,
       arch.content,
       ``,
-      `## 2. Requirements (${requirements.map((r) => r.code).join(', ')})`,
-      ...requirements.map((r) => r.content),
-      ``,
-      `## 3. Architectural Decision Records (${adrs.map((a) => a.code).join(', ')})`,
-      ...adrs.map((a) => a.content),
-      ``,
-      `## 4. Technical Specifications (${specifications.map((s) => s.code).join(', ')})`,
+      `## 2. Technical Specifications (${specifications.map((s) => s.code).join(', ')})`,
       ...specifications.map((s) => s.content),
-    ].join('\n\n');
+    ];
+
+    if (requirements.length > 0) {
+      summarySections.push(
+        ``,
+        `## 3. Requirements (${requirements.map((r) => r.code).join(', ')})`,
+        ...requirements.map((r) => r.content),
+      );
+    }
+    if (adrs.length > 0) {
+      summarySections.push(
+        ``,
+        `## 4. Architectural Decision Records (${adrs.map((a) => a.code).join(', ')})`,
+        ...adrs.map((a) => a.content),
+      );
+    }
+
+    const markdownSummary = summarySections.join('\n\n');
 
     // Record official Architect -> Developer handoff message
     this.storage.recordMessage({
@@ -1178,6 +1189,10 @@ export class PoCliOrchestrator extends EventEmitter {
       QA_REPORT: { es: 'Informe QA', en: 'QA Report' },
       DEFECT: { es: 'Defecto', en: 'Defect' },
       PM_REPORT: { es: 'Informe PM', en: 'PM Report' },
+      IMPLEMENTATION: {
+        es: 'Bitácora (IMP)',
+        en: 'Logbook (IMP)',
+      },
       IMPLEMENTATION_PLAN: {
         es: 'Plan de Implementación',
         en: 'Implementation Plan',
@@ -1368,15 +1383,17 @@ export class PoCliOrchestrator extends EventEmitter {
           `Executed tool call '${call.name}': transitioned project ${projectId} to PHASE_5_IMPLEMENTATION and initiated Developer`,
         );
       } else if (
+        name === 'write_implementation_log' ||
+        name === 'record_implementation_log' ||
         name === 'write_implementation_plan' ||
         name === 'create_implementation_plan'
       ) {
         const art = await this.coordinator.saveArtifact({
           projectId,
           role,
-          code: String(args.code ?? 'PLAN-001'),
-          type: 'IMPLEMENTATION_PLAN',
-          title: String(args.title ?? 'Implementation Plan'),
+          code: String(args.code ?? 'IMP-001'),
+          type: 'IMPLEMENTATION',
+          title: String(args.title ?? 'Technical Implementation Log'),
           content: String(args.content ?? args.body ?? ''),
           tracesTo: (args.tracesTo as string[]) ?? [],
           citations: (args.citations as string[]) ?? [],

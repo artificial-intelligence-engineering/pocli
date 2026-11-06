@@ -158,11 +158,12 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
     it('buildRoleToolsInstruction provides actionable tool instructions for architect, developer, qa', () => {
       const archPrompt = buildRoleToolsInstruction('architect');
       expect(archPrompt).toContain('write_specification');
-      expect(archPrompt).toContain('record_adr');
+      expect(archPrompt).toContain('write_architecture_doc');
       expect(archPrompt).toContain('```tool_call');
 
       const devPrompt = buildRoleToolsInstruction('developer');
       expect(devPrompt).toContain('write_source_file');
+      expect(devPrompt).toContain('write_implementation_log');
       expect(devPrompt).toContain('consult_architect');
       expect(devPrompt).toContain('```tool_call');
 

@@ -149,7 +149,9 @@ export class PoCliDatabase {
   }
 
   public ensureProjectArtifactsStructure(workspaceDir: string): void {
-    fs.mkdirSync(path.join(workspaceDir, 'contracts'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'contracts', 'architecture'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'contracts', 'specification'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'contracts', 'implementation'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'scripts'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'deliveries'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'outputs'), { recursive: true });
@@ -1796,6 +1798,8 @@ export class PoCliDatabase {
         relPath = path.join('deliveries', `${params.code}_v${nextVersion}.md`);
       } else if (params.type === 'LLM_OUTPUT') {
         relPath = path.join('outputs', `${params.code}_v${nextVersion}.md`);
+      } else if (params.type === 'IMPLEMENTATION' || params.type === 'IMPLEMENTATION_PLAN') {
+        relPath = path.join('contracts', 'implementation', `${params.code}_v${nextVersion}.md`);
       } else {
         relPath = path.join(
           'contracts',

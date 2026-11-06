@@ -62,7 +62,7 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
         titleColor: 'cyan',
         paragraphs: [
           'Todo el proceso de análisis y diseño es hablado. Conversa directamente con el Software Architect sobre tu idea, objetivos, casos de uso y restricciones.',
-          'Durante la conversación, el Arquitecto formulará la arquitectura técnica (ARCH-001), decisiones de diseño (ADR) y especificaciones (SPEC) directamente en contracts/.',
+          'Durante la conversación, el Arquitecto formulará la arquitectura técnica (ARCH-001) y especificaciones (SPEC-001) directamente en contracts/ (los documentos REQ y ADR se han unificado en estos dos contratos clave).',
         ],
         bullets: [
           {
@@ -79,6 +79,7 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
         paragraphs: [
           'Como Product Owner, discutes y revisas la arquitectura y las especificaciones directamente hablando con el Arquitecto en el chat.',
           'Cuando lo tengas claro, simplemente dile al Arquitecto que transfiera la especificación al Developer para que la implemente (ej: "transfiere la especificación al desarrollador", "adelante con la implementación"). Todo es hablado: el Arquitecto aprobará formalmente los contratos, realizará el traspaso normativo y ordenará al Senior Developer implementar el software en repos/.',
+          'En base a la SPEC-001 de entrada, el Desarrollador implementa el software en repos/ y mantiene su cuaderno de bitácora técnico (IMP-001 en contracts/implementation/) detallando el trabajo realizado.',
         ],
         bullets: [
           {
@@ -203,7 +204,7 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
       titleColor: 'cyan',
       paragraphs: [
         'All technical analysis and design is conversational. Discuss your goals, user stories, constraints, and requirements directly with the Software Architect.',
-        'During the dialogue, the Architect formalizes architectural decisions (ADR), reference architecture (ARCH-001), and technical specifications (SPEC) in contracts/.',
+        'During the dialogue, the Architect formalizes the reference architecture (ARCH-001) and technical specifications (SPEC-001) in contracts/ (REQ and ADR documents are consolidated into these two primary contracts).',
       ],
       bullets: [
         {
@@ -220,6 +221,7 @@ export function getHowtoSections(lang: SupportedLanguage): HowtoSection[] {
       paragraphs: [
         'As Product Owner, you review technical specifications (SPEC-001) and architecture directly in dialogue with the Architect.',
         'Once you are satisfied, simply tell the Architect in chat to transfer the architecture specification to the Developer to implement it (e.g. "transfer specification to developer", "go ahead and implement"). Everything is conversational: the Architect formally approves contracts, delivers the normative bundle, and instructs the Senior Developer to implement the code in repos/.',
+        'Based on input SPEC-001, the Developer implements the codebase in repos/ and maintains their technical implementation logbook (IMP-001 in contracts/implementation/) detailing technical changes made.',
       ],
       bullets: [
         {
