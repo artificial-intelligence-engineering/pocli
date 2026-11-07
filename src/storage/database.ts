@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import child_process from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -807,6 +808,28 @@ export class PoCliDatabase {
    * Scans the project filesystem directory for existing repositories (either root .git
    * or multiple sub-repositories inside subdirectories) and registers them in SQLite.
    */
+  ensureGitRepository(repoDir: string): boolean {
+    const absDir = path.resolve(repoDir);
+    if (!fs.existsSync(absDir)) {
+      fs.mkdirSync(absDir, { recursive: true });
+    }
+    const gitDir = path.join(absDir, '.git');
+    if (!fs.existsSync(gitDir)) {
+      try {
+        child_process.execSync('git init -b main', { cwd: absDir, stdio: 'ignore' });
+        return true;
+      } catch {
+        try {
+          child_process.execSync('git init', { cwd: absDir, stdio: 'ignore' });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    }
+    return false;
+  }
+
   discoverAndRegisterRepositories(
     projectId: string,
     workspaceDir: string,
@@ -881,6 +904,7 @@ export class PoCliDatabase {
       .run(projectId);
 
     for (const repo of discovered) {
+      this.ensureGitRepository(repo.repoPath);
       this.db
         .prepare(
           `INSERT OR IGNORE INTO project_repositories (
@@ -1795,6 +1819,12 @@ export class PoCliDatabase {
         `${params.code}_v${nextVersion}.txt`,
       );
       absPath = path.join(project.workspaceDir, relPath);
+      const cleanRel = relPath.replace(/\\/g, '/');
+      const parts = cleanRel.split('/').filter(Boolean);
+      if (parts[0] === 'repos' && parts.length >= 2) {
+        const repoDirAbs = path.join(project.workspaceDir, 'repos', parts[1]);
+        this.ensureGitRepository(repoDirAbs);
+      }
     } else {
       let relPath: string;
       if (params.customRelPath) {
