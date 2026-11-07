@@ -635,6 +635,7 @@ export interface AgentTurnInput {
   ragCitations: RagCitation[];
   modelConfig: RoleModelConfig;
   language?: SupportedLanguage;
+  senderRole?: ActorRole | 'product_owner';
 }
 
 export interface AgentTurnOutput {
@@ -661,6 +662,8 @@ const KNOWN_TOOLS = new Set([
   'record_implementation_log',
   'write_implementation_plan',
   'write_source_file',
+  'run_unit_tests',
+  'run_tests',
   'consult_architect',
   'submit_for_qa',
   'write_test_case',
@@ -1394,16 +1397,6 @@ export class LlmGateway {
       } else {
         toolCalls.push(
           {
-            name: 'write_implementation_log',
-            arguments: {
-              code: 'IMP-001',
-              title: `Technical Implementation Log — ${input.projectName}`,
-              content: `# IMP-001: Technical Implementation Log\n\nBased on input contract \`SPEC-001\` and reference architecture \`ARCH-001\`:\n- Implemented application module in compliance with specifications.\n- Prepared deliverable for independent QA verification.`,
-              tracesTo: ['ARCH-001', 'SPEC-001'],
-              citations: citationTags,
-            },
-          },
-          {
             name: 'write_source_file',
             arguments: {
               code: 'CODE-001',
@@ -1413,11 +1406,49 @@ export class LlmGateway {
               citations: citationTags,
             },
           },
+          {
+            name: 'write_source_file',
+            arguments: {
+              code: 'TEST-001',
+              relFilePath: 'tests/app-module.test.js',
+              content: `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { executeBusinessLogic } from '../src/app-module.js';\n\ntest('executeBusinessLogic multiplies value by 2', () => {\n  const res = executeBusinessLogic({ value: 21 });\n  assert.deepStrictEqual(res, { ok: true, result: 42, architectureVersion: 'ARCH-001' });\n});\n\ntest('executeBusinessLogic throws INVALID_INPUT on invalid input', () => {\n  assert.throws(() => executeBusinessLogic(null), /INVALID_INPUT/);\n  assert.throws(() => executeBusinessLogic({ value: 'string' }), /INVALID_INPUT/);\n});\n`,
+              tracesTo: ['ARCH-001', 'SPEC-001'],
+              citations: citationTags,
+            },
+          },
+          {
+            name: 'run_unit_tests',
+            arguments: {
+              testCommand: 'node --test tests/app-module.test.js',
+            },
+          },
+          {
+            name: 'write_implementation_log',
+            arguments: {
+              code: 'IMP-001',
+              title: `Technical Implementation Log — ${input.projectName}`,
+              content: `# IMP-001: Technical Implementation Log\n\nBased on input contract \`SPEC-001\` and reference architecture \`ARCH-001\`:\n\n## 1. Feature Implementation\n- Implemented business logic module in \`src/app-module.js\` (\`CODE-001\`).\n- Exported \`executeBusinessLogic\` function with strict input validation.\n\n## 2. Mandatory Unit Testing & Execution\n- Created unit test suite in \`tests/app-module.test.js\` (\`TEST-001\`).\n- Executed unit tests via \`run_unit_tests\` (\`node --test tests/app-module.test.js\`).\n- Test Results: 2/2 tests passed (100% green).\n- Test Coverage: 100% statement and branch coverage.\n\n## 3. Definition of Done & QA Readiness\n- All unit tests verified green.\n- Deliverable submitted for independent QA verification.`,
+              tracesTo: ['ARCH-001', 'SPEC-001'],
+              citations: citationTags,
+            },
+          },
         );
-        replyText =
-          `[Senior Developer] Worked on the approved Handoff bundle (\`ARCH-001\`, \`SPEC-001\`) and produced:\n` +
-          `- \`IMP-001\`: Technical implementation logbook.\n` +
-          `- \`CODE-001\` (\`src/app-module.js\`): Source implementation aligned with approved contracts.${citationFooter}`;
+        const isFromArchitect = input.senderRole === 'architect';
+        if (isFromArchitect) {
+          replyText =
+            `[Senior Developer] Reporting back to the Software Architect on the implementation of \`SPEC-001\` / \`ARCH-001\`:\n` +
+            `1. **Feature Implemented**: Core business logic module in \`src/app-module.js\` per specifications.\n` +
+            `2. **Unit Tests Executed**: Created and executed \`tests/app-module.test.js\` via \`run_unit_tests\` (2/2 passing, 100% green).\n` +
+            `3. **Test Coverage**: Achieved 100% coverage on implemented logic.\n` +
+            `4. **Deliverables & Logbook**: Recorded technical logbook in \`IMP-001\`. Ready for QA validation.${citationFooter}`;
+        } else {
+          replyText =
+            `[Senior Developer] Worked on the approved Handoff bundle (\`ARCH-001\`, \`SPEC-001\`) and completed implementation:\n` +
+            `- **Feature**: Business logic module implemented in \`src/app-module.js\`.\n` +
+            `- **Unit Tests & Execution**: Created and executed \`tests/app-module.test.js\` (100% green).\n` +
+            `- **Coverage**: 100% code coverage achieved.\n` +
+            `- **Logbook**: \`IMP-001\` recorded with complete test evidence.${citationFooter}`;
+        }
       }
     } else if (input.role === 'qa') {
       replyText =

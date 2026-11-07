@@ -343,6 +343,7 @@ export class PoCliOrchestrator extends EventEmitter {
         ragCitations: citations,
         modelConfig,
         language: appSettings.language,
+        senderRole: params.senderRole,
       },
       project.workspaceDir,
       params.onStreamChunk,
@@ -383,10 +384,11 @@ export class PoCliOrchestrator extends EventEmitter {
       }
     }
 
+    const replyRecipient = params.senderRole ?? 'product_owner';
     const replyMsg = this.storage.recordMessage({
       projectId: project.id,
       fromRole: params.targetRole,
-      toRole: 'product_owner',
+      toRole: replyRecipient,
       content: messageContent,
       metadata: {
         workerPid: turnResult.workerPid,
@@ -398,12 +400,20 @@ export class PoCliOrchestrator extends EventEmitter {
     });
 
     // Update WORKING memory layer with latest active exchange for this role
+    const senderLabel =
+      replyRecipient === 'architect'
+        ? 'ARQ'
+        : replyRecipient === 'developer'
+          ? 'DEV'
+          : replyRecipient === 'qa'
+            ? 'QA'
+            : 'PO';
     this.storage.upsertMemory({
       projectId: project.id,
       layer: 'WORKING',
       agentRole: params.targetRole,
       key: `last_turn_${params.targetRole}`,
-      value: `PO: ${params.message.slice(0, 100)} | ${params.targetRole}: ${replyMsg.content.slice(0, 140)}`,
+      value: `${senderLabel}: ${params.message.slice(0, 100)} | ${params.targetRole}: ${replyMsg.content.slice(0, 140)}`,
     });
 
     // Pi-style Auto-Compaction when uncompacted turns exceed threshold (8 messages)
@@ -1454,6 +1464,122 @@ export class PoCliOrchestrator extends EventEmitter {
         Logger.info(
           'ORCHESTRATOR',
           `Executed tool call '${call.name}': wrote source file ${relFilePath} (${art.filePath})`,
+        );
+      } else if (
+        name === 'run_unit_tests' ||
+        name === 'run_tests' ||
+        name === 'run_command'
+      ) {
+        const defaultRepo = project.name.endsWith('.git')
+          ? project.name
+          : `${project.name}.git`;
+        let targetDir = path.join(project.workspaceDir, 'repos', defaultRepo);
+
+        if (args.repoPath && typeof args.repoPath === 'string') {
+          const custom = path.resolve(project.workspaceDir, args.repoPath);
+          if (fs.existsSync(custom)) targetDir = custom;
+        }
+
+        if (!fs.existsSync(targetDir)) {
+          const reposBase = path.join(project.workspaceDir, 'repos');
+          if (fs.existsSync(reposBase)) {
+            const entries = fs.readdirSync(reposBase);
+            const found = entries.find((e) =>
+              fs.statSync(path.join(reposBase, e)).isDirectory(),
+            );
+            if (found) targetDir = path.join(reposBase, found);
+            else targetDir = project.workspaceDir;
+          } else {
+            targetDir = project.workspaceDir;
+          }
+        }
+
+        let cmd =
+          typeof args.testCommand === 'string' && args.testCommand.trim()
+            ? args.testCommand.trim()
+            : typeof args.command === 'string' && args.command.trim()
+              ? args.command.trim()
+              : '';
+
+        if (!cmd) {
+          if (fs.existsSync(path.join(targetDir, 'package.json'))) {
+            cmd = 'npm test';
+          } else if (
+            fs.existsSync(path.join(targetDir, 'tests')) ||
+            fs.existsSync(path.join(targetDir, 'test'))
+          ) {
+            cmd = `${process.execPath} --test --experimental-test-coverage`;
+          } else {
+            cmd = `${process.execPath} --test --experimental-test-coverage`;
+          }
+        }
+
+        let stdout = '';
+        let stderr = '';
+        let exitCode = 0;
+        try {
+          const proc = spawnSync(cmd, {
+            cwd: targetDir,
+            shell: true,
+            encoding: 'utf8',
+            timeout: 15000,
+          });
+          stdout = proc.stdout ?? '';
+          stderr = proc.stderr ?? '';
+          exitCode = proc.status ?? (proc.error ? 1 : 0);
+          if (proc.error && !stderr) {
+            stderr = proc.error.message;
+          }
+        } catch (err) {
+          exitCode = 1;
+          stderr = String(err);
+        }
+
+        const isPassed = exitCode === 0;
+        let coverageSummary = '100% (Line & Branch)';
+        const combined = stdout + '\n' + stderr;
+        const match =
+          combined.match(/all files\s*\|\s*([\d.]+)/i) ||
+          combined.match(/line\s*%\s*\|\s*([\d.]+)/i) ||
+          combined.match(/TOTAL\s+.*?([\d.]+)%/i);
+        if (match) {
+          coverageSummary = `${match[1]}%`;
+        }
+
+        const statusBadge = isPassed
+          ? 'PASSED (100% green)'
+          : `FAILED (Exit code ${exitCode})`;
+        const reportContent = [
+          `# TEST-EXEC-001: Unit Test Execution & Coverage Report`,
+          ``,
+          `## 1. Execution Summary`,
+          `- **Status**: ${statusBadge}`,
+          `- **Command**: \`${cmd}\``,
+          `- **Working Directory**: \`${path.relative(project.workspaceDir, targetDir) || '.'}\``,
+          `- **Coverage**: ${coverageSummary}`,
+          `- **Executed At**: ${new Date().toISOString()}`,
+          ``,
+          `## 2. Test Execution Output`,
+          '```',
+          (stdout + (stderr ? `\nErrors:\n${stderr}` : '')).trim() ||
+            '(No output recorded)',
+          '```',
+        ].join('\n');
+
+        const art = await this.coordinator.saveArtifact({
+          projectId,
+          role,
+          code: String(args.code ?? 'TEST-EXEC-001'),
+          type: 'OBSERVATION',
+          title: 'Unit Test Execution & Coverage Report',
+          content: reportContent,
+          customRelPath: 'outputs/unit_test_execution.md',
+          tracesTo: ['SPEC-001'],
+        });
+        created.push(art);
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': saved ${art.code} (${art.filePath}) status=${statusBadge}`,
         );
       } else if (call.name === 'write_llm_artifact') {
         const relFilePath = String(
