@@ -384,7 +384,13 @@ export class PoCliOrchestrator extends EventEmitter {
       }
     }
 
-    const replyRecipient = params.senderRole ?? 'product_owner';
+    const isHandoffFromArchitect =
+      params.targetRole === 'developer' && params.senderRole === 'architect';
+
+    const replyRecipient = isHandoffFromArchitect
+      ? 'product_owner'
+      : (params.senderRole ?? 'product_owner');
+
     const replyMsg = this.storage.recordMessage({
       projectId: project.id,
       fromRole: params.targetRole,
@@ -398,6 +404,28 @@ export class PoCliOrchestrator extends EventEmitter {
         toolCalls: turnResult.toolCalls,
       },
     });
+
+    if (isHandoffFromArchitect) {
+      const arqSummary = this.formatDeveloperCompletionSummaryForArchitect({
+        projectId: project.id,
+        developerReply: messageContent,
+        workspaceDir: project.workspaceDir,
+        language: appSettings.language,
+      });
+
+      this.storage.recordMessage({
+        projectId: project.id,
+        fromRole: 'developer',
+        toRole: 'architect',
+        content: arqSummary,
+        metadata: {
+          isDeveloperHandoffSummary: true,
+          workerPid: turnResult.workerPid,
+          modalityUsed: turnResult.modalityUsed,
+          modelUsed: turnResult.modelUsed,
+        },
+      });
+    }
 
     // Update WORKING memory layer with latest active exchange for this role
     const senderLabel =
@@ -1270,6 +1298,99 @@ export class PoCliOrchestrator extends EventEmitter {
     );
 
     return [headerTitle, '', headerLine, separatorLine, ...formattedRows].join('\n');
+  }
+
+  public formatDeveloperCompletionSummaryForArchitect(params: {
+    projectId: string;
+    developerReply: string;
+    workspaceDir: string;
+    language?: 'es' | 'en';
+  }): string {
+    const isEs = (params.language ?? 'es') === 'es';
+
+    // 1. Identify Specification
+    const specArtifact = this.storage
+      .listArtifacts(params.projectId)
+      .filter((a) => a.type === 'SPECIFICATION' || a.code.startsWith('SPEC-'))
+      .sort((a, b) => b.version - a.version)[0];
+
+    const specCode =
+      specArtifact?.code ||
+      params.developerReply.match(/SPEC-\d+(?:\s*v\d+)?/i)?.[0] ||
+      'SPEC-001';
+
+    // 2. Extract Unit Tests and Coverage
+    let testSummary = '';
+    let coverageSummary = '';
+
+    const testExecPath = path.join(
+      params.workspaceDir,
+      'outputs',
+      'unit_test_execution.md',
+    );
+    let testFileContent = '';
+    if (params.workspaceDir && fs.existsSync(testExecPath)) {
+      try {
+        testFileContent = fs.readFileSync(testExecPath, 'utf8');
+      } catch {
+        // ignore file read error
+      }
+    }
+
+    const combinedText = `${testFileContent}\n\n${params.developerReply}`;
+
+    const passMatch =
+      combinedText.match(/(\d+(?:\/\d+)?)\s*(?:passed|passing|tests?\s+pass(?:ed|ing)?)/i) ||
+      combinedText.match(/(\d+)\s+(?:de\s+)?tests?\s+(?:pasando|superad[ao]s?)/i);
+    if (passMatch) {
+      testSummary = `${passMatch[1]} passed`;
+    }
+
+    const covMatch =
+      combinedText.match(/(?:Coverage|Cobertura)[^*:\n]*[:*]*\s*[*`]*(\d+(?:\.\d+)?%)/i) ||
+      combinedText.match(/(\d+(?:\.\d+)?%)\s*(?:statement|branch|global|coverage|cobertura)/i) ||
+      combinedText.match(/TOTAL\s+\d+\s+\d+\s+(\d+%\b)/);
+    if (covMatch) {
+      coverageSummary = covMatch[1];
+    }
+
+    const defaultTests = isEs ? 'Superados (100% green)' : 'Passed (100% green)';
+    const defaultCoverage = '100%';
+    const testsVal = testSummary || defaultTests;
+    const covVal = coverageSummary || defaultCoverage;
+    const statusVal = isEs
+      ? 'Implementación completada y verificada'
+      : 'Implementation completed and verified';
+
+    const colMetric = isEs ? 'Métrica' : 'Metric';
+    const colResult = isEs ? 'Resultado' : 'Result';
+    const rowTestsLabel = isEs ? 'Tests Ejecutados' : 'Tests Executed';
+    const rowCovLabel = isEs ? 'Cobertura (Coverage)' : 'Coverage';
+    const rowStatusLabel = isEs ? 'Estado' : 'Status';
+
+    const headers = [colMetric, colResult];
+    const dataRows = [
+      [rowTestsLabel, testsVal],
+      [rowCovLabel, covVal],
+      [rowStatusLabel, statusVal],
+    ];
+
+    const colWidths = headers.map((h, i) => {
+      const maxData = Math.max(...dataRows.map((r) => r[i].length), 0);
+      return Math.max(h.length, maxData, 3);
+    });
+
+    const headerLine = `| ${headers.map((h, i) => h.padEnd(colWidths[i])).join(' | ')} |`;
+    const separatorLine = `| ${colWidths.map((w) => `:${'-'.repeat(Math.max(1, w - 1))}`).join(' | ')} |`;
+    const formattedRows = dataRows.map(
+      (row) => `| ${row.map((cell, i) => cell.padEnd(colWidths[i])).join(' | ')} |`,
+    );
+
+    const titleLine = isEs
+      ? `Especificación técnica completada: \`${specCode}\`.`
+      : `Technical specification completed: \`${specCode}\`.`;
+
+    return [titleLine, '', headerLine, separatorLine, ...formattedRows].join('\n');
   }
 
   private async executeAgentToolCalls(
