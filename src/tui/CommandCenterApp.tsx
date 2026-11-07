@@ -5644,12 +5644,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           if (item.text === '') {
             return <Box height={1} flexShrink={0} />;
           }
-          const isTableLine = item.text.trim().startsWith('|');
-          const isTableSep = isTableLine && item.text.includes('---');
+          const isTableLine = item.isTableLine ?? item.text.trim().startsWith('|');
+          const isTableSep = item.isTableSep ?? (isTableLine && item.text.includes('---'));
           const isTableHeader =
-            isTableLine &&
-            !isTableSep &&
-            (item.text.includes('Artefacto') || item.text.includes('Artifact'));
+            item.isTableHeader ??
+            (isTableLine &&
+              !isTableSep &&
+              (item.text.includes('Artefacto') || item.text.includes('Artifact')));
           return (
             <Box flexDirection="row" flexShrink={0} paddingLeft={2}>
               <Text

@@ -1228,7 +1228,8 @@ export class PoCliOrchestrator extends EventEmitter {
       },
     };
 
-    const rows = artifacts.map((art) => {
+    const headers = [colCode, colType, colVersion, colStatus, colPath];
+    const dataRows = artifacts.map((art) => {
       const typeLabel =
         (typeLabels[art.type]
           ? isEs
@@ -1248,16 +1249,27 @@ export class PoCliOrchestrator extends EventEmitter {
       if (workspaceDir && relPath.startsWith(workspaceDir)) {
         relPath = path.relative(workspaceDir, relPath);
       }
-      return `| \`${art.code}\` | ${typeLabel} | ${versionLabel} | ${statusLabel} | \`${relPath}\` |`;
+      return [
+        `\`${art.code}\``,
+        typeLabel,
+        versionLabel,
+        statusLabel,
+        `\`${relPath}\``,
+      ];
     });
 
-    return [
-      headerTitle,
-      '',
-      `| ${colCode} | ${colType} | ${colVersion} | ${colStatus} | ${colPath} |`,
-      `| :--- | :--- | :--- | :--- | :--- |`,
-      ...rows,
-    ].join('\n');
+    const colWidths = headers.map((h, i) => {
+      const maxData = Math.max(...dataRows.map((r) => r[i].length), 0);
+      return Math.max(h.length, maxData, 3);
+    });
+
+    const headerLine = `| ${headers.map((h, i) => h.padEnd(colWidths[i])).join(' | ')} |`;
+    const separatorLine = `| ${colWidths.map((w) => `:${'-'.repeat(Math.max(1, w - 1))}`).join(' | ')} |`;
+    const formattedRows = dataRows.map(
+      (row) => `| ${row.map((cell, i) => cell.padEnd(colWidths[i])).join(' | ')} |`,
+    );
+
+    return [headerTitle, '', headerLine, separatorLine, ...formattedRows].join('\n');
   }
 
   private async executeAgentToolCalls(

@@ -537,16 +537,16 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       // Spanish summary table
       const tableEs = orchestrator.formatArtifactsSummaryTable([art2, art1v2], 'es', ws);
       expect(tableEs).toContain('### Resumen de Ficheros y Artefactos');
-      expect(tableEs).toContain('| Artefacto | Tipo | Versión | Operación | Fichero |');
-      expect(tableEs).toContain('| `SPEC-001` | Especificación | v1 | Creado | `contracts/specification/SPEC-001_v1.md` |');
-      expect(tableEs).toContain('| `ARCH-001` | Arquitectura | v2 | Modificado | `contracts/architecture/ARCH-001_v2.md` |');
+      expect(tableEs).toContain('| Artefacto  | Tipo           | Versión | Operación  | Fichero                                  |');
+      expect(tableEs).toContain('| `SPEC-001` | Especificación | v1      | Creado     | `contracts/specification/SPEC-001_v1.md` |');
+      expect(tableEs).toContain('| `ARCH-001` | Arquitectura   | v2      | Modificado | `contracts/architecture/ARCH-001_v2.md`  |');
 
       // English summary table
       const tableEn = orchestrator.formatArtifactsSummaryTable([art2, art1v2], 'en', ws);
       expect(tableEn).toContain('### Artifacts & Files Summary');
-      expect(tableEn).toContain('| Artifact | Type | Version | Operation | File |');
-      expect(tableEn).toContain('| `SPEC-001` | Specification | v1 | Created | `contracts/specification/SPEC-001_v1.md` |');
-      expect(tableEn).toContain('| `ARCH-001` | Architecture | v2 | Modified | `contracts/architecture/ARCH-001_v2.md` |');
+      expect(tableEn).toContain('| Artifact   | Type          | Version | Operation | File                                     |');
+      expect(tableEn).toContain('| `SPEC-001` | Specification | v1      | Created   | `contracts/specification/SPEC-001_v1.md` |');
+      expect(tableEn).toContain('| `ARCH-001` | Architecture  | v2      | Modified  | `contracts/architecture/ARCH-001_v2.md`  |');
     });
 
     it('extracts handoff_to_developer tool call and suppresses it from cleanText', () => {
