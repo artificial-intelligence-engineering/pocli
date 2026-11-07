@@ -143,6 +143,11 @@ export interface UiTranslations {
   expertBoxSummaryLabel: string;
   expertBoxNoChatsYet: string;
   roleNames: Record<string, string>;
+  liveModeActivated: string;
+  liveModeDeactivated: string;
+  liveStateListening: string;
+  liveStateTranscribing: string;
+  liveStateSpeaking: string;
   slashCommands: SlashCommandTranslation[];
 }
 
@@ -298,7 +303,26 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       pm: 'Project Manager (PM)',
       security_auditor: 'DevSecOps Security Auditor',
     },
+    liveModeActivated:
+      '🎙 Live voice mode ACTIVATED. Speak through the microphone (use /mute to silence).',
+    liveModeDeactivated:
+      '🔇 Live voice mode DEACTIVATED. Microphone muted.',
+    liveStateListening: 'LIVE · Listening...',
+    liveStateTranscribing: 'LIVE · Transcribing...',
+    liveStateSpeaking: 'LIVE · Speaking...',
     slashCommands: [
+      {
+        command: '/live',
+        description: 'Activate real-time bidirectional voice chat with agents (/live)',
+      },
+      {
+        command: '/mute',
+        description: 'Mute microphone and deactivate real-time voice mode (/mute)',
+      },
+      {
+        command: '/check',
+        description: 'Audio mixer, hardware input/output diagnostics & live VU meters (/check)',
+      },
       {
         command: '/agents',
         description: 'Switch active agent (Architect, Developer, QA, PM)',
@@ -571,7 +595,28 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       pm: 'Project Manager (PM)',
       security_auditor: 'Auditor de Seguridad DevSecOps',
     },
+    liveModeActivated:
+      '🎙 Modo de voz en tiempo real ACTIVADO. Habla por el micrófono (usa /mute para silenciar).',
+    liveModeDeactivated:
+      '🔇 Modo de voz DESACTIVADO. Micrófono silenciado.',
+    liveStateListening: 'LIVE · Escuchando...',
+    liveStateTranscribing: 'LIVE · Transcribiendo...',
+    liveStateSpeaking: 'LIVE · Hablando...',
     slashCommands: [
+      {
+        command: '/live',
+        description:
+          'Activar modo de voz bidireccional en tiempo real con agentes por micrófono (/live)',
+      },
+      {
+        command: '/mute',
+        description: 'Silenciar micrófono y desactivar modo de voz en tiempo real (/mute)',
+      },
+      {
+        command: '/check',
+        description:
+          'Mezclador de audio, diagnóstico de hardware y vúmetro en tiempo real (/check)',
+      },
       {
         command: '/agents',
         description: 'Cambiar de agente activo (Architect, Developer, QA, PM)',

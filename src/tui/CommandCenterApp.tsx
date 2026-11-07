@@ -46,6 +46,16 @@ import {
   ChatVisualItem,
 } from './chat-scrolling.js';
 import { FileTreeExplorer, useFileTree } from './FileTreeExplorer.js';
+import {
+  VoiceService,
+  VoiceState,
+  VoiceIntent,
+  AudioHardwareInfo,
+  getAudioHardwareInfo,
+  adjustSourceVolume,
+  toggleSourceMute,
+  getSwitchConfirmationText,
+} from '../runtime/voice-service.js';
 export { wrapTextLines };
 
 export interface CommandCenterProps {
@@ -438,6 +448,21 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     108,
     Math.max(68, Math.min(dimensions.columns - 6, 88 + treeWidthAdjustment)),
   );
+
+  // Bidirectional Real-time Live Voice Service (/live and /mute)
+  const [voiceService] = useState<VoiceService>(
+    () => new VoiceService({ language, autoSpeakReplies: true }),
+  );
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [isAwaitingVoiceLanguage, setIsAwaitingVoiceLanguage] = useState<boolean>(false);
+  const isAwaitingVoiceLanguageRef = useRef<boolean>(false);
+
+  // Audio Mixer & Live Hardware Diagnostics (/check)
+  const [isAudioCheckOpen, setIsAudioCheckOpen] = useState<boolean>(false);
+  const [audioHwInfo, setAudioHwInfo] = useState<AudioHardwareInfo | null>(null);
+  const [audioInputLevel, setAudioInputLevel] = useState<{ rms: number; db: number }>({ rms: 0, db: -60 });
+  const [audioInputPeak, setAudioInputPeak] = useState<number>(-60);
+  const [isOutputTtsActive, setIsOutputTtsActive] = useState<boolean>(false);
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -761,6 +786,27 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setStatusBanner(I18N_DICTIONARY[nextLang].settingsSavedMsg(nextLang));
   };
 
+  const applyVoiceLanguage = (chosenLang: SupportedLanguage) => {
+    isAwaitingVoiceLanguageRef.current = false;
+    setIsAwaitingVoiceLanguage(false);
+    orchestrator.storage.updateSettings({ language: chosenLang });
+    setLanguage(chosenLang);
+    voiceService.setLanguage(chosenLang);
+
+    const confirmMsg =
+      chosenLang === 'es'
+        ? 'Idioma español seleccionado. ¿Con qué especialista deseas hablar?'
+        : 'English language selected. Which specialist would you like to talk to?';
+
+    setStatusBanner(
+      chosenLang === 'es'
+        ? '🎙 Idioma español seleccionado. Di por ejemplo: "Quiero hablar con el Arquitecto"'
+        : '🎙 English selected. Say for example: "I want to talk to the Architect"',
+    );
+
+    void voiceService.speak(confirmMsg, { language: chosenLang });
+  };
+
   const applyWorkDirChange = (nextDir: string) => {
     const trimmed = nextDir.trim();
     if (!trimmed) return;
@@ -793,6 +839,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setDbModalOutput('');
     setIsWorkersModalOpen(false);
     setIsTreeExplorerOpen(false);
+    setIsAudioCheckOpen(false);
+    voiceService.stopMonitoring();
     setProjectToDelete(null);
     setProjectWizardStep('CLOSED');
   };
@@ -1024,6 +1072,23 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const trimmed = rawText.trim();
     if (!trimmed) return;
 
+    // Handle typed language selection while awaiting voice language
+    if (isAwaitingVoiceLanguageRef.current && !trimmed.startsWith('/')) {
+      const lower = trimmed.toLowerCase();
+      if (['1', 'en', 'english', 'inglés', 'ingles'].includes(lower)) {
+        inputValueRef.current = '';
+        setInputValue('');
+        applyVoiceLanguage('en');
+        return;
+      }
+      if (['2', 'es', 'español', 'spanish', 'castellano'].includes(lower)) {
+        inputValueRef.current = '';
+        setInputValue('');
+        applyVoiceLanguage('es');
+        return;
+      }
+    }
+
     // Handle slash commands starting with "/"
     if (trimmed.startsWith('/')) {
       const parts = trimmed.split(/\s+/);
@@ -1032,6 +1097,67 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         inputValueRef.current = '';
         setInputValue('');
         setIsTreeExplorerOpen((prev) => !prev);
+        return;
+      }
+
+      if (cmdToken === '/live') {
+        inputValueRef.current = '';
+        setInputValue('');
+        if (!voiceService.hasConfiguredSttProvider()) {
+          const warnText =
+            language === 'es'
+              ? '⚠ No se detectó motor de voz nativo (Vosk o whisper-cli). Instala Vosk para transcripción local sin tokens.'
+              : '⚠ No native STT engine detected (Vosk or whisper-cli). Install Vosk for local 0-token speech recognition.';
+          setStatusBanner(warnText);
+          const voicePrompt =
+            language === 'es'
+              ? 'Atención: no se ha detectado un reconocedor de voz nativo en el sistema operativo.'
+              : 'Warning: No native speech recognition engine detected on the operating system.';
+          void voiceService.speak(voicePrompt, { language });
+          return;
+        }
+
+        if (!voiceService.isLive()) {
+          void voiceService.startLive();
+          isAwaitingVoiceLanguageRef.current = true;
+          setIsAwaitingVoiceLanguage(true);
+          const livePrompt =
+            'Live voice mode activated. Please choose your language: English or Spanish.';
+          setStatusBanner(
+            '🎙 [LIVE] Choose language / Elige idioma: [1] English · [2] Español (Speak or type)',
+          );
+          void voiceService.speak(livePrompt, { language: 'en' });
+        } else {
+          voiceService.unmute();
+          setStatusBanner(t.liveModeActivated);
+        }
+        return;
+      }
+
+      if (cmdToken === '/mute') {
+        inputValueRef.current = '';
+        setInputValue('');
+        isAwaitingVoiceLanguageRef.current = false;
+        setIsAwaitingVoiceLanguage(false);
+        voiceService.mute();
+        setStatusBanner(t.liveModeDeactivated);
+        return;
+      }
+
+      if (cmdToken === '/check' || cmdToken === '/audio' || cmdToken === '/mixer') {
+        inputValueRef.current = '';
+        setInputValue('');
+        closeAllModals();
+        const hwInfo = getAudioHardwareInfo();
+        setAudioHwInfo(hwInfo);
+        setAudioInputPeak(-60);
+        voiceService.startMonitoring();
+        setIsAudioCheckOpen(true);
+        setStatusBanner(
+          language === 'es'
+            ? '🎛 Mezclador de audio abierto. Habla para ver el vúmetro o pulsa T para probar salida.'
+            : '🎛 Audio mixer open. Speak to test microphone level or press T to test output.',
+        );
         return;
       }
 
@@ -1324,15 +1450,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/architect') {
-        switchActiveRole('architect');
+        switchToAgentChat('architect');
         return;
       }
       if (cmdToken === '/developer') {
-        switchActiveRole('developer');
+        switchToAgentChat('developer');
         return;
       }
       if (cmdToken === '/qa') {
-        switchActiveRole('qa');
+        switchToAgentChat('qa');
         return;
       }
       const projectRequiredCommands = [
@@ -1351,7 +1477,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/pm') {
-        switchActiveRole('pm');
+        switchToAgentChat('pm');
         const modeArg = parts[1]?.toLowerCase();
         if (modeArg === 'parallel' || modeArg === 'sequential') {
           const targetPid = project!.id;
@@ -1568,19 +1694,28 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const switchActiveRole = (nextRole: ActorRole) => {
     const currentRole = activeRoleRef.current;
-    if (nextRole === currentRole) return;
-    const currentDraft = inputValueRef.current.trim().startsWith('/') ? '' : inputValueRef.current;
-    roleDraftsRef.current[currentRole] = currentDraft;
-    setRoleDrafts((prev) => ({ ...prev, [currentRole]: currentDraft }));
-    const nextDraft = roleDraftsRef.current[nextRole] || '';
-    inputValueRef.current = nextDraft;
-    setInputValue(nextDraft);
-    setActiveRole(nextRole);
-    activeRoleRef.current = nextRole;
-    setMessageScrollOffset(0);
+    if (nextRole !== currentRole) {
+      const currentDraft = inputValueRef.current.trim().startsWith('/') ? '' : inputValueRef.current;
+      roleDraftsRef.current[currentRole] = currentDraft;
+      setRoleDrafts((prev) => ({ ...prev, [currentRole]: currentDraft }));
+      const nextDraft = roleDraftsRef.current[nextRole] || '';
+      inputValueRef.current = nextDraft;
+      setInputValue(nextDraft);
+      setActiveRole(nextRole);
+      activeRoleRef.current = nextRole;
+      voiceService.setCurrentRole(nextRole);
+      setMessageScrollOffset(0);
+      setChatScrollOffset(0);
+    }
     setStatusBanner(
       t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
     );
+  };
+
+  const switchToAgentChat = (nextRole: ActorRole) => {
+    closeAllModals();
+    switchActiveRole(nextRole);
+    setViewMode('chat');
   };
 
   const lastCycleTimeRef = useRef<number>(0);
@@ -1588,15 +1723,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const now = Date.now();
     if (now - lastCycleTimeRef.current < 150) return;
     lastCycleTimeRef.current = now;
-    closeAllModals();
     const roles: ActorRole[] = ['pm', 'architect', 'developer', 'qa'];
     const currIdx = roles.indexOf(activeRole);
     const nextIdx = currIdx >= 0 ? (currIdx + 1) % roles.length : 0;
     const nextRole = roles[nextIdx];
-    switchActiveRole(nextRole);
-    if (viewMode !== 'chat') {
-      setViewMode('chat');
-    }
+    switchToAgentChat(nextRole);
   };
   cycleNextAgentRef.current = cycleNextAgent;
 
@@ -1706,6 +1837,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setChatScrollOffset(0);
         setMessagesVersion((prev) => prev + 1);
         refreshState();
+
+        if (voiceService.isLive() && res.reply) {
+          void voiceService.speak(res.reply, { language });
+        }
       }
 
       if (res.autonomousHandoff?.nextRole === 'developer') {
@@ -1768,6 +1903,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setChatScrollOffset(0);
         setMessagesVersion((prev) => prev + 1);
         refreshState();
+
+        if (voiceService.isLive() && cleanMsg) {
+          void voiceService.speak(cleanMsg, { language });
+        }
       } else {
         orchestrator.storage.recordMessage({
           projectId: taskProjectId,
@@ -1801,6 +1940,146 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const selectRoleByMouse = (role: ActorRole) => {
     switchActiveRole(role);
   };
+
+  useEffect(() => {
+    voiceService.setLanguage(language);
+    voiceService.setCurrentRole(activeRole);
+  }, [language, activeRole, voiceService]);
+
+  useEffect(() => {
+    const onStateChange = (st: VoiceState) => {
+      setVoiceState(st);
+    };
+
+    const onTranscription = async (evt: { text: string; intent: VoiceIntent }) => {
+      const { text, intent } = evt;
+      if (!intent) return;
+
+      // 1. Handle Language Selection when requested or during live onboarding
+      if (isAwaitingVoiceLanguageRef.current || intent.type === 'select_language') {
+        if (intent.type === 'select_language' && intent.selectedLanguage) {
+          applyVoiceLanguage(intent.selectedLanguage);
+          return;
+        }
+
+        const rawUtterance = (text || intent.text || intent.originalUtterance || '').toLowerCase();
+        if (
+          rawUtterance.includes('español') ||
+          rawUtterance.includes('spanish') ||
+          rawUtterance.includes('castellano') ||
+          rawUtterance === '2' ||
+          rawUtterance.includes('dos')
+        ) {
+          applyVoiceLanguage('es');
+          return;
+        }
+
+        if (
+          rawUtterance.includes('english') ||
+          rawUtterance.includes('inglés') ||
+          rawUtterance.includes('ingles') ||
+          rawUtterance === '1' ||
+          rawUtterance.includes('one')
+        ) {
+          applyVoiceLanguage('en');
+          return;
+        }
+
+        // If the user directly spoke an agent switch, infer language and proceed
+        if (intent.type === 'switch_agent' && intent.targetRole) {
+          const inferredLang: SupportedLanguage =
+            /con|al|el|desarrollador|arquitecto|quiero|pásame/i.test(intent.originalUtterance)
+              ? 'es'
+              : 'en';
+          isAwaitingVoiceLanguageRef.current = false;
+          setIsAwaitingVoiceLanguage(false);
+          orchestrator.storage.updateSettings({ language: inferredLang });
+          setLanguage(inferredLang);
+          voiceService.setLanguage(inferredLang);
+        }
+      }
+
+      // 2. Switch Agent Intent: switches screen directly to that agent's chat view
+      if (intent.type === 'switch_agent' && intent.targetRole) {
+        const targetRole = intent.targetRole;
+        switchToAgentChat(targetRole);
+        const confirmText = getSwitchConfirmationText(targetRole, language);
+        setStatusBanner(`🎙 ${confirmText}`);
+
+        if (project) {
+          try {
+            orchestrator.storage.recordMessage({
+              projectId: project.id,
+              fromRole: 'product_owner',
+              toRole: targetRole,
+              content: `🎙 [VOZ]: ${intent.originalUtterance}`,
+            });
+            orchestrator.storage.recordMessage({
+              projectId: project.id,
+              fromRole: targetRole,
+              toRole: 'product_owner',
+              content: confirmText,
+            });
+            refreshState();
+          } catch {
+            // ignore
+          }
+        }
+        void voiceService.speak(confirmText, { language });
+        return;
+      }
+
+      if (intent.type === 'mute') {
+        voiceService.mute();
+        setStatusBanner(t.liveModeDeactivated);
+        const muteMsg = language === 'es' ? 'Modo de voz silenciado.' : 'Voice mode muted.';
+        void voiceService.speak(muteMsg, { language });
+        return;
+      }
+
+      if (intent.type === 'unmute') {
+        voiceService.unmute();
+        setStatusBanner(t.liveModeActivated);
+        return;
+      }
+
+      if (intent.type === 'agent_message' && intent.text) {
+        setViewMode('chat');
+        void sendChatMessage(activeRoleRef.current, intent.text);
+      }
+    };
+
+    const onError = (err: unknown) => {
+      setStatusBanner(`✖ Audio: ${(err as Error)?.message || String(err)}`);
+    };
+
+    const onAudioLevel = (data: { rms: number; db: number; isSpeaking: boolean }) => {
+      setAudioInputLevel({ rms: data.rms, db: data.db });
+      setAudioInputPeak((prev) => Math.max(prev, data.db));
+      setIsOutputTtsActive(data.isSpeaking);
+    };
+
+    const onSpeakingStart = () => setIsOutputTtsActive(true);
+    const onSpeakingEnd = () => setIsOutputTtsActive(false);
+
+    voiceService.on('state_change', onStateChange);
+    voiceService.on('transcription', onTranscription);
+    voiceService.on('audio_level', onAudioLevel);
+    voiceService.on('speaking_start', onSpeakingStart);
+    voiceService.on('speaking_end', onSpeakingEnd);
+    voiceService.on('error', onError);
+
+    return () => {
+      voiceService.off('state_change', onStateChange);
+      voiceService.off('transcription', onTranscription);
+      voiceService.off('audio_level', onAudioLevel);
+      voiceService.off('speaking_start', onSpeakingStart);
+      voiceService.off('speaking_end', onSpeakingEnd);
+      voiceService.off('error', onError);
+      voiceService.stopLive();
+      voiceService.stopMonitoring();
+    };
+  }, [voiceService, language, project, t]);
 
   const handleMouseEvent = (ev: ParsedMouseEvent) => {
     // 1. Handle Mouse Wheel Scrolling
@@ -2354,6 +2633,55 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       // Consume all other keys so they do not leak into prompt while tree is focused
+      return;
+    }
+
+    // Interactive Audio Mixer & Hardware Diagnostics Modal (/check)
+    if (isAudioCheckOpen) {
+      if (key.escape || input === 'q' || input === 'Q') {
+        setIsAudioCheckOpen(false);
+        voiceService.stopMonitoring();
+        return;
+      }
+      if (input === 't' || input === 'T') {
+        const testPhrase =
+          language === 'es'
+            ? 'Prueba de audio del sistema PO CLI. Micrófono y altavoces operativos.'
+            : 'PO CLI audio system test. Microphone and speakers are operational.';
+        setStatusBanner(`🔊 ${testPhrase}`);
+        void voiceService.speak(testPhrase, { language });
+        return;
+      }
+      if (input === '+' || input === '=') {
+        const updated = adjustSourceVolume(5);
+        setAudioHwInfo(updated);
+        setStatusBanner(
+          `🎤 Input volume: ${updated.sourceVolumePercent}% (${updated.sourceVolumeDb})`,
+        );
+        return;
+      }
+      if (input === '-' || input === '_') {
+        const updated = adjustSourceVolume(-5);
+        setAudioHwInfo(updated);
+        setStatusBanner(
+          `🎤 Input volume: ${updated.sourceVolumePercent}% (${updated.sourceVolumeDb})`,
+        );
+        return;
+      }
+      if (input === 'm' || input === 'M') {
+        const updated = toggleSourceMute();
+        setAudioHwInfo(updated);
+        setStatusBanner(
+          `🎤 Microphone ${updated.sourceMuted ? 'MUTED' : 'UNMUTED'}`,
+        );
+        return;
+      }
+      if (input === 'r' || input === 'R') {
+        setAudioInputPeak(-60);
+        const updated = getAudioHardwareInfo();
+        setAudioHwInfo(updated);
+        return;
+      }
       return;
     }
 
@@ -3344,7 +3672,19 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       activeModelCfg.modelId,
     );
     const projLabel = project ? project.name : (language === 'es' ? 'Sin proyecto' : 'No project');
-    const bannerText = ` ${projLabel}  │  ${activeRoleDisplayName}  │  ${vendorLabel}/${activeModelCfg.modelId} `;
+    let liveVoiceBadge = '';
+    if (isAwaitingVoiceLanguage) {
+      liveVoiceBadge = '  │  🎙 LIVE · [1] English [2] Español';
+    } else if (voiceState === 'listening') {
+      liveVoiceBadge = `  │  🎙 ${t.liveStateListening}`;
+    } else if (voiceState === 'transcribing') {
+      liveVoiceBadge = `  │  ⏳ ${t.liveStateTranscribing}`;
+    } else if (voiceState === 'speaking') {
+      liveVoiceBadge = `  │  🔊 ${t.liveStateSpeaking}`;
+    } else if (voiceState === 'muted') {
+      liveVoiceBadge = '  │  🔇 MUTED';
+    }
+    const bannerText = ` ${projLabel}  │  ${activeRoleDisplayName}  │  ${vendorLabel}/${activeModelCfg.modelId}${liveVoiceBadge} `;
     const fullBannerLine = fitAndPadLine(bannerText, barWidth);
 
     return (
@@ -4960,6 +5300,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     isAuthModalOpen ||
     isExitConfirmOpen ||
     isTreeExplorerOpen ||
+    isAudioCheckOpen ||
     dbModalOutput.length > 0 ||
     projectWizardStep !== 'CLOSED';
 
@@ -5318,6 +5659,188 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     );
   };
 
+  // Interactive Audio Mixer & Hardware Diagnostics Modal (/check)
+  const renderAudioCheckModal = () => {
+    const modalWidth = Math.min(96, Math.max(70, dimensions.columns - 6));
+    const meterWidth = Math.max(20, Math.min(36, modalWidth - 42));
+
+    const renderMeterBar = (currentDb: number, peakDb: number, active: boolean) => {
+      if (!active) {
+        return (
+          <Box flexDirection="row">
+            <Text bold color="gray">[</Text>
+            <Text dimColor color="gray">{'·'.repeat(meterWidth)}</Text>
+            <Text bold color="gray">]</Text>
+          </Box>
+        );
+      }
+      const clamped = Math.max(-60, Math.min(0, currentDb));
+      const ratio = (clamped + 60) / 60;
+      const filled = Math.max(0, Math.min(meterWidth, Math.round(ratio * meterWidth)));
+
+      const greenLimit = Math.round(meterWidth * 0.65);
+      const yellowLimit = Math.round(meterWidth * 0.88);
+
+      const greenCount = Math.min(filled, greenLimit);
+      const yellowCount = Math.max(0, Math.min(filled - greenLimit, yellowLimit - greenLimit));
+      const redCount = Math.max(0, filled - yellowLimit);
+      const emptyCount = Math.max(0, meterWidth - filled);
+
+      return (
+        <Box flexDirection="row">
+          <Text bold color="gray">[</Text>
+          {greenCount > 0 && <Text bold color="green">{'■'.repeat(greenCount)}</Text>}
+          {yellowCount > 0 && <Text bold color="yellow">{'■'.repeat(yellowCount)}</Text>}
+          {redCount > 0 && <Text bold color="red">{'■'.repeat(redCount)}</Text>}
+          {emptyCount > 0 && <Text dimColor color="gray">{'·'.repeat(emptyCount)}</Text>}
+          <Text bold color="gray">]</Text>
+        </Box>
+      );
+    };
+
+    const micDb = audioInputLevel.db;
+    const isMicClipping = micDb >= -2;
+    const isSpeechActive = micDb >= -28;
+
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        borderStyle="double"
+        borderColor="cyan"
+        paddingX={2}
+        paddingY={1}
+        marginBottom={1}
+      >
+        {/* Header */}
+        <Box justifyContent="space-between" marginBottom={1}>
+          <Text bold color="cyan">
+            🎛 {language === 'es' ? 'MEZCLADOR DE AUDIO Y DIAGNÓSTICO (/check)' : 'AUDIO MIXER & HARDWARE DIAGNOSTICS (/check)'}
+          </Text>
+          <Text dimColor>{language === 'es' ? 'Esc / q para salir' : 'Esc / q to close'}</Text>
+        </Box>
+
+        {/* Input / Microphone Section */}
+        <Box flexDirection="column" marginBottom={1}>
+          <Box flexDirection="row" justifyContent="space-between">
+            <Text bold color="yellow">
+              🎤 {language === 'es' ? 'ENTRADA (MICRÓFONO)' : 'INPUT (MICROPHONE)'}
+            </Text>
+            <Text color={audioHwInfo?.sourceMuted ? 'red' : 'green'} bold>
+              {audioHwInfo?.sourceMuted ? '● MUTED' : '● ACTIVE'}
+            </Text>
+          </Box>
+          <Text dimColor wrap="truncate-end">
+            Device: {audioHwInfo?.defaultSource || 'PipeWire/ALSA input stream'}
+          </Text>
+          <Box flexDirection="row" justifyContent="space-between" marginTop={0}>
+            <Text>
+              <Text dimColor>Gain / Vol: </Text>
+              <Text bold color="white">{audioHwInfo?.sourceVolumePercent ?? 100}%</Text>
+              <Text dimColor> ({audioHwInfo?.sourceVolumeDb ?? '0.00 dB'}) · 16kHz mono S16_LE</Text>
+            </Text>
+            <Text color="gray">[+ / - adjust]</Text>
+          </Box>
+
+          {/* VU Meter Scale & Bar */}
+          <Box flexDirection="column" marginTop={1}>
+            <Box flexDirection="row" justifyContent="space-between" width={meterWidth + 2}>
+              <Text dimColor color="gray">-60dB</Text>
+              <Text dimColor color="green">-24dB</Text>
+              <Text dimColor color="yellow">-12dB</Text>
+              <Text dimColor color="red">0dB</Text>
+            </Box>
+            <Box flexDirection="row" alignItems="center">
+              {renderMeterBar(micDb, audioInputPeak, true)}
+              <Box marginLeft={1}>
+                <Text bold color={isMicClipping ? 'red' : isSpeechActive ? 'yellow' : 'green'}>
+                  {` ${micDb.toFixed(0)} dB `}
+                </Text>
+                <Text dimColor> Peak: </Text>
+                <Text bold color="cyan">{audioInputPeak.toFixed(0)} dB</Text>
+                <Text bold color={isSpeechActive ? 'green' : 'gray'}>
+                  {isSpeechActive ? '  ● SPEECH' : '  ○ SILENCE'}
+                </Text>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Divider */}
+        <Box width="100%" height={1} marginY={0}>
+          <Text dimColor color="gray">{'─'.repeat(Math.max(10, modalWidth - 6))}</Text>
+        </Box>
+
+        {/* Output / Playback Section */}
+        <Box flexDirection="column" marginTop={0} marginBottom={1}>
+          <Box flexDirection="row" justifyContent="space-between">
+            <Text bold color="cyan">
+              🔊 {language === 'es' ? 'SALIDA (ALTAVOCES / SÍNTESIS DE VOZ)' : 'OUTPUT (SPEAKERS / VOICE SYNTHESIS)'}
+            </Text>
+            <Text color={audioHwInfo?.sinkMuted ? 'red' : isOutputTtsActive ? 'green' : 'gray'} bold>
+              {audioHwInfo?.sinkMuted ? '● MUTED' : isOutputTtsActive ? '● SPEAKING' : '○ IDLE'}
+            </Text>
+          </Box>
+          <Text dimColor wrap="truncate-end">
+            Device: {audioHwInfo?.defaultSink || 'PipeWire/ALSA output stream'}
+          </Text>
+          <Text dimColor>
+            Volume: <Text bold color="white">{audioHwInfo?.sinkVolumePercent ?? 85}%</Text> ({audioHwInfo?.sinkVolumeDb ?? '-3.78 dB'}) · Engine: {audioHwInfo?.ttsEngine || 'spd-say'}
+          </Text>
+
+          {/* Output VU bar */}
+          <Box flexDirection="column" marginTop={1}>
+            <Box flexDirection="row" alignItems="center">
+              {renderMeterBar(isOutputTtsActive ? -10 : -60, -10, isOutputTtsActive)}
+              <Box marginLeft={1}>
+                <Text bold color={isOutputTtsActive ? 'green' : 'gray'}>
+                  {isOutputTtsActive
+                    ? (language === 'es' ? '🔊 Reproduciendo voz (TTS)' : '🔊 Speaking audio output')
+                    : (language === 'es' ? 'En espera (Pulsa T para probar)' : 'Idle (Press T to test)')}
+                </Text>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* STT Speech-to-Text Status */}
+        <Box
+          flexDirection="row"
+          justifyContent="space-between"
+          marginTop={0}
+          marginBottom={1}
+          paddingTop={0}
+        >
+          <Text dimColor>
+            STT Engine ({language === 'es' ? 'Voz a Texto Nativo OS' : 'Native OS Speech-to-Text'}):{' '}
+          </Text>
+          <Text
+            bold
+            color={voiceService.hasConfiguredSttProvider() ? 'green' : 'red'}
+          >
+            {voiceService.getConfiguredSttProviderName() ||
+              (language === 'es'
+                ? '✖ NO DISPONIBLE (Instala Vosk o whisper-cli local)'
+                : '✖ NOT AVAILABLE (Install Vosk or local whisper-cli)')}
+          </Text>
+        </Box>
+
+        {/* Footer controls */}
+        <Box
+          marginTop={1}
+          paddingTop={1}
+          borderStyle="single"
+          borderColor="gray"
+          justifyContent="space-between"
+        >
+          <Text dimColor>
+            <Text bold color="white">[T]</Text> {language === 'es' ? 'Probar voz' : 'Test Speech'}  ·  <Text bold color="white">[+]</Text>/<Text bold color="white">[-] </Text>{language === 'es' ? 'Ganancia Mic' : 'Mic Gain'}  ·  <Text bold color="white">[M]</Text> {language === 'es' ? 'Silenciar' : 'Mute'}  ·  <Text bold color="white">[R]</Text> Reset  ·  <Text bold color="white">[Esc]</Text> {language === 'es' ? 'Cerrar' : 'Close'}
+          </Text>
+        </Box>
+      </Box>
+    );
+  };
+
   const renderSlashPopoverMenu = (menuWidth?: number | string) => {
     if (!isSlashMenuOpen) return null;
     const windowSize = 8;
@@ -5549,6 +6072,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isWorkersModalOpen && renderWorkersModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
             {isTreeExplorerOpen && renderTreeExplorerModal()}
+            {isAudioCheckOpen && renderAudioCheckModal()}
           </Box>
         ) : (
           <Box
@@ -5917,6 +6441,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isWorkersModalOpen && renderWorkersModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
             {isTreeExplorerOpen && renderTreeExplorerModal()}
+            {isAudioCheckOpen && renderAudioCheckModal()}
           </Box>
         ) : (
           <Box flexDirection="row" width="100%" height={contentHeight}>
@@ -6114,6 +6639,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text color={isTreeExplorerOpen ? 'cyan' : 'gray'} bold={isTreeExplorerOpen}>
               shift+t {language === 'es' ? 'árbol' : 'tree'}
             </Text>
+            <Text color={voiceService.isLive() ? 'green' : 'gray'} bold={voiceService.isLive()}>
+              {' · '}/live {language === 'es' ? 'voz' : 'voice'}
+            </Text>
+            <Text color={isAudioCheckOpen ? 'cyan' : 'gray'} bold={isAudioCheckOpen}>
+              {' · '}/check {language === 'es' ? 'audio' : 'mixer'}
+            </Text>
           </Box>
           <Box flexDirection="row">
             <Text color="gray">ctrl+n </Text>
@@ -6182,6 +6713,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {isWorkersModalOpen && renderWorkersModal()}
           {isExitConfirmOpen && renderExitConfirmModal()}
           {isTreeExplorerOpen && renderTreeExplorerModal()}
+          {isAudioCheckOpen && renderAudioCheckModal()}
         </Box>
       ) : (
         <>
