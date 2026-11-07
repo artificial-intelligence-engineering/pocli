@@ -198,38 +198,38 @@ export function getFileIconAndColor(name: string, isDirectory: boolean): {
   const ext = path.extname(name).toLowerCase();
   switch (ext) {
     case '.py':
-      return { icon: '🐍', color: 'green' };
+      return { icon: '', color: 'green' };
     case '.ts':
     case '.tsx':
     case '.js':
     case '.jsx':
-      return { icon: '📄', color: 'cyan' };
+      return { icon: '', color: 'cyan' };
     case '.json':
     case '.toml':
     case '.yaml':
     case '.yml':
     case '.env':
     case '.ini':
-      return { icon: '⚙', color: 'magenta' };
+      return { icon: '', color: 'magenta' };
     case '.sh':
     case '.bash':
     case '.zsh':
-      return { icon: '⚡', color: 'green' };
+      return { icon: '', color: 'green' };
     case '.md':
     case '.txt':
     case '.rst':
-      return { icon: '📝', color: 'blue' };
+      return { icon: '', color: 'blue' };
     case '.db':
     case '.sqlite':
     case '.sqlite3':
-      return { icon: '🗄', color: 'red' };
+      return { icon: '', color: 'red' };
     case '.png':
     case '.jpg':
     case '.jpeg':
     case '.svg':
-      return { icon: '🖼', color: 'magenta' };
+      return { icon: '', color: 'magenta' };
     default:
-      return { icon: '📄', color: 'white' };
+      return { icon: '', color: 'white' };
   }
 }
 
@@ -493,37 +493,48 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
       </Box>
 
       {/* 2. Action Buttons & Location Bar */}
-      <Box
-        flexDirection="row"
-        justifyContent="space-between"
-        paddingX={1}
-        marginTop={0}
-        marginBottom={0}
-        flexShrink={0}
-      >
-        <Box flexShrink={1}>
-          <Text dimColor wrap="truncate-end">
-            {state.workspaceDir}
-          </Text>
-        </Box>
-        <Box flexShrink={0} flexDirection="row">
-          <Text color="gray">
-            [<Text color="cyan" bold>C</Text> {isEs ? 'Plegar' : 'Collapse'}]
-          </Text>
-          <Text>{' '}</Text>
-          <Text color="gray">
-            [<Text color="cyan" bold>E</Text> {isEs ? 'Desplegar' : 'Expand'}]
-          </Text>
-          <Text>{' '}</Text>
-          <Text color="gray">
-            [<Text color="cyan" bold>R</Text> {isEs ? 'Refrescar' : 'Refresh'}]
-          </Text>
-          <Text>{' '}</Text>
-          <Text color="gray">
-            [<Text color="cyan" bold>+/-</Text> {isEs ? 'Ancho' : 'Width'}]
-          </Text>
-        </Box>
-      </Box>
+      {(() => {
+        const buttonsWidth = isEs ? 50 : 47;
+        const maxPathLen = Math.max(10, effectiveWidth - 4 - buttonsWidth - 2);
+        const truncatedPath =
+          state.workspaceDir.length > maxPathLen
+            ? `…${state.workspaceDir.slice(-(maxPathLen - 1))}`
+            : state.workspaceDir;
+
+        return (
+          <Box
+            flexDirection="row"
+            justifyContent="space-between"
+            paddingX={1}
+            marginTop={0}
+            marginBottom={0}
+            flexShrink={0}
+          >
+            <Box flexShrink={1} marginRight={2}>
+              <Text dimColor>
+                {truncatedPath}
+              </Text>
+            </Box>
+            <Box flexShrink={0} flexDirection="row">
+              <Text color="gray">
+                [<Text color="cyan" bold>C</Text> {isEs ? 'Plegar' : 'Collapse'}]
+              </Text>
+              <Text>{' '}</Text>
+              <Text color="gray">
+                [<Text color="cyan" bold>E</Text> {isEs ? 'Desplegar' : 'Expand'}]
+              </Text>
+              <Text>{' '}</Text>
+              <Text color="gray">
+                [<Text color="cyan" bold>R</Text> {isEs ? 'Refrescar' : 'Refresh'}]
+              </Text>
+              <Text>{' '}</Text>
+              <Text color="gray">
+                [<Text color="cyan" bold>+/-</Text> {isEs ? 'Ancho' : 'Width'}]
+              </Text>
+            </Box>
+          </Box>
+        );
+      })()}
 
       <Box
         borderStyle="single"
@@ -553,7 +564,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
           visibleItems.map((item, vIdx) => {
             const actualIdx = state.scrollOffset + vIdx;
             const isSelected = actualIdx === state.selectedIndex;
-            const { icon, color } = getFileIconAndColor(item.name, item.isDirectory);
+            const { color } = getFileIconAndColor(item.name, item.isDirectory);
 
             // Indentation (2 spaces per depth level)
             const indentSpaces = '  '.repeat(item.depth);
@@ -565,16 +576,24 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                 : '▶ '
               : '  ';
 
+            const folderPrefix = item.isDirectory ? '📁 ' : '';
             const displayName = item.isDirectory ? `${item.name}/` : item.name;
-            const sizeStr = formatFileSize(item.size);
+            const sizeStr = item.isDirectory ? '' : formatFileSize(item.size);
 
-            // Max name width calculation
-            const reserved = 3 + indentSpaces.length + arrow.length + (sizeStr ? sizeStr.length + 1 : 0);
-            const maxNameLen = Math.max(6, effectiveWidth - reserved - 2);
-            const truncatedName =
+            // Calculate precise column widths so row never overflows or pushes border
+            const prefixCols = 2 + indentSpaces.length + 2 + (item.isDirectory ? 3 : 0);
+            const suffixCols = sizeStr ? sizeStr.length + 1 : 0;
+            const maxNameLen = Math.max(4, effectiveWidth - 4 - prefixCols - suffixCols);
+            const safeName =
               displayName.length > maxNameLen
                 ? `${displayName.slice(0, maxNameLen - 1)}…`
                 : displayName;
+
+            const spacerCols = Math.max(
+              1,
+              effectiveWidth - 4 - prefixCols - safeName.length - suffixCols,
+            );
+            const spacer = ' '.repeat(spacerCols);
 
             const bg = isSelected ? 'blue' : undefined;
 
@@ -596,20 +615,21 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                 ) : (
                   <Text backgroundColor={bg}>{arrow}</Text>
                 )}
-                <Text backgroundColor={bg}>{icon} </Text>
+                {item.isDirectory && (
+                  <Text backgroundColor={bg}>{folderPrefix}</Text>
+                )}
                 <Text
                   color={isSelected ? 'white' : color}
                   bold={item.isDirectory || isSelected}
                   backgroundColor={bg}
                 >
-                  {truncatedName}
+                  {safeName}
                 </Text>
-                {sizeStr && !item.isDirectory ? (
-                  <Box flexGrow={1} justifyContent="flex-end">
-                    <Text dimColor={!isSelected} color={isSelected ? 'white' : undefined} backgroundColor={bg}>
-                      {sizeStr}
-                    </Text>
-                  </Box>
+                <Text backgroundColor={bg}>{spacer}</Text>
+                {sizeStr ? (
+                  <Text dimColor={!isSelected} color={isSelected ? 'white' : undefined} backgroundColor={bg}>
+                    {sizeStr}
+                  </Text>
                 ) : null}
               </Box>
             );

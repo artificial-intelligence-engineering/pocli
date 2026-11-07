@@ -160,12 +160,12 @@ describe('Feature #84 — Repository Code Tree Explorer Sidebar', () => {
 
   it('6. getFileIconAndColor maps file extensions correctly', () => {
     expect(getFileIconAndColor('dir', true)).toEqual({ icon: '📁', color: 'yellow' });
-    expect(getFileIconAndColor('main.py', false)).toEqual({ icon: '🐍', color: 'green' });
-    expect(getFileIconAndColor('app.ts', false)).toEqual({ icon: '📄', color: 'cyan' });
-    expect(getFileIconAndColor('ARCH-001.md', false)).toEqual({ icon: '📝', color: 'blue' });
-    expect(getFileIconAndColor('pyproject.toml', false)).toEqual({ icon: '⚙', color: 'magenta' });
-    expect(getFileIconAndColor('run.sh', false)).toEqual({ icon: '⚡', color: 'green' });
-    expect(getFileIconAndColor('database.sqlite', false)).toEqual({ icon: '🗄', color: 'red' });
+    expect(getFileIconAndColor('main.py', false)).toEqual({ icon: '', color: 'green' });
+    expect(getFileIconAndColor('app.ts', false)).toEqual({ icon: '', color: 'cyan' });
+    expect(getFileIconAndColor('ARCH-001.md', false)).toEqual({ icon: '', color: 'blue' });
+    expect(getFileIconAndColor('pyproject.toml', false)).toEqual({ icon: '', color: 'magenta' });
+    expect(getFileIconAndColor('run.sh', false)).toEqual({ icon: '', color: 'green' });
+    expect(getFileIconAndColor('database.sqlite', false)).toEqual({ icon: '', color: 'red' });
   });
 });
 
