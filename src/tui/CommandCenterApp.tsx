@@ -486,6 +486,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   // Prompt input, slash command menu & mouse scroll state
   const [inputValue, setInputValue] = useState<string>('');
+  const inputValueRef = useRef<string>('');
+  const roleDraftsRef = useRef<Partial<Record<ActorRole, string>>>({});
+  const activeRoleRef = useRef<ActorRole>(activeRole);
+  activeRoleRef.current = activeRole;
   const [selectedSlashIdx, setSelectedSlashIdx] = useState<number>(0);
   const [messageScrollOffset, setMessageScrollOffset] = useState<number>(0);
   const [chatScrollOffset, setChatScrollOffset] = useState<number>(0);
@@ -783,6 +787,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const goToStartupWindow = () => {
     closeAllModals();
+    inputValueRef.current = '';
     setInputValue('');
     setViewMode('startup');
     setStatusBanner(
@@ -1010,6 +1015,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     // Handle slash commands starting with "/"
     if (trimmed.startsWith('/')) {
       if (viewMode !== 'startup') {
+        inputValueRef.current = '';
         setInputValue('');
         setStatusBanner(
           language === 'es'
@@ -1020,6 +1026,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       const parts = trimmed.split(/\s+/);
       const cmdToken = parts[0].toLowerCase();
+      inputValueRef.current = '';
       setInputValue('');
 
       if (cmdToken === '/exit' || cmdToken === '/quit' || cmdToken === '/q') {
@@ -1522,6 +1529,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // Non-command input entered on the main startup screen
     if (viewMode === 'startup') {
+      inputValueRef.current = '';
       setInputValue('');
       setStatusBanner(
         language === 'es'
@@ -1532,17 +1540,24 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     }
 
     // Normal conversation message sent to the currently active professional
+    inputValueRef.current = '';
     setInputValue('');
+    roleDraftsRef.current[activeRole] = '';
     setRoleDrafts((prev) => ({ ...prev, [activeRole]: '' }));
     void sendChatMessage(activeRole, trimmed);
   };
 
   const switchActiveRole = (nextRole: ActorRole) => {
-    if (nextRole === activeRole) return;
-    const currentDraft = inputValue.trim().startsWith('/') ? '' : inputValue;
-    setRoleDrafts((prev) => ({ ...prev, [activeRole]: currentDraft }));
-    setInputValue(roleDrafts[nextRole] || '');
+    const currentRole = activeRoleRef.current;
+    if (nextRole === currentRole) return;
+    const currentDraft = inputValueRef.current.trim().startsWith('/') ? '' : inputValueRef.current;
+    roleDraftsRef.current[currentRole] = currentDraft;
+    setRoleDrafts((prev) => ({ ...prev, [currentRole]: currentDraft }));
+    const nextDraft = roleDraftsRef.current[nextRole] || '';
+    inputValueRef.current = nextDraft;
+    setInputValue(nextDraft);
     setActiveRole(nextRole);
+    activeRoleRef.current = nextRole;
     setMessageScrollOffset(0);
     setStatusBanner(
       t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
@@ -2947,6 +2962,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     // ESC key navigation: clears input, goes to previous screen, or asks to exit on startup screen
     if (key.escape) {
       if (inputValue.length > 0) {
+        inputValueRef.current = '';
+        roleDraftsRef.current[activeRole] = '';
+        setRoleDrafts((d) => ({ ...d, [activeRole]: '' }));
         setInputValue('');
         return;
       }
@@ -2984,7 +3002,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         const chosen =
           filteredSlashCommands[selectedSlashIdx] ?? filteredSlashCommands[0];
         if (chosen) {
-          setInputValue(`${chosen.command} `);
+          const next = `${chosen.command} `;
+          inputValueRef.current = next;
+          setInputValue(next);
         }
         return;
       }
@@ -3090,6 +3110,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     if (key.backspace || key.delete) {
       setInputValue((prev) => {
         const next = prev.slice(0, -1);
+        inputValueRef.current = next;
+        roleDraftsRef.current[activeRole] = next;
         setRoleDrafts((d) => ({ ...d, [activeRole]: next }));
         return next;
       });
@@ -3111,6 +3133,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       setInputValue((prev) => {
         const next = prev + input;
+        inputValueRef.current = next;
+        roleDraftsRef.current[activeRole] = next;
         setRoleDrafts((d) => ({ ...d, [activeRole]: next }));
         return next;
       });
