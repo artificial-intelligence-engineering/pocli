@@ -45,6 +45,7 @@ import {
   buildChatVisualLines,
   ChatVisualItem,
 } from './chat-scrolling.js';
+import { FileTreeExplorer, useFileTree } from './FileTreeExplorer.js';
 export { wrapTextLines };
 
 export interface CommandCenterProps {
@@ -427,6 +428,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   useEffect(() => {
     currentProjectIdRef.current = project?.id;
   }, [project?.id]);
+
+  // Interactive Left Code Tree Explorer Sidebar (Shift-T)
+  const [isTreeExplorerOpen, setIsTreeExplorerOpen] = useState<boolean>(false);
+  const treeWorkspaceDir = project?.workspaceDir || workDir;
+  const treeState = useFileTree(treeWorkspaceDir, safeViewportHeight - 3);
+  const treeExplorerWidth = isTreeExplorerOpen
+    ? Math.max(24, Math.min(34, Math.floor(dimensions.columns * 0.26)))
+    : 0;
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -1014,6 +1023,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // Handle slash commands starting with "/"
     if (trimmed.startsWith('/')) {
+      const parts = trimmed.split(/\s+/);
+      const cmdToken = parts[0].toLowerCase();
+      if (cmdToken === '/tree' || cmdToken === '/explorer' || cmdToken === '/files') {
+        inputValueRef.current = '';
+        setInputValue('');
+        setIsTreeExplorerOpen((prev) => !prev);
+        return;
+      }
+
       if (viewMode !== 'startup') {
         inputValueRef.current = '';
         setInputValue('');
@@ -1024,8 +1042,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         );
         return;
       }
-      const parts = trimmed.split(/\s+/);
-      const cmdToken = parts[0].toLowerCase();
       inputValueRef.current = '';
       setInputValue('');
 
@@ -1787,6 +1803,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     // 1. Handle Mouse Wheel Scrolling
     if (ev.action === 'wheel') {
       const isUp = ev.button === 'wheel-up';
+      if (isTreeExplorerOpen && !anyModalOpen && ev.x <= treeExplorerWidth + 2) {
+        if (isUp) {
+          treeState.scrollUp(2);
+        } else {
+          treeState.scrollDown(2);
+        }
+        return;
+      }
       if (isModelsModalOpen && filteredModels.length > 0) {
         setSelectedModelIdx((prev) =>
           isUp
@@ -1893,6 +1917,23 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     // 2. Handle Left Mouse Button Click
     if (ev.button === 'left' && ev.action === 'press') {
+      if (isTreeExplorerOpen && !anyModalOpen && ev.x <= treeExplorerWidth + 2) {
+        if (ev.y <= 3) {
+          if (ev.x < Math.floor(treeExplorerWidth / 2)) {
+            treeState.collapseAll();
+          } else {
+            treeState.expandAll();
+          }
+          return;
+        }
+        const itemIdx = treeState.scrollOffset + (ev.y - 4);
+        if (itemIdx >= 0 && itemIdx < treeState.flatItems.length) {
+          treeState.setSelectedIndex(itemIdx);
+          treeState.toggleSelected();
+        }
+        return;
+      }
+
       // 2a. Interactive Models Modal Click Handler
       if (isModelsModalOpen) {
         const modalWidth = Math.max(96, Math.min(136, dimensions.columns - 4));
@@ -2246,6 +2287,64 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     if (isNavigationHome) {
       lastRawInputRef.current = '';
       goToStartupWindow();
+      return;
+    }
+
+    // Shift-T shortcut to toggle the Left Code Tree Explorer Sidebar
+    const isShiftT =
+      !key.ctrl &&
+      !key.meta &&
+      ((key.shift && (input === 't' || input === 'T')) ||
+        (input === 'T' && (inputValueRef.current === '' || isTreeExplorerOpen)) ||
+        rawSeq === '\x1b[84;2u' ||
+        rawSeq === '\x1b[116;2u' ||
+        rawSeq === '\x1b[27;2;84~' ||
+        rawSeq === '\x1b[27;2;116~');
+
+    // If Code Tree Explorer is currently open, handle its navigation and dismiss with Shift-T or Esc
+    if (isTreeExplorerOpen) {
+      if (key.escape || isShiftT) {
+        setIsTreeExplorerOpen(false);
+        return;
+      }
+      if (key.upArrow) {
+        treeState.navigateUp();
+        return;
+      }
+      if (key.downArrow) {
+        treeState.navigateDown();
+        return;
+      }
+      if (key.leftArrow) {
+        treeState.collapseOrParent();
+        return;
+      }
+      if (key.rightArrow) {
+        treeState.expandOrDescend();
+        return;
+      }
+      if (key.return || input === ' ') {
+        treeState.toggleSelected();
+        return;
+      }
+      if (input === 'c' || input === 'C') {
+        treeState.collapseAll();
+        return;
+      }
+      if (input === 'e' || input === 'E') {
+        treeState.expandAll();
+        return;
+      }
+      if (input === 'r' || input === 'R') {
+        treeState.refresh();
+        return;
+      }
+      // Consume all other keys so they do not leak into prompt while tree is focused
+      return;
+    }
+
+    if (isShiftT && !anyModalOpen) {
+      setIsTreeExplorerOpen(true);
       return;
     }
 
@@ -5317,10 +5416,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // full `ansiEscapes.clearTerminal` (\x1b[2J\x1b[3J\x1b[H) on every keystroke.
 
   const sidebarWidth = Math.max(
-    26,
-    Math.min(34, Math.floor(dimensions.columns * 0.25)),
+    24,
+    Math.min(32, Math.floor(dimensions.columns * 0.22)),
   );
-  const unifiedChatBoxWidth = Math.max(30, dimensions.columns - sidebarWidth - 4);
+  const unifiedChatBoxWidth = isTreeExplorerOpen
+    ? Math.max(28, dimensions.columns - treeExplorerWidth - sidebarWidth - 5)
+    : Math.max(30, dimensions.columns - sidebarWidth - 4);
 
   const renderUnifiedPromptBox = (boxWidth: number, placeholder: string) => {
     const innerWidth = Math.max(10, boxWidth - 2);
@@ -5409,43 +5510,54 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isExitConfirmOpen && renderExitConfirmModal()}
           </Box>
         ) : (
-          <Box
-            flexDirection="column"
-            alignItems="center"
-            justifyContent="center"
-            flexGrow={1}
-            width="100%"
-          >
-            <Box flexDirection="column" alignItems="center">
-              {ASCII_LOGO.map((line, idx) => (
-                <Text key={idx} color="cyan" bold>
-                  {line}
-                </Text>
-              ))}
-            </Box>
-
-            <Box marginTop={1} marginBottom={2}>
-              <Text color="cyan">
-                /projects {language === 'es' ? 'para seleccionar proyecto' : 'to switch project'}  ·  /howto {language === 'es' ? 'guía de inicio' : 'getting started'}  ·  /help {language === 'es' ? 'ayuda' : 'help'}
-              </Text>
-            </Box>
-
-            {isSlashMenuOpen && (
-              <Box width={promptBoxWidth} marginBottom={0}>
-                {renderSlashPopoverMenu(promptBoxWidth)}
+          <Box flexDirection="row" width="100%" flexGrow={1} height={Math.max(8, safeViewportHeight - 3)}>
+            {isTreeExplorerOpen && (
+              <Box width={treeExplorerWidth} height="100%" marginRight={1}>
+                <FileTreeExplorer
+                  state={treeState}
+                  width={treeExplorerWidth}
+                  height={Math.max(8, safeViewportHeight - 3)}
+                  language={language}
+                />
               </Box>
             )}
+            <Box
+              flexDirection="column"
+              alignItems="center"
+              justifyContent="center"
+              flexGrow={1}
+            >
+              <Box flexDirection="column" alignItems="center">
+                {ASCII_LOGO.map((line, idx) => (
+                  <Text key={idx} color="cyan" bold>
+                    {line}
+                  </Text>
+                ))}
+              </Box>
 
-            {renderUnifiedPromptBox(
-              promptBoxWidth,
-              project
-                ? (language === 'es'
-                    ? 'Centro de comandos... "/projects para cambiar de proyecto"'
-                    : 'Command center... "/projects to switch project"')
-                : (language === 'es'
-                    ? 'Centro de comandos... "/project para crear un proyecto"'
-                    : 'Command center... "/project to create a new project"'),
-            )}
+              <Box marginTop={1} marginBottom={2}>
+                <Text color="cyan">
+                  /projects {language === 'es' ? 'para seleccionar proyecto' : 'to switch project'}  ·  /howto {language === 'es' ? 'guía de inicio' : 'getting started'}  ·  /help {language === 'es' ? 'ayuda' : 'help'}
+                </Text>
+              </Box>
+
+              {isSlashMenuOpen && (
+                <Box width={promptBoxWidth} marginBottom={0}>
+                  {renderSlashPopoverMenu(promptBoxWidth)}
+                </Box>
+              )}
+
+              {renderUnifiedPromptBox(
+                promptBoxWidth,
+                project
+                  ? (language === 'es'
+                      ? 'Centro de comandos... "/projects para cambiar de proyecto"'
+                      : 'Command center... "/projects to switch project"')
+                  : (language === 'es'
+                      ? 'Centro de comandos... "/project para crear un proyecto"'
+                      : 'Command center... "/project to create a new project"'),
+              )}
+            </Box>
           </Box>
         )}
 
@@ -5777,7 +5889,19 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           </Box>
         ) : (
           <Box flexDirection="row" width="100%" height={contentHeight}>
-            {/* Left Column: Chat Area */}
+            {/* Left Column: Code Repository Tree Explorer (Shift-T) */}
+            {isTreeExplorerOpen && (
+              <Box width={treeExplorerWidth} height={contentHeight} marginRight={1}>
+                <FileTreeExplorer
+                  state={treeState}
+                  width={treeExplorerWidth}
+                  height={contentHeight}
+                  language={language}
+                />
+              </Box>
+            )}
+
+            {/* Main Chat Area */}
             <Box
               flexDirection="column"
               width={chatAreaWidth}
@@ -5967,7 +6091,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text color={isAnyRoleBusy ? 'cyan' : 'gray'}>
               {isAnyRoleBusy ? '■■■···· ' : '■······ '}
             </Text>
-            <Text color="gray">{language === 'es' ? 'esc / ctrl+a principal' : 'esc / ctrl+a main'}</Text>
+            <Text color="gray">{language === 'es' ? 'esc principal' : 'esc main'} · </Text>
+            <Text color={isTreeExplorerOpen ? 'cyan' : 'gray'} bold={isTreeExplorerOpen}>
+              shift+t {language === 'es' ? 'árbol' : 'tree'}
+            </Text>
           </Box>
           <Box flexDirection="row">
             <Text color="gray">ctrl+n </Text>
