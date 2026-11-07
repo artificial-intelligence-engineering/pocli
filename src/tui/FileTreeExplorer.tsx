@@ -569,11 +569,14 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             // Indentation (2 spaces per depth level)
             const indentSpaces = '  '.repeat(item.depth);
 
-            // Directory expand/collapse indicator arrow
+            // Directory expand/collapse indicator arrow.
+            // NOTE: use '▸'/'▾' (always 1 column). '▶' is measured as 2 columns
+            // by Ink's string-width (emoji presentation) but rendered as 1 by
+            // terminals, which overflowed the row and wrapped it onto a blank line.
             const arrow = item.isDirectory
               ? item.isExpanded
-                ? '▼ '
-                : '▶ '
+                ? '▾ '
+                : '▸ '
               : '  ';
 
             const folderPrefix = item.isDirectory ? '📁 ' : '';
@@ -602,35 +605,40 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                 key={item.id}
                 flexDirection="row"
                 width="100%"
+                height={1}
+                flexShrink={0}
                 paddingX={1}
+                overflow="hidden"
               >
-                <Text color={isSelected ? 'white' : 'gray'} backgroundColor={bg} bold={isSelected}>
-                  {isSelected ? '> ' : '  '}
-                </Text>
-                <Text backgroundColor={bg}>{indentSpaces}</Text>
-                {item.isDirectory ? (
-                  <Text color={isSelected ? 'white' : item.isExpanded ? 'cyan' : 'gray'} bold backgroundColor={bg}>
-                    {arrow}
+                <Text wrap="truncate-end">
+                  <Text color={isSelected ? 'white' : 'gray'} backgroundColor={bg} bold={isSelected}>
+                    {isSelected ? '> ' : '  '}
                   </Text>
-                ) : (
-                  <Text backgroundColor={bg}>{arrow}</Text>
-                )}
-                {item.isDirectory && (
-                  <Text backgroundColor={bg}>{folderPrefix}</Text>
-                )}
-                <Text
-                  color={isSelected ? 'white' : color}
-                  bold={item.isDirectory || isSelected}
-                  backgroundColor={bg}
-                >
-                  {safeName}
-                </Text>
-                <Text backgroundColor={bg}>{spacer}</Text>
-                {sizeStr ? (
-                  <Text dimColor={!isSelected} color={isSelected ? 'white' : undefined} backgroundColor={bg}>
-                    {sizeStr}
+                  <Text backgroundColor={bg}>{indentSpaces}</Text>
+                  {item.isDirectory ? (
+                    <Text color={isSelected ? 'white' : item.isExpanded ? 'cyan' : 'gray'} bold backgroundColor={bg}>
+                      {arrow}
+                    </Text>
+                  ) : (
+                    <Text backgroundColor={bg}>{arrow}</Text>
+                  )}
+                  {item.isDirectory ? (
+                    <Text backgroundColor={bg}>{folderPrefix}</Text>
+                  ) : null}
+                  <Text
+                    color={isSelected ? 'white' : color}
+                    bold={item.isDirectory || isSelected}
+                    backgroundColor={bg}
+                  >
+                    {safeName}
                   </Text>
-                ) : null}
+                  <Text backgroundColor={bg}>{spacer}</Text>
+                  {sizeStr ? (
+                    <Text dimColor={!isSelected} color={isSelected ? 'white' : undefined} backgroundColor={bg}>
+                      {sizeStr}
+                    </Text>
+                  ) : null}
+                </Text>
               </Box>
             );
           })
