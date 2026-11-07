@@ -1106,13 +1106,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         if (!voiceService.hasConfiguredSttProvider()) {
           const warnText =
             language === 'es'
-              ? '⚠ Falta API key de STT (Groq, Gemini u OpenAI). Configúrala con /auth para reconocimiento de voz.'
-              : '⚠ Missing STT API key (Groq, Gemini, or OpenAI). Configure with /auth for voice recognition.';
+              ? '⚠ No se detectó motor de voz nativo (Vosk o whisper-cli). Instala Vosk para transcripción local sin tokens.'
+              : '⚠ No native STT engine detected (Vosk or whisper-cli). Install Vosk for local 0-token speech recognition.';
           setStatusBanner(warnText);
           const voicePrompt =
             language === 'es'
-              ? 'Atención: falta configurar una clave de API para reconocimiento de voz. Usa el comando auth para configurarla.'
-              : 'Warning: Missing Speech-to-Text API key. Please configure it with the auth command.';
+              ? 'Atención: no se ha detectado un reconocedor de voz nativo en el sistema operativo.'
+              : 'Warning: No native speech recognition engine detected on the operating system.';
           void voiceService.speak(voicePrompt, { language });
           return;
         }
@@ -5812,7 +5812,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           paddingTop={0}
         >
           <Text dimColor>
-            STT Engine ({language === 'es' ? 'Voz a Texto' : 'Speech-to-Text'}):{' '}
+            STT Engine ({language === 'es' ? 'Voz a Texto Nativo OS' : 'Native OS Speech-to-Text'}):{' '}
           </Text>
           <Text
             bold
@@ -5820,8 +5820,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           >
             {voiceService.getConfiguredSttProviderName() ||
               (language === 'es'
-                ? '✖ NO CONFIGURADO (Groq / Gemini / OpenAI en /auth)'
-                : '✖ NOT CONFIGURED (Groq / Gemini / OpenAI in /auth)')}
+                ? '✖ NO DISPONIBLE (Instala Vosk o whisper-cli local)'
+                : '✖ NOT AVAILABLE (Install Vosk or local whisper-cli)')}
           </Text>
         </Box>
 

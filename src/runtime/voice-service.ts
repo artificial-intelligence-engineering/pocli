@@ -1,7 +1,14 @@
-import { spawn, execSync, ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, execSync, ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import * as os from 'node:os';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ActorRole } from '../core/contracts.js';
 import { AuthStorage } from '../core/auth.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export type VoiceState = 'idle' | 'listening' | 'transcribing' | 'speaking' | 'muted';
 
@@ -19,10 +26,105 @@ export interface AudioHardwareInfo {
   captureMode: string;
 }
 
+export function findNativePythonBinary(): string | null {
+  const candidates = [
+    process.env.POCLI_PYTHON_BIN,
+    process.env.PYTHON_BIN,
+    path.join(os.homedir(), 'miniconda3', 'bin', 'python'),
+    path.join(os.homedir(), 'anaconda3', 'bin', 'python'),
+    path.join(os.homedir(), '.conda', 'bin', 'python'),
+    'python3',
+    'python',
+    '/usr/bin/python3',
+  ].filter(Boolean) as string[];
+
+  for (const py of candidates) {
+    try {
+      const res = spawnSync(py, ['-c', 'import vosk; print("ok")'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2000,
+      });
+      if (res.status === 0 && res.stdout.includes('ok')) {
+        return py;
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+
+  for (const py of ['python3', '/usr/bin/python3', path.join(os.homedir(), 'miniconda3', 'bin', 'python')]) {
+    try {
+      const res = spawnSync(py, ['--version'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2000,
+      });
+      if (res.status === 0) return py;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return null;
+}
+
+export function getNativeSttScriptPath(): string {
+  const candidates = [
+    path.join(__dirname, 'native-stt.py'),
+    path.resolve(process.cwd(), 'src', 'runtime', 'native-stt.py'),
+    path.resolve(process.cwd(), 'dist', 'runtime', 'native-stt.py'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0];
+}
+
+export function detectNativeSttEngine(): string | null {
+  const py = findNativePythonBinary();
+  if (py) {
+    try {
+      const res = spawnSync(py, ['-c', 'import vosk; print("ok")'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2000,
+      });
+      if (res.status === 0 && res.stdout.includes('ok')) {
+        return 'Vosk (Kaldi Local STT · 0 Tokens)';
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    const whisperRes = spawnSync('which', ['whisper-cli'], { encoding: 'utf8' });
+    if (whisperRes.status === 0 && whisperRes.stdout.trim()) {
+      return 'whisper-cli (Local Native C++ · 0 Tokens)';
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const psRes = spawnSync('which', ['pocketsphinx'], { encoding: 'utf8' });
+    if (psRes.status === 0 && psRes.stdout.trim()) {
+      return 'PocketSphinx (Local Native · 0 Tokens)';
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
 export function getConfiguredSttProviderName(): string | null {
-  if (AuthStorage.getApiKey('groq')) return 'Groq (Whisper-v3-turbo)';
-  if (AuthStorage.getApiKey('openai')) return 'OpenAI (Whisper-1)';
-  if (AuthStorage.getApiKey('gemini')) return 'Google Gemini (Multimodal)';
+  const nativeEngine = detectNativeSttEngine();
+  if (nativeEngine) return nativeEngine;
+  if (AuthStorage.getApiKey('groq')) return 'Groq (Whisper-v3-turbo · Fallback)';
+  if (AuthStorage.getApiKey('openai')) return 'OpenAI (Whisper-1 · Fallback)';
+  if (AuthStorage.getApiKey('gemini')) return 'Google Gemini (Multimodal · Fallback)';
   return null;
 }
 
@@ -282,12 +384,14 @@ export function parseVoiceIntent(
 
   // 4. Switch Agent Intents
   const prefix =
-    '(?:quiero\\s+hablar\\s+con|p[aá]same\\s+con|p[aá]same\\s+al?|p[aá]same|hablar\\s+con|conectar\\s+con|cambia(?:r)?\\s+(?:a|al)?|talk\\s+to|switch\\s+to|connect\\s+to)\\s+(?:el\\s+|la\\s+|the\\s+)?';
+    '(?:quiero\\s+(?:hablar\\s+)?con|ponme\\s+con|p[aá]same\\s+con|p[aá]same\\s+al?|p[aá]same|hablar\\s+con|conectar\\s+con|cambia(?:r)?\\s+(?:a|al)?|ir\\s+al?|talk\\s+to|switch\\s+to|connect\\s+to|speak\\s+to|speak\\s+with)\\s+(?:el\\s+|la\\s+|the\\s+)?';
 
-  // 3a. Architect
-  if (
-    new RegExp(`${prefix}(?:arquitecto|architect)`, 'i').test(lower)
-  ) {
+  const matchesRole = (roleRegex: string) =>
+    new RegExp(`^(?:(?:con|al|a|el|la|the)\\s+)*${roleRegex}$`, 'i').test(lower) ||
+    new RegExp(`${prefix}${roleRegex}`, 'i').test(lower);
+
+  // 4a. Architect
+  if (matchesRole('(?:arquitecto|architect)')) {
     return {
       type: 'switch_agent',
       targetRole: 'architect',
@@ -296,10 +400,8 @@ export function parseVoiceIntent(
     };
   }
 
-  // 3b. Developer
-  if (
-    new RegExp(`${prefix}(?:desarrollador|developer|dev)`, 'i').test(lower)
-  ) {
+  // 4b. Developer
+  if (matchesRole('(?:desarrollador|developer|dev|programador)')) {
     return {
       type: 'switch_agent',
       targetRole: 'developer',
@@ -308,12 +410,8 @@ export function parseVoiceIntent(
     };
   }
 
-  // 3c. QA Engineer
-  if (
-    new RegExp(`${prefix}(?:qa|tester|control\\s+de\\s+calidad|ingeniero\\s+de\\s+qa)`, 'i').test(
-      lower,
-    )
-  ) {
+  // 4c. QA Engineer
+  if (matchesRole('(?:qa|tester|control\\s+de\\s+calidad|ingeniero\\s+de\\s+qa)')) {
     return {
       type: 'switch_agent',
       targetRole: 'qa',
@@ -322,13 +420,8 @@ export function parseVoiceIntent(
     };
   }
 
-  // 3d. Project Manager (PM)
-  if (
-    new RegExp(
-      `${prefix}(?:pm|project\\s+manager|gestor\\s+de\\s+proyecto|jefe\\s+de\\s+proyecto)`,
-      'i',
-    ).test(lower)
-  ) {
+  // 4d. Project Manager (PM)
+  if (matchesRole('(?:pm|project\\s+manager|gestor\\s+de\\s+proyecto|jefe\\s+de\\s+proyecto)')) {
     return {
       type: 'switch_agent',
       targetRole: 'pm',
@@ -475,6 +568,7 @@ export class VoiceService extends EventEmitter {
 
   public hasConfiguredSttProvider(): boolean {
     return Boolean(
+      detectNativeSttEngine() ||
       AuthStorage.getApiKey('groq') ||
       AuthStorage.getApiKey('openai') ||
       AuthStorage.getApiKey('gemini'),
@@ -695,8 +789,8 @@ export class VoiceService extends EventEmitter {
       if (!this.hasConfiguredSttProvider()) {
         const errorMsg =
           this.language === 'es'
-            ? '⚠ Falta API key para transcripción (Groq, Gemini u OpenAI). Configúrala con /auth.'
-            : '⚠ Missing STT API key (Groq, Gemini, or OpenAI). Configure using /auth.';
+            ? '⚠ Falta motor de reconocimiento de voz nativo (Vosk o whisper-cli).'
+            : '⚠ Missing native speech recognition engine (Vosk or whisper-cli).';
         this.emit('error', new Error(errorMsg));
         return;
       }
@@ -716,14 +810,25 @@ export class VoiceService extends EventEmitter {
   }
 
   /**
-   * Transcribes WAV audio buffer to text via Groq Whisper, OpenAI Whisper, Gemini, or simulated fallback.
+   * Transcribes WAV audio buffer using native OS STT (Vosk/Kaldi, whisper-cli, PocketSphinx - 0 tokens),
+   * with secondary cloud API fallback if native tool is unavailable.
    */
   public async transcribeAudio(wavBuffer: Buffer): Promise<string> {
+    // 1. Primary: Native OS Speech-to-Text (0 LLM Tokens, 100% Offline)
+    try {
+      const nativeText = await this.transcribeViaNativeOs(wavBuffer);
+      if (nativeText && nativeText.trim()) {
+        return nativeText.trim();
+      }
+    } catch {
+      // Continue to cloud fallback
+    }
+
     const groqKey = AuthStorage.getApiKey('groq');
     const openaiKey = AuthStorage.getApiKey('openai');
     const geminiKey = AuthStorage.getApiKey('gemini');
 
-    // 1. Try Groq Whisper (Ultra low latency ~200ms)
+    // 2. Secondary Fallback: Groq Whisper
     if (groqKey) {
       try {
         const formData = new FormData();
@@ -817,6 +922,49 @@ export class VoiceService extends EventEmitter {
     }
 
     return '';
+  }
+
+  /**
+   * Transcribes audio using native OS tools (Vosk / Kaldi, whisper-cli, PocketSphinx)
+   * without consuming any LLM or cloud API tokens.
+   */
+  private async transcribeViaNativeOs(wavBuffer: Buffer): Promise<string | null> {
+    const py = findNativePythonBinary();
+    if (!py) return null;
+
+    const tmpWav = path.join(
+      os.tmpdir(),
+      `pocli-voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.wav`,
+    );
+
+    try {
+      fs.writeFileSync(tmpWav, wavBuffer);
+      const scriptPath = getNativeSttScriptPath();
+      const res = spawnSync(py, [scriptPath, this.language, tmpWav], {
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+
+      if (res.status === 0 && res.stdout.trim()) {
+        try {
+          const json = JSON.parse(res.stdout.trim()) as { text?: string; error?: string };
+          if (json.text) {
+            return json.text.trim();
+          }
+        } catch {
+          // not json output
+        }
+      }
+    } catch {
+      // ignore native error
+    } finally {
+      try {
+        if (fs.existsSync(tmpWav)) fs.unlinkSync(tmpWav);
+      } catch {
+        // ignore error
+      }
+    }
+    return null;
   }
 
   /**

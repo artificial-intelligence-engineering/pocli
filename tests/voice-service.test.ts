@@ -63,6 +63,21 @@ describe('VoiceService — Real-time Bidirectional Live Voice System', () => {
         roleName: 'Software Architect',
         originalUtterance: 'I want to talk to the architect',
       });
+
+      expect(parseVoiceIntent('quiero con el arquitecto')).toMatchObject({
+        type: 'switch_agent',
+        targetRole: 'architect',
+      });
+
+      expect(parseVoiceIntent('con el arquitecto')).toMatchObject({
+        type: 'switch_agent',
+        targetRole: 'architect',
+      });
+
+      expect(parseVoiceIntent('arquitecto')).toMatchObject({
+        type: 'switch_agent',
+        targetRole: 'architect',
+      });
     });
 
     it('detects switch to Developer', () => {
@@ -288,6 +303,15 @@ describe('VoiceService — Real-time Bidirectional Live Voice System', () => {
       // Toggle back to original state
       const restored = toggleSourceMute();
       expect(typeof restored.sourceMuted).toBe('boolean');
+    });
+
+    it('detects native STT provider correctly', () => {
+      const service = new VoiceService({ language: 'es' });
+      expect(typeof service.hasConfiguredSttProvider()).toBe('boolean');
+      const name = service.getConfiguredSttProviderName();
+      if (name) {
+        expect(typeof name).toBe('string');
+      }
     });
   });
 });
