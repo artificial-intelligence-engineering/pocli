@@ -46,6 +46,12 @@ import {
   ChatVisualItem,
 } from './chat-scrolling.js';
 import { FileTreeExplorer, useFileTree } from './FileTreeExplorer.js';
+import {
+  VoiceService,
+  VoiceState,
+  VoiceIntent,
+  getSwitchConfirmationText,
+} from '../runtime/voice-service.js';
 export { wrapTextLines };
 
 export interface CommandCenterProps {
@@ -438,6 +444,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     108,
     Math.max(68, Math.min(dimensions.columns - 6, 88 + treeWidthAdjustment)),
   );
+
+  // Bidirectional Real-time Live Voice Service (/live and /mute)
+  const [voiceService] = useState<VoiceService>(
+    () => new VoiceService({ language, autoSpeakReplies: true }),
+  );
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -1035,6 +1047,32 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
 
+      if (cmdToken === '/live') {
+        inputValueRef.current = '';
+        setInputValue('');
+        if (!voiceService.isLive()) {
+          void voiceService.startLive();
+          setStatusBanner(t.liveModeActivated);
+          const greeting =
+            language === 'es'
+              ? 'Modo de voz activado. Estoy escuchando.'
+              : 'Live voice mode activated. I am listening.';
+          void voiceService.speak(greeting, { language });
+        } else {
+          voiceService.unmute();
+          setStatusBanner(t.liveModeActivated);
+        }
+        return;
+      }
+
+      if (cmdToken === '/mute') {
+        inputValueRef.current = '';
+        setInputValue('');
+        voiceService.mute();
+        setStatusBanner(t.liveModeDeactivated);
+        return;
+      }
+
       if (viewMode !== 'startup') {
         inputValueRef.current = '';
         setInputValue('');
@@ -1577,6 +1615,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setInputValue(nextDraft);
     setActiveRole(nextRole);
     activeRoleRef.current = nextRole;
+    voiceService.setCurrentRole(nextRole);
     setMessageScrollOffset(0);
     setStatusBanner(
       t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
@@ -1706,6 +1745,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setChatScrollOffset(0);
         setMessagesVersion((prev) => prev + 1);
         refreshState();
+
+        if (voiceService.isLive() && res.reply) {
+          void voiceService.speak(res.reply, { language });
+        }
       }
 
       if (res.autonomousHandoff?.nextRole === 'developer') {
@@ -1768,6 +1811,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setChatScrollOffset(0);
         setMessagesVersion((prev) => prev + 1);
         refreshState();
+
+        if (voiceService.isLive() && cleanMsg) {
+          void voiceService.speak(cleanMsg, { language });
+        }
       } else {
         orchestrator.storage.recordMessage({
           projectId: taskProjectId,
@@ -1801,6 +1848,86 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const selectRoleByMouse = (role: ActorRole) => {
     switchActiveRole(role);
   };
+
+  useEffect(() => {
+    voiceService.setLanguage(language);
+    voiceService.setCurrentRole(activeRole);
+  }, [language, activeRole, voiceService]);
+
+  useEffect(() => {
+    const onStateChange = (st: VoiceState) => {
+      setVoiceState(st);
+    };
+
+    const onTranscription = async (evt: { text: string; intent: VoiceIntent }) => {
+      const { intent } = evt;
+      if (!intent) return;
+
+      if (intent.type === 'switch_agent' && intent.targetRole) {
+        const targetRole = intent.targetRole;
+        switchActiveRole(targetRole);
+        setViewMode('chat');
+        const confirmText = getSwitchConfirmationText(targetRole, language);
+        setStatusBanner(`🎙 ${confirmText}`);
+
+        if (project) {
+          try {
+            orchestrator.storage.recordMessage({
+              projectId: project.id,
+              fromRole: 'product_owner',
+              toRole: targetRole,
+              content: `🎙 [VOZ]: ${intent.originalUtterance}`,
+            });
+            orchestrator.storage.recordMessage({
+              projectId: project.id,
+              fromRole: targetRole,
+              toRole: 'product_owner',
+              content: confirmText,
+            });
+            refreshState();
+          } catch {
+            // ignore
+          }
+        }
+        void voiceService.speak(confirmText, { language });
+        return;
+      }
+
+      if (intent.type === 'mute') {
+        voiceService.mute();
+        setStatusBanner(t.liveModeDeactivated);
+        const muteMsg = language === 'es' ? 'Modo de voz silenciado.' : 'Voice mode muted.';
+        void voiceService.speak(muteMsg, { language });
+        return;
+      }
+
+      if (intent.type === 'unmute') {
+        voiceService.unmute();
+        setStatusBanner(t.liveModeActivated);
+        return;
+      }
+
+      if (intent.type === 'agent_message' && intent.text) {
+        setViewMode('chat');
+        void sendChatMessage(activeRoleRef.current, intent.text);
+      }
+    };
+
+    const onError = (err: unknown) => {
+      setStatusBanner(`✖ Audio: ${(err as Error)?.message || String(err)}`);
+    };
+
+    voiceService.on('state_change', onStateChange);
+    voiceService.on('transcription', onTranscription);
+    voiceService.on('error', onError);
+
+    return () => {
+      voiceService.off('state_change', onStateChange);
+      voiceService.off('transcription', onTranscription);
+      voiceService.off('error', onError);
+      voiceService.stopLive();
+    };
+  }, [voiceService, language, project, t]);
 
   const handleMouseEvent = (ev: ParsedMouseEvent) => {
     // 1. Handle Mouse Wheel Scrolling
@@ -3344,7 +3471,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       activeModelCfg.modelId,
     );
     const projLabel = project ? project.name : (language === 'es' ? 'Sin proyecto' : 'No project');
-    const bannerText = ` ${projLabel}  │  ${activeRoleDisplayName}  │  ${vendorLabel}/${activeModelCfg.modelId} `;
+    let liveVoiceBadge = '';
+    if (voiceState === 'listening') {
+      liveVoiceBadge = `  │  🎙 ${t.liveStateListening}`;
+    } else if (voiceState === 'transcribing') {
+      liveVoiceBadge = `  │  ⏳ ${t.liveStateTranscribing}`;
+    } else if (voiceState === 'speaking') {
+      liveVoiceBadge = `  │  🔊 ${t.liveStateSpeaking}`;
+    } else if (voiceState === 'muted') {
+      liveVoiceBadge = '  │  🔇 MUTED';
+    }
+    const bannerText = ` ${projLabel}  │  ${activeRoleDisplayName}  │  ${vendorLabel}/${activeModelCfg.modelId}${liveVoiceBadge} `;
     const fullBannerLine = fitAndPadLine(bannerText, barWidth);
 
     return (
@@ -6113,6 +6250,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text color="gray">{language === 'es' ? 'esc principal' : 'esc main'} · </Text>
             <Text color={isTreeExplorerOpen ? 'cyan' : 'gray'} bold={isTreeExplorerOpen}>
               shift+t {language === 'es' ? 'árbol' : 'tree'}
+            </Text>
+            <Text color={voiceService.isLive() ? 'green' : 'gray'} bold={voiceService.isLive()}>
+              {' · '}/live {language === 'es' ? 'voz' : 'voice'}
             </Text>
           </Box>
           <Box flexDirection="row">
