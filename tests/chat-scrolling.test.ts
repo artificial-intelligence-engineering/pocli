@@ -6,6 +6,7 @@ import {
   calculateScrollJump,
   sliceChatLines,
   buildChatVisualLines,
+  alignMarkdownTableBlock,
   ChatVisualItem,
 } from '../src/tui/chat-scrolling.js';
 
@@ -373,6 +374,72 @@ describe('Chat Scrolling & Scrollbar Geometry', () => {
       const res = filterToolingStream(raw);
       expect(res.displayText).toBe('Generando especificación técnica...');
       expect(res.isTooling).toBe(true);
+    });
+  });
+
+  describe('alignMarkdownTableBlock (Issue #80)', () => {
+    it('aligns unpadded markdown tables so all columns are squared', () => {
+      const input = [
+        '| Artifact | Type | Version | Operation | File |',
+        '| :--- | :--- | :--- | :--- | :--- |',
+        '| `CODE-001` | Source Code | v18 | Modified | `repos/inventario-service.git/src/app-module.js` |',
+        '| `TEST-EXEC-001` | OBSERVATION | v4 | Modified | `outputs/unit_test_execution.md` |',
+        '| `IMP-001` | Logbook (IMP) | v2 | Modified | `contracts/implementation/IMP-001_v2.md` |',
+      ];
+
+      const aligned = alignMarkdownTableBlock(input);
+      expect(aligned).toHaveLength(5);
+      expect(aligned[0].isHeader).toBe(true);
+      expect(aligned[1].isSep).toBe(true);
+
+      // Verify all lines have equal character length (perfectly squared columns)
+      const expectedLength = aligned[0].text.length;
+      for (const row of aligned) {
+        expect(row.text.length).toBe(expectedLength);
+        expect(row.text.startsWith('| ')).toBe(true);
+        expect(row.text.endsWith(' |')).toBe(true);
+      }
+
+      // Check pipe positions match in every row
+      const pipeIndices = (str: string) =>
+        [...str].flatMap((ch, idx) => (ch === '|' ? [idx] : []));
+      const refPipes = pipeIndices(aligned[0].text);
+      for (const row of aligned) {
+        expect(pipeIndices(row.text)).toEqual(refPipes);
+      }
+    });
+
+    it('buildChatVisualLines integrates table alignment and marks visual items', () => {
+      const content = [
+        'Resumen de artefactos generados:',
+        '| Artifact | Type | Version |',
+        '| :--- | :--- | :--- |',
+        '| `CODE-001` | Source Code | v1 |',
+        '| `SPEC-001` | Specification | v2 |',
+        'Fin del reporte.',
+      ].join('\n');
+
+      const lines = buildChatVisualLines({
+        messages: [
+          {
+            id: 'm1',
+            fromRole: 'architect',
+            content,
+          },
+        ],
+        chatContentWidth: 100,
+      });
+
+      const tableItems = lines.filter((l) => l.isTableLine);
+      expect(tableItems).toHaveLength(4); // header, sep, and 2 data rows
+      expect(tableItems[0].isTableHeader).toBe(true);
+      expect(tableItems[1].isTableSep).toBe(true);
+
+      // All table items have identical character lengths
+      const lineLen = tableItems[0].text.length;
+      tableItems.forEach((item) => {
+        expect(item.text.length).toBe(lineLen);
+      });
     });
   });
 });

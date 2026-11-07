@@ -126,6 +126,9 @@ export interface ChatVisualItem {
   queueBadge?: string;
   sourceMessageId?: string | number;
   codeBorderLang?: string;
+  isTableLine?: boolean;
+  isTableHeader?: boolean;
+  isTableSep?: boolean;
 }
 
 export interface BuildChatVisualLinesOptions {
@@ -266,6 +269,60 @@ export function sliceChatLines(
     endLineIdx,
     emptyPaddingRows: Math.max(0, safeViewport - visibleLines.length),
   };
+}
+
+/**
+ * Aligns columns across all rows in a markdown table block so vertical pipe
+ * delimiters form straight, aligned vertical columns in text mode.
+ */
+export function alignMarkdownTableBlock(
+  tableLines: string[],
+): Array<{ text: string; isHeader: boolean; isSep: boolean }> {
+  if (tableLines.length === 0) return [];
+
+  const parsedRows = tableLines.map((line) => {
+    const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+    return trimmed.split('|').map((c) => c.trim());
+  });
+
+  const maxCols = Math.max(...parsedRows.map((r) => r.length), 1);
+  parsedRows.forEach((r) => {
+    while (r.length < maxCols) r.push('');
+  });
+
+  const colWidths = Array.from({ length: maxCols }, (_, c) => {
+    return Math.max(
+      ...parsedRows.map((r) => {
+        const val = r[c] || '';
+        if (val.includes('---')) return 3;
+        return val.length;
+      }),
+      3,
+    );
+  });
+
+  return parsedRows.map((row, rIdx) => {
+    const isSep = rIdx === 1 || row.some((c) => c.includes('---'));
+    const isHeader = rIdx === 0 && !isSep;
+    const cells = row.map((val, c) => {
+      const w = colWidths[c];
+      if (isSep) {
+        const alignRight = val.endsWith(':');
+        const alignLeft = val.startsWith(':');
+        if (alignLeft && alignRight) return `:${'-'.repeat(Math.max(1, w - 2))}:`;
+        if (alignLeft) return `:${'-'.repeat(Math.max(1, w - 1))}`;
+        if (alignRight) return `${'-'.repeat(Math.max(1, w - 1))}:`;
+        return '-'.repeat(w);
+      }
+      return val.padEnd(w);
+    });
+
+    return {
+      text: `| ${cells.join(' | ')} |`,
+      isHeader,
+      isSep,
+    };
+  });
 }
 
 /**
@@ -453,6 +510,46 @@ export function buildChatVisualLines(
             kind: 'assistant-code-line',
             text: line,
             sourceMessageId: m.id,
+          });
+        } else if (/^\s*\|.*\|\s*$/.test(line)) {
+          // Detect table block: collect consecutive table candidate lines
+          let tableEnd = i;
+          while (
+            tableEnd < contentLines.length &&
+            /^\s*\|.*\|\s*$/.test(contentLines[tableEnd])
+          ) {
+            tableEnd++;
+          }
+          const candidateLines = contentLines.slice(i, tableEnd);
+          const hasSeparator =
+            candidateLines.length >= 2 && candidateLines[1].includes('---');
+          if (hasSeparator) {
+            const aligned = alignMarkdownTableBlock(candidateLines);
+            aligned.forEach((tRow, tIdx) => {
+              result.push({
+                id: `msg-${m.id}-table-${i}-${tIdx}`,
+                kind: 'assistant-text',
+                text: tRow.text,
+                isTableLine: true,
+                isTableHeader: tRow.isHeader,
+                isTableSep: tRow.isSep,
+                isError: isErrMsg,
+                sourceMessageId: m.id,
+              });
+            });
+            i = tableEnd - 1;
+            continue;
+          }
+          // If not a full table with separator, fall back to normal text wrapping
+          const wrapped = wrapTextLines(line, Math.max(10, safeWidth - 4));
+          wrapped.forEach((wLine, wIdx) => {
+            result.push({
+              id: `msg-${m.id}-text-${i}-${wIdx}`,
+              kind: 'assistant-text',
+              text: wLine,
+              isError: isErrMsg,
+              sourceMessageId: m.id,
+            });
           });
         } else {
           if (line === '') {
