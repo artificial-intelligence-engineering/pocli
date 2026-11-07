@@ -15,7 +15,15 @@ export interface AudioHardwareInfo {
   sourceMuted: boolean;
   sinkMuted: boolean;
   ttsEngine: string;
+  sttEngine: string;
   captureMode: string;
+}
+
+export function getConfiguredSttProviderName(): string | null {
+  if (AuthStorage.getApiKey('groq')) return 'Groq (Whisper-v3-turbo)';
+  if (AuthStorage.getApiKey('openai')) return 'OpenAI (Whisper-1)';
+  if (AuthStorage.getApiKey('gemini')) return 'Google Gemini (Multimodal)';
+  return null;
 }
 
 export function getAudioHardwareInfo(): AudioHardwareInfo {
@@ -106,6 +114,7 @@ export function getAudioHardwareInfo(): AudioHardwareInfo {
     sourceMuted,
     sinkMuted,
     ttsEngine: 'speech-dispatcher (spd-say)',
+    sttEngine: getConfiguredSttProviderName() || 'Not Configured (Requires Groq, Gemini, or OpenAI)',
     captureMode: 'arecord 16000Hz mono S16_LE (PipeWire/ALSA)',
   };
 }
@@ -430,13 +439,16 @@ export class VoiceService extends EventEmitter {
   private speechChunks: Buffer[] = [];
   private hasSpoken = false;
   private lastSoundTimestamp = 0;
+  private noiseFloor = 300;
+  private utteranceStartTime = 0;
+  private maxUtteranceMs = 6000;
   private silenceCheckTimer: NodeJS.Timeout | null = null;
   private activeTtsProcess: ChildProcess | null = null;
 
   constructor(options: VoiceServiceOptions = {}) {
     super();
     this.language = options.language ?? 'es';
-    this.vadSilenceMs = options.vadSilenceMs ?? 1200;
+    this.vadSilenceMs = options.vadSilenceMs ?? 900;
     this.vadRmsThreshold = options.vadRmsThreshold ?? 400;
     this.autoSpeakReplies = options.autoSpeakReplies ?? true;
   }
@@ -459,6 +471,18 @@ export class VoiceService extends EventEmitter {
 
   public isMuted(): boolean {
     return this.state === 'muted';
+  }
+
+  public hasConfiguredSttProvider(): boolean {
+    return Boolean(
+      AuthStorage.getApiKey('groq') ||
+      AuthStorage.getApiKey('openai') ||
+      AuthStorage.getApiKey('gemini'),
+    );
+  }
+
+  public getConfiguredSttProviderName(): string | null {
+    return getConfiguredSttProviderName();
   }
 
   private setState(next: VoiceState): void {
@@ -553,10 +577,17 @@ export class VoiceService extends EventEmitter {
         const rms = computeRmsVolume(chunk);
         const db = rms > 0 ? Math.max(-60, Math.round(20 * Math.log10(rms / 32768))) : -60;
 
+        // Dynamic Speech Detection Threshold based on background noise floor
+        const dynamicThreshold = Math.max(this.vadRmsThreshold, this.noiseFloor * 1.5 + 400);
+        const isSpeech = rms >= dynamicThreshold;
+
         // Emit real-time audio levels for the /check mixer VU-meter
         this.emit('audio_level', {
           rms,
           db,
+          isSpeech,
+          noiseFloor: this.noiseFloor,
+          dynamicThreshold,
           isSpeaking: this.state === 'speaking',
           state: this.state,
         });
@@ -571,10 +602,19 @@ export class VoiceService extends EventEmitter {
 
         const now = Date.now();
 
-        if (rms >= this.vadRmsThreshold) {
-          this.hasSpoken = true;
+        if (isSpeech) {
+          if (!this.hasSpoken) {
+            this.hasSpoken = true;
+            this.utteranceStartTime = now;
+            this.emit('utterance_start');
+          }
           this.lastSoundTimestamp = now;
           this.speechChunks.push(chunk);
+
+          // Hard safety limit: force utterance complete if speaking continuously for > maxUtteranceMs
+          if (now - this.utteranceStartTime >= this.maxUtteranceMs) {
+            this.handleUtteranceComplete();
+          }
         } else if (this.hasSpoken) {
           // Keep trailing silence chunks up to vadSilenceMs for smooth utterance boundaries
           this.speechChunks.push(chunk);
@@ -582,6 +622,9 @@ export class VoiceService extends EventEmitter {
             // Voice Activity Detection triggered end-of-utterance
             this.handleUtteranceComplete();
           }
+        } else {
+          // Adapt noise floor slowly during silence
+          this.noiseFloor = this.noiseFloor * 0.95 + rms * 0.05;
         }
       });
 
@@ -649,6 +692,15 @@ export class VoiceService extends EventEmitter {
     this.setState('transcribing');
 
     try {
+      if (!this.hasConfiguredSttProvider()) {
+        const errorMsg =
+          this.language === 'es'
+            ? '⚠ Falta API key para transcripción (Groq, Gemini u OpenAI). Configúrala con /auth.'
+            : '⚠ Missing STT API key (Groq, Gemini, or OpenAI). Configure using /auth.';
+        this.emit('error', new Error(errorMsg));
+        return;
+      }
+
       const transcription = await this.transcribeAudio(wavBuffer);
       if (transcription.trim()) {
         const intent = parseVoiceIntent(transcription, this.currentRole, this.language);

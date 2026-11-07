@@ -1103,6 +1103,20 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (cmdToken === '/live') {
         inputValueRef.current = '';
         setInputValue('');
+        if (!voiceService.hasConfiguredSttProvider()) {
+          const warnText =
+            language === 'es'
+              ? '⚠ Falta API key de STT (Groq, Gemini u OpenAI). Configúrala con /auth para reconocimiento de voz.'
+              : '⚠ Missing STT API key (Groq, Gemini, or OpenAI). Configure with /auth for voice recognition.';
+          setStatusBanner(warnText);
+          const voicePrompt =
+            language === 'es'
+              ? 'Atención: falta configurar una clave de API para reconocimiento de voz. Usa el comando auth para configurarla.'
+              : 'Warning: Missing Speech-to-Text API key. Please configure it with the auth command.';
+          void voiceService.speak(voicePrompt, { language });
+          return;
+        }
+
         if (!voiceService.isLive()) {
           void voiceService.startLive();
           isAwaitingVoiceLanguageRef.current = true;
@@ -5787,6 +5801,28 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               </Box>
             </Box>
           </Box>
+        </Box>
+
+        {/* STT Speech-to-Text Status */}
+        <Box
+          flexDirection="row"
+          justifyContent="space-between"
+          marginTop={0}
+          marginBottom={1}
+          paddingTop={0}
+        >
+          <Text dimColor>
+            STT Engine ({language === 'es' ? 'Voz a Texto' : 'Speech-to-Text'}):{' '}
+          </Text>
+          <Text
+            bold
+            color={voiceService.hasConfiguredSttProvider() ? 'green' : 'red'}
+          >
+            {voiceService.getConfiguredSttProviderName() ||
+              (language === 'es'
+                ? '✖ NO CONFIGURADO (Groq / Gemini / OpenAI en /auth)'
+                : '✖ NOT CONFIGURED (Groq / Gemini / OpenAI in /auth)')}
+          </Text>
         </Box>
 
         {/* Footer controls */}
