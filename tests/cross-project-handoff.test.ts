@@ -304,11 +304,27 @@ describe('Feature #66 — Cross-Project Task and Autonomous Handoff Isolation', 
     expect(impArt!.content).toContain('100% green');
     expect(impArt!.content).toContain('100% statement and branch coverage');
 
-    // 6. Verify messages in SQLite: reply is to 'architect'
-    const messages = storage.listMessages(project.id, 'developer');
-    const devReplyMsg = messages.find((m) => m.fromRole === 'developer');
-    expect(devReplyMsg).toBeDefined();
-    expect(devReplyMsg!.toRole).toBe('architect');
+    // 6. Verify messages in SQLite: Developer implementation in dev chat, concise summary to Architect
+    const devMessages = storage.listMessages(project.id, 'developer');
+    const fullDevMsg = devMessages.find(
+      (m) => m.fromRole === 'developer' && m.toRole === 'product_owner',
+    );
+    expect(fullDevMsg).toBeDefined();
+    expect(fullDevMsg!.content).toContain('Reporting back to the Software Architect');
+
+    const summaryMsg = devMessages.find(
+      (m) => m.fromRole === 'developer' && m.toRole === 'architect',
+    );
+    expect(summaryMsg).toBeDefined();
+    expect(summaryMsg!.content).toContain('SPEC-001');
+    expect(summaryMsg!.content).toContain('Coverage');
+
+    // 7. Verify Architect chat receives ONLY the concise summary, not the full dev implementation
+    const archMessages = storage.listMessages(project.id, 'architect');
+    const archDevMsg = archMessages.find((m) => m.fromRole === 'developer');
+    expect(archDevMsg).toBeDefined();
+    expect(archDevMsg!.id).toBe(summaryMsg!.id);
+    expect(archDevMsg!.content).not.toContain(codeArt!.content);
   });
 
   it('Issue #76 — init_repository tool and automatic git init in repos', async () => {
@@ -344,5 +360,48 @@ describe('Feature #66 — Cross-Project Task and Autonomous Handoff Isolation', 
     const autoGitDir = path.join(ws, 'repos', 'auto-init.git', '.git');
     expect(fs.existsSync(autoGitDir)).toBe(true);
     expect(storage.getProject(proj.id)!.repositories).toContain('auto-init.git');
+  });
+
+  it('Issue #82 — formatDeveloperCompletionSummaryForArchitect extracts metrics and squares table', () => {
+    const ws = path.join(tmpDir, 'ws-issue-82');
+    fs.mkdirSync(path.join(ws, 'outputs'), { recursive: true });
+
+    const proj = orchestrator.createProject({
+      name: 'Summary-Service',
+      description: 'Summary test service',
+      workspaceDir: ws,
+    });
+
+    // Write unit_test_execution.md
+    fs.writeFileSync(
+      path.join(ws, 'outputs', 'unit_test_execution.md'),
+      '# TEST-EXEC-001\n\n- **Status**: PASSED (100% green)\n- **Coverage**: 94%\n\n25 passed in 0.3s\n',
+    );
+
+    const summaryEs = orchestrator.formatDeveloperCompletionSummaryForArchitect({
+      projectId: proj.id,
+      developerReply: 'Se han ejecutado 25 passed con 94% de cobertura.',
+      workspaceDir: ws,
+      language: 'es',
+    });
+
+    expect(summaryEs).toContain('Especificación técnica completada: `SPEC-001`.');
+    expect(summaryEs).toContain('Tests Ejecutados');
+    expect(summaryEs).toContain('25 passed');
+    expect(summaryEs).toContain('94%');
+    expect(summaryEs).toContain('Implementación completada y verificada');
+
+    const summaryEn = orchestrator.formatDeveloperCompletionSummaryForArchitect({
+      projectId: proj.id,
+      developerReply: 'Completed 25 passed tests with 94% coverage.',
+      workspaceDir: ws,
+      language: 'en',
+    });
+
+    expect(summaryEn).toContain('Technical specification completed: `SPEC-001`.');
+    expect(summaryEn).toContain('Tests Executed');
+    expect(summaryEn).toContain('25 passed');
+    expect(summaryEn).toContain('94%');
+    expect(summaryEn).toContain('Implementation completed and verified');
   });
 });

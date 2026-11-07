@@ -450,8 +450,8 @@ export function buildChatVisualLines(
           kind: 'assistant-citation-header',
           text:
             language === 'es'
-              ? '📋 [DEV → ARQ] Informe de Implementación, Pruebas Unitarias y Cobertura'
-              : '📋 [DEV → ARQ] Implementation, Unit Tests & Coverage Report',
+              ? '📋 [DEV → ARQ] Resumen de Implementación y Cobertura'
+              : '📋 [DEV → ARQ] Implementation & Coverage Summary',
           sourceMessageId: m.id,
         });
       }
