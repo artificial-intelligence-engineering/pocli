@@ -329,6 +329,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         description: 'Switch active interlocutor to the Senior Developer',
       },
       {
+        command: '/tree',
+        description: 'Toggle repository code tree explorer sidebar (Shift-T)',
+      },
+      {
         command: '/qa',
         description: 'Switch active interlocutor to the Independent QA Engineer',
       },
@@ -596,6 +600,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/developer',
         description: 'Cambiar interlocutor activo al Desarrollador Experto',
+      },
+      {
+        command: '/tree',
+        description: 'Explorador del repositorio de código en barra lateral (Shift-T)',
       },
       {
         command: '/qa',
