@@ -792,16 +792,10 @@ export class PoCliDatabase {
         .run(id, expertRole, now);
     }
 
-    // Discover and register any existing repositories inside workspaceDir
-    const existing = this.discoverAndRegisterRepositories(id, workspaceDir);
-    if (existing.length === 0) {
-      const defaultRepo = params.name.endsWith('.git')
-        ? params.name
-        : `${params.name}.git`;
-      const defaultRepoDir = path.join(workspaceDir, 'repos', defaultRepo);
-      fs.mkdirSync(defaultRepoDir, { recursive: true });
-      this.discoverAndRegisterRepositories(id, workspaceDir);
-    }
+    // Discover and register any pre-existing repositories inside workspaceDir (if any).
+    // Physical repository creation is strictly delegated to the Senior Developer
+    // following the architectural specification (SPEC-*) agreed with the PO.
+    this.discoverAndRegisterRepositories(id, workspaceDir);
 
     // Set this newly created project as the currently active project in SQLite settings
     this.updateSettings({ activeProjectId: id });
