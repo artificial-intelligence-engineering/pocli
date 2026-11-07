@@ -483,14 +483,14 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
         flexShrink={0}
       >
         <Text color="cyan" bold>
-          📁 {isEs ? 'EXPLORADOR' : 'EXPLORER'}
+          📁 {isEs ? 'EXPLORADOR DE REPOSITORIO' : 'REPOSITORY EXPLORER'}
         </Text>
         <Text dimColor>
-          [Shift-T]
+          [Shift-T / Esc]
         </Text>
       </Box>
 
-      {/* 2. Action Buttons Bar (Collapse All / Expand All) */}
+      {/* 2. Action Buttons Bar (Collapse All / Expand All / Resize) */}
       <Box
         flexDirection="row"
         justifyContent="space-between"
@@ -504,6 +504,9 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
         </Text>
         <Text color="gray">
           [<Text color="cyan" bold>E</Text> {isEs ? 'Expandir' : 'Expand'}]
+        </Text>
+        <Text color="gray">
+          [<Text color="cyan" bold>+/-</Text> {isEs ? 'Ancho' : 'Width'}]
         </Text>
       </Box>
 
@@ -625,7 +628,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
           ) : null}
         </Box>
         <Text dimColor>
-          ↑↓ {isEs ? 'Mover' : 'Nav'} · ↵ {isEs ? 'Abrir' : 'Toggle'} · Esc {isEs ? 'Cerrar' : 'Close'}
+          ↑↓ {isEs ? 'Mover' : 'Nav'} · ↵ {isEs ? 'Abrir' : 'Toggle'} · +/- {isEs ? 'Ancho' : 'Width'} · Esc {isEs ? 'Cerrar' : 'Close'}
         </Text>
       </Box>
     </Box>

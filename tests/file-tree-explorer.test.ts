@@ -168,3 +168,4 @@ describe('Feature #84 — Repository Code Tree Explorer Sidebar', () => {
     expect(getFileIconAndColor('database.sqlite', false)).toEqual({ icon: '🗄', color: 'red' });
   });
 });
+

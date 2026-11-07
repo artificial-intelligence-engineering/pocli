@@ -431,10 +431,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   // Interactive Left Code Tree Explorer Sidebar (Shift-T)
   const [isTreeExplorerOpen, setIsTreeExplorerOpen] = useState<boolean>(false);
+  const [treeWidthAdjustment, setTreeWidthAdjustment] = useState<number>(0);
   const treeWorkspaceDir = project?.workspaceDir || workDir;
   const treeState = useFileTree(treeWorkspaceDir, safeViewportHeight - 3);
+  const baseTreeWidth = Math.max(
+    48,
+    Math.min(76, Math.floor(dimensions.columns * 0.44)),
+  );
   const treeExplorerWidth = isTreeExplorerOpen
-    ? Math.max(24, Math.min(34, Math.floor(dimensions.columns * 0.26)))
+    ? Math.max(34, Math.min(dimensions.columns - 36, baseTreeWidth + treeWidthAdjustment))
     : 0;
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
@@ -2337,6 +2342,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
       if (input === 'r' || input === 'R') {
         treeState.refresh();
+        return;
+      }
+      if (input === '+' || input === '=' || input === ']') {
+        setTreeWidthAdjustment((prev) => Math.min(32, prev + 4));
+        return;
+      }
+      if (input === '-' || input === '_' || input === '[') {
+        setTreeWidthAdjustment((prev) => Math.max(-18, prev - 4));
         return;
       }
       // Consume all other keys so they do not leak into prompt while tree is focused
@@ -5415,12 +5428,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   // its `outputHeight >= stdout.rows` branch in ink.js:121 which executes a
   // full `ansiEscapes.clearTerminal` (\x1b[2J\x1b[3J\x1b[H) on every keystroke.
 
-  const sidebarWidth = Math.max(
-    24,
-    Math.min(32, Math.floor(dimensions.columns * 0.22)),
-  );
+  const sidebarWidth =
+    isTreeExplorerOpen && dimensions.columns < 125
+      ? 0
+      : Math.max(22, Math.min(30, Math.floor(dimensions.columns * 0.20)));
   const unifiedChatBoxWidth = isTreeExplorerOpen
-    ? Math.max(28, dimensions.columns - treeExplorerWidth - sidebarWidth - 5)
+    ? Math.max(
+        28,
+        dimensions.columns -
+          treeExplorerWidth -
+          (sidebarWidth > 0 ? sidebarWidth + 5 : 4),
+      )
     : Math.max(30, dimensions.columns - sidebarWidth - 4);
 
   const renderUnifiedPromptBox = (boxWidth: number, placeholder: string) => {
@@ -6014,7 +6032,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             </Box>
 
             {/* Right Column: Project Info & Context Sidebar (OpenCode shaded panel) */}
-            {(() => {
+            {sidebarWidth > 0 && (() => {
               const sidebarLines: Array<{ text: string; color?: string; bold?: boolean; dimColor?: boolean }> = [
                 { text: project?.name || 'pocli', bold: true, color: 'white' },
                 { text: '' },
