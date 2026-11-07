@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { HarnessRegistry } from '../src/runtime/harnesses.js';
+import {
+  HarnessRegistry,
+  buildRoleToolsInstruction,
+} from '../src/runtime/harnesses.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -71,6 +74,20 @@ describe('HarnessRegistry & Behavior System Prompts', () => {
     expect(prompt).toMatch(/repos\/<repo-name>\.git/i);
     expect(prompt).toMatch(/\.git\b/i);
     expect(prompt).toMatch(/write_source_file/i);
+  });
+
+  it('verifies Issue #76 — Developer Full Autonomous Implementation Mandate and git init in prompts', () => {
+    const devHarness = HarnessRegistry.getHarness('developer');
+    const prompt = devHarness.systemPrompt;
+
+    expect(prompt).toMatch(/FULL AUTONOMOUS IMPLEMENTATION MANDATE/i);
+    expect(prompt).toMatch(/git init/i);
+    expect(prompt).toMatch(/init_repository/i);
+    expect(prompt).toMatch(/run_unit_tests/i);
+
+    const toolsInstruction = buildRoleToolsInstruction('developer');
+    expect(toolsInstruction).toMatch(/init_repository/i);
+    expect(toolsInstruction).toMatch(/Autonomous Full Implementation/i);
   });
 });
 

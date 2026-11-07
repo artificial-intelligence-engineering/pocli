@@ -1396,15 +1396,27 @@ export class PoCliOrchestrator extends EventEmitter {
           }
         }
 
-        const instructions =
+        const baseInstructions =
           String(args.instructions ?? args.order ?? args.notes ?? '') ||
           'Implement the software strictly following the approved Handoff bundle and SPEC-001.';
 
-        const handoffBundle = this.performDeveloperHandoff(projectId, instructions);
+        const fullInstructions = [
+          baseInstructions,
+          '',
+          'CRITICAL EXECUTION MANDATE FOR SENIOR DEVELOPER:',
+          '- You must perform the COMPLETE implementation in this execution. Do NOT halt after creating only one file or pause to chat.',
+          '- Initialize the repository with git init (or init_repository).',
+          '- Emit write_source_file tool calls for ALL configuration files, source code modules, and unit test suites under tests/.',
+          '- Execute run_unit_tests to verify 100% passing tests and coverage.',
+          '- Record your implementation logbook IMP-001 via write_implementation_log.',
+          '- Report directly back to the Lead Architect [DEV → ARQ] with implementation summary, test results, and test coverage.',
+        ].join('\n');
+
+        const handoffBundle = this.performDeveloperHandoff(projectId, fullInstructions);
 
         autonomousHandoff = {
           nextRole: 'developer',
-          instructions,
+          instructions: fullInstructions,
           handoffMessageId: handoffBundle.handoffMessageId,
         };
 
@@ -1432,6 +1444,20 @@ export class PoCliOrchestrator extends EventEmitter {
         Logger.info(
           'ORCHESTRATOR',
           `Executed tool call '${call.name}': saved ${art.code} (${art.filePath})`,
+        );
+      } else if (
+        name === 'init_repository' ||
+        name === 'init_git_repository' ||
+        name === 'init_repo'
+      ) {
+        const repoName = String(args.repoName ?? args.name ?? project.name);
+        const cleanRepo = repoName.endsWith('.git') ? repoName : `${repoName}.git`;
+        const repoDir = path.join(project.workspaceDir, 'repos', cleanRepo);
+        this.storage.ensureGitRepository(repoDir);
+        this.storage.discoverAndRegisterRepositories(project.id, project.workspaceDir);
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': initialized git repository in ${repoDir}`,
         );
       } else if (
         name === 'write_source_file' ||

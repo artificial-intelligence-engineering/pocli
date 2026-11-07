@@ -292,6 +292,7 @@ describe('Feature #66 — Cross-Project Task and Autonomous Handoff Isolation', 
     const repoTest = path.join(projectDir, 'repos', defaultRepo, 'tests', 'app-module.test.js');
     expect(fs.existsSync(repoSrc)).toBe(true);
     expect(fs.existsSync(repoTest)).toBe(true);
+    expect(fs.existsSync(path.join(projectDir, 'repos', defaultRepo, '.git'))).toBe(true);
 
     // Verify unit test execution artifact
     expect(testExecArt!.content).toContain('TEST-EXEC-001');
@@ -308,5 +309,40 @@ describe('Feature #66 — Cross-Project Task and Autonomous Handoff Isolation', 
     const devReplyMsg = messages.find((m) => m.fromRole === 'developer');
     expect(devReplyMsg).toBeDefined();
     expect(devReplyMsg!.toRole).toBe('architect');
+  });
+
+  it('Issue #76 — init_repository tool and automatic git init in repos', async () => {
+    const ws = path.join(tmpDir, 'ws-git-test');
+    const proj = orchestrator.createProject({
+      name: 'Git-Service',
+      description: 'Git test service',
+      workspaceDir: ws,
+    });
+
+    // 1. Explicitly execute init_repository tool
+    await (orchestrator as any).executeAgentToolCalls(
+      proj.id,
+      'developer',
+      [{ name: 'init_repository', arguments: { repoName: 'custom-subservice.git' } }],
+    );
+
+    const customGitDir = path.join(ws, 'repos', 'custom-subservice.git', '.git');
+    expect(fs.existsSync(customGitDir)).toBe(true);
+    expect(storage.getProject(proj.id)!.repositories).toContain('custom-subservice.git');
+
+    // 2. Implicit git init on write_source_file
+    storage.saveArtifact({
+      projectId: proj.id,
+      code: 'CODE-001',
+      type: 'SOURCE_CODE',
+      title: 'Source Code',
+      content: 'print("hello")',
+      authorRole: 'developer',
+      customRelPath: 'repos/auto-init.git/src/main.py',
+    });
+
+    const autoGitDir = path.join(ws, 'repos', 'auto-init.git', '.git');
+    expect(fs.existsSync(autoGitDir)).toBe(true);
+    expect(storage.getProject(proj.id)!.repositories).toContain('auto-init.git');
   });
 });
