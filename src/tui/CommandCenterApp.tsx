@@ -450,6 +450,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     () => new VoiceService({ language, autoSpeakReplies: true }),
   );
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [isAwaitingVoiceLanguage, setIsAwaitingVoiceLanguage] = useState<boolean>(false);
+  const isAwaitingVoiceLanguageRef = useRef<boolean>(false);
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -773,6 +775,27 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setStatusBanner(I18N_DICTIONARY[nextLang].settingsSavedMsg(nextLang));
   };
 
+  const applyVoiceLanguage = (chosenLang: SupportedLanguage) => {
+    isAwaitingVoiceLanguageRef.current = false;
+    setIsAwaitingVoiceLanguage(false);
+    orchestrator.storage.updateSettings({ language: chosenLang });
+    setLanguage(chosenLang);
+    voiceService.setLanguage(chosenLang);
+
+    const confirmMsg =
+      chosenLang === 'es'
+        ? 'Idioma español seleccionado. ¿Con qué especialista deseas hablar?'
+        : 'English language selected. Which specialist would you like to talk to?';
+
+    setStatusBanner(
+      chosenLang === 'es'
+        ? '🎙 Idioma español seleccionado. Di por ejemplo: "Quiero hablar con el Arquitecto"'
+        : '🎙 English selected. Say for example: "I want to talk to the Architect"',
+    );
+
+    void voiceService.speak(confirmMsg, { language: chosenLang });
+  };
+
   const applyWorkDirChange = (nextDir: string) => {
     const trimmed = nextDir.trim();
     if (!trimmed) return;
@@ -1036,6 +1059,23 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const trimmed = rawText.trim();
     if (!trimmed) return;
 
+    // Handle typed language selection while awaiting voice language
+    if (isAwaitingVoiceLanguageRef.current && !trimmed.startsWith('/')) {
+      const lower = trimmed.toLowerCase();
+      if (['1', 'en', 'english', 'inglés', 'ingles'].includes(lower)) {
+        inputValueRef.current = '';
+        setInputValue('');
+        applyVoiceLanguage('en');
+        return;
+      }
+      if (['2', 'es', 'español', 'spanish', 'castellano'].includes(lower)) {
+        inputValueRef.current = '';
+        setInputValue('');
+        applyVoiceLanguage('es');
+        return;
+      }
+    }
+
     // Handle slash commands starting with "/"
     if (trimmed.startsWith('/')) {
       const parts = trimmed.split(/\s+/);
@@ -1052,12 +1092,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setInputValue('');
         if (!voiceService.isLive()) {
           void voiceService.startLive();
-          setStatusBanner(t.liveModeActivated);
-          const greeting =
-            language === 'es'
-              ? 'Modo de voz activado. Estoy escuchando.'
-              : 'Live voice mode activated. I am listening.';
-          void voiceService.speak(greeting, { language });
+          isAwaitingVoiceLanguageRef.current = true;
+          setIsAwaitingVoiceLanguage(true);
+          const livePrompt =
+            'Live voice mode activated. Please choose your language: English or Spanish.';
+          setStatusBanner(
+            '🎙 [LIVE] Choose language / Elige idioma: [1] English · [2] Español (Speak or type)',
+          );
+          void voiceService.speak(livePrompt, { language: 'en' });
         } else {
           voiceService.unmute();
           setStatusBanner(t.liveModeActivated);
@@ -1068,6 +1110,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (cmdToken === '/mute') {
         inputValueRef.current = '';
         setInputValue('');
+        isAwaitingVoiceLanguageRef.current = false;
+        setIsAwaitingVoiceLanguage(false);
         voiceService.mute();
         setStatusBanner(t.liveModeDeactivated);
         return;
@@ -1362,15 +1406,15 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/architect') {
-        switchActiveRole('architect');
+        switchToAgentChat('architect');
         return;
       }
       if (cmdToken === '/developer') {
-        switchActiveRole('developer');
+        switchToAgentChat('developer');
         return;
       }
       if (cmdToken === '/qa') {
-        switchActiveRole('qa');
+        switchToAgentChat('qa');
         return;
       }
       const projectRequiredCommands = [
@@ -1389,7 +1433,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/pm') {
-        switchActiveRole('pm');
+        switchToAgentChat('pm');
         const modeArg = parts[1]?.toLowerCase();
         if (modeArg === 'parallel' || modeArg === 'sequential') {
           const targetPid = project!.id;
@@ -1606,20 +1650,28 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const switchActiveRole = (nextRole: ActorRole) => {
     const currentRole = activeRoleRef.current;
-    if (nextRole === currentRole) return;
-    const currentDraft = inputValueRef.current.trim().startsWith('/') ? '' : inputValueRef.current;
-    roleDraftsRef.current[currentRole] = currentDraft;
-    setRoleDrafts((prev) => ({ ...prev, [currentRole]: currentDraft }));
-    const nextDraft = roleDraftsRef.current[nextRole] || '';
-    inputValueRef.current = nextDraft;
-    setInputValue(nextDraft);
-    setActiveRole(nextRole);
-    activeRoleRef.current = nextRole;
-    voiceService.setCurrentRole(nextRole);
-    setMessageScrollOffset(0);
+    if (nextRole !== currentRole) {
+      const currentDraft = inputValueRef.current.trim().startsWith('/') ? '' : inputValueRef.current;
+      roleDraftsRef.current[currentRole] = currentDraft;
+      setRoleDrafts((prev) => ({ ...prev, [currentRole]: currentDraft }));
+      const nextDraft = roleDraftsRef.current[nextRole] || '';
+      inputValueRef.current = nextDraft;
+      setInputValue(nextDraft);
+      setActiveRole(nextRole);
+      activeRoleRef.current = nextRole;
+      voiceService.setCurrentRole(nextRole);
+      setMessageScrollOffset(0);
+      setChatScrollOffset(0);
+    }
     setStatusBanner(
       t.activeInterlocutorMsg(getRoleDisplayName(nextRole, language)),
     );
+  };
+
+  const switchToAgentChat = (nextRole: ActorRole) => {
+    closeAllModals();
+    switchActiveRole(nextRole);
+    setViewMode('chat');
   };
 
   const lastCycleTimeRef = useRef<number>(0);
@@ -1627,15 +1679,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const now = Date.now();
     if (now - lastCycleTimeRef.current < 150) return;
     lastCycleTimeRef.current = now;
-    closeAllModals();
     const roles: ActorRole[] = ['pm', 'architect', 'developer', 'qa'];
     const currIdx = roles.indexOf(activeRole);
     const nextIdx = currIdx >= 0 ? (currIdx + 1) % roles.length : 0;
     const nextRole = roles[nextIdx];
-    switchActiveRole(nextRole);
-    if (viewMode !== 'chat') {
-      setViewMode('chat');
-    }
+    switchToAgentChat(nextRole);
   };
   cycleNextAgentRef.current = cycleNextAgent;
 
@@ -1860,13 +1908,57 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     };
 
     const onTranscription = async (evt: { text: string; intent: VoiceIntent }) => {
-      const { intent } = evt;
+      const { text, intent } = evt;
       if (!intent) return;
 
+      // 1. Handle Language Selection when requested or during live onboarding
+      if (isAwaitingVoiceLanguageRef.current || intent.type === 'select_language') {
+        if (intent.type === 'select_language' && intent.selectedLanguage) {
+          applyVoiceLanguage(intent.selectedLanguage);
+          return;
+        }
+
+        const rawUtterance = (text || intent.text || intent.originalUtterance || '').toLowerCase();
+        if (
+          rawUtterance.includes('español') ||
+          rawUtterance.includes('spanish') ||
+          rawUtterance.includes('castellano') ||
+          rawUtterance === '2' ||
+          rawUtterance.includes('dos')
+        ) {
+          applyVoiceLanguage('es');
+          return;
+        }
+
+        if (
+          rawUtterance.includes('english') ||
+          rawUtterance.includes('inglés') ||
+          rawUtterance.includes('ingles') ||
+          rawUtterance === '1' ||
+          rawUtterance.includes('one')
+        ) {
+          applyVoiceLanguage('en');
+          return;
+        }
+
+        // If the user directly spoke an agent switch, infer language and proceed
+        if (intent.type === 'switch_agent' && intent.targetRole) {
+          const inferredLang: SupportedLanguage =
+            /con|al|el|desarrollador|arquitecto|quiero|pásame/i.test(intent.originalUtterance)
+              ? 'es'
+              : 'en';
+          isAwaitingVoiceLanguageRef.current = false;
+          setIsAwaitingVoiceLanguage(false);
+          orchestrator.storage.updateSettings({ language: inferredLang });
+          setLanguage(inferredLang);
+          voiceService.setLanguage(inferredLang);
+        }
+      }
+
+      // 2. Switch Agent Intent: switches screen directly to that agent's chat view
       if (intent.type === 'switch_agent' && intent.targetRole) {
         const targetRole = intent.targetRole;
-        switchActiveRole(targetRole);
-        setViewMode('chat');
+        switchToAgentChat(targetRole);
         const confirmText = getSwitchConfirmationText(targetRole, language);
         setStatusBanner(`🎙 ${confirmText}`);
 
@@ -3472,7 +3564,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     );
     const projLabel = project ? project.name : (language === 'es' ? 'Sin proyecto' : 'No project');
     let liveVoiceBadge = '';
-    if (voiceState === 'listening') {
+    if (isAwaitingVoiceLanguage) {
+      liveVoiceBadge = '  │  🎙 LIVE · [1] English [2] Español';
+    } else if (voiceState === 'listening') {
       liveVoiceBadge = `  │  🎙 ${t.liveStateListening}`;
     } else if (voiceState === 'transcribing') {
       liveVoiceBadge = `  │  ⏳ ${t.liveStateTranscribing}`;

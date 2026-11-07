@@ -103,6 +103,35 @@ describe('VoiceService — Real-time Bidirectional Live Voice System', () => {
       });
     });
 
+    it('detects language selection commands', () => {
+      expect(parseVoiceIntent('Español')).toEqual({
+        type: 'select_language',
+        selectedLanguage: 'es',
+        originalUtterance: 'Español',
+      });
+      expect(parseVoiceIntent('Spanish')).toMatchObject({
+        type: 'select_language',
+        selectedLanguage: 'es',
+      });
+      expect(parseVoiceIntent('2')).toMatchObject({
+        type: 'select_language',
+        selectedLanguage: 'es',
+      });
+      expect(parseVoiceIntent('English')).toEqual({
+        type: 'select_language',
+        selectedLanguage: 'en',
+        originalUtterance: 'English',
+      });
+      expect(parseVoiceIntent('Inglés')).toMatchObject({
+        type: 'select_language',
+        selectedLanguage: 'en',
+      });
+      expect(parseVoiceIntent('1')).toMatchObject({
+        type: 'select_language',
+        selectedLanguage: 'en',
+      });
+    });
+
     it('detects mute commands', () => {
       expect(parseVoiceIntent('silencio').type).toBe('mute');
       expect(parseVoiceIntent('mute').type).toBe('mute');
@@ -225,3 +254,4 @@ describe('VoiceService — Real-time Bidirectional Live Voice System', () => {
     });
   });
 });
+

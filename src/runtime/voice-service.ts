@@ -5,12 +5,18 @@ import { AuthStorage } from '../core/auth.js';
 
 export type VoiceState = 'idle' | 'listening' | 'transcribing' | 'speaking' | 'muted';
 
-export type VoiceIntentType = 'switch_agent' | 'mute' | 'unmute' | 'agent_message';
+export type VoiceIntentType =
+  | 'select_language'
+  | 'switch_agent'
+  | 'mute'
+  | 'unmute'
+  | 'agent_message';
 
 export interface VoiceIntent {
   type: VoiceIntentType;
   targetRole?: ActorRole;
   roleName?: string;
+  selectedLanguage?: 'es' | 'en';
   text?: string;
   originalUtterance: string;
 }
@@ -111,7 +117,33 @@ export function parseVoiceIntent(
     };
   }
 
-  // 3. Switch Agent Intents
+  // 3. Language selection intent (e.g. "español", "spanish", "english", "inglés", "1", "2")
+  const isSpanish =
+    /^(?:(?:por\s+favor\s+)?(?:en\s+)?(?:idioma\s+)?español|castellano|spanish|(?:quiero|elijo|prefiero)\s+(?:el\s+)?español|hablar?\s+en\s+español|cambiar?\s+a\s+español|(?:opci[oó]n\s+)?(?:dos|2))$/i.test(
+      lower,
+    );
+  const isEnglish =
+    /^(?:(?:please\s+)?(?:in\s+)?(?:idioma\s+|language\s+)?english|ingl[eé]s|(?:i\s+want|choose|prefer)\s+english|speak\s+in\s+english|switch\s+to\s+english|(?:option\s+|opci[oó]n\s+)?(?:one|uno|1))$/i.test(
+      lower,
+    );
+
+  if (isSpanish) {
+    return {
+      type: 'select_language',
+      selectedLanguage: 'es',
+      originalUtterance: trimmed,
+    };
+  }
+
+  if (isEnglish) {
+    return {
+      type: 'select_language',
+      selectedLanguage: 'en',
+      originalUtterance: trimmed,
+    };
+  }
+
+  // 4. Switch Agent Intents
   const prefix =
     '(?:quiero\\s+hablar\\s+con|p[aá]same\\s+con|p[aá]same\\s+al?|p[aá]same|hablar\\s+con|conectar\\s+con|cambia(?:r)?\\s+(?:a|al)?|talk\\s+to|switch\\s+to|connect\\s+to)\\s+(?:el\\s+|la\\s+|the\\s+)?';
 
