@@ -252,6 +252,7 @@ export interface UseFileTreeReturn {
   scrollUp: (lines?: number) => void;
   scrollDown: (lines?: number) => void;
   refresh: () => void;
+  workspaceDir: string;
   totalFiles: number;
   totalDirs: number;
 }
@@ -429,6 +430,7 @@ export function useFileTree(
     scrollUp,
     scrollDown,
     refresh,
+    workspaceDir,
     totalFiles,
     totalDirs,
   };
@@ -483,14 +485,14 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
         flexShrink={0}
       >
         <Text color="cyan" bold>
-          📁 {isEs ? 'EXPLORADOR DE REPOSITORIO' : 'REPOSITORY EXPLORER'}
+          📁 {isEs ? 'EXPLORADOR DE REPOSITORIO (/tree)' : 'REPOSITORY TREE EXPLORER (/tree)'}
         </Text>
         <Text dimColor>
-          [Shift-T / Esc]
+          {isEs ? '[Shift-T · Esc · q para cerrar]' : '[Shift-T · Esc · q to close]'}
         </Text>
       </Box>
 
-      {/* 2. Action Buttons Bar (Collapse All / Expand All / Resize) */}
+      {/* 2. Action Buttons & Location Bar */}
       <Box
         flexDirection="row"
         justifyContent="space-between"
@@ -499,15 +501,28 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
         marginBottom={0}
         flexShrink={0}
       >
-        <Text color="gray">
-          [<Text color="cyan" bold>C</Text> {isEs ? 'Colapsar' : 'Collapse'}]
-        </Text>
-        <Text color="gray">
-          [<Text color="cyan" bold>E</Text> {isEs ? 'Expandir' : 'Expand'}]
-        </Text>
-        <Text color="gray">
-          [<Text color="cyan" bold>+/-</Text> {isEs ? 'Ancho' : 'Width'}]
-        </Text>
+        <Box flexShrink={1}>
+          <Text dimColor wrap="truncate-end">
+            {state.workspaceDir}
+          </Text>
+        </Box>
+        <Box flexShrink={0} flexDirection="row">
+          <Text color="gray">
+            [<Text color="cyan" bold>C</Text> {isEs ? 'Plegar' : 'Collapse'}]
+          </Text>
+          <Text>{' '}</Text>
+          <Text color="gray">
+            [<Text color="cyan" bold>E</Text> {isEs ? 'Desplegar' : 'Expand'}]
+          </Text>
+          <Text>{' '}</Text>
+          <Text color="gray">
+            [<Text color="cyan" bold>R</Text> {isEs ? 'Refrescar' : 'Refresh'}]
+          </Text>
+          <Text>{' '}</Text>
+          <Text color="gray">
+            [<Text color="cyan" bold>+/-</Text> {isEs ? 'Ancho' : 'Width'}]
+          </Text>
+        </Box>
       </Box>
 
       <Box
@@ -628,7 +643,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
           ) : null}
         </Box>
         <Text dimColor>
-          ↑↓ {isEs ? 'Mover' : 'Nav'} · ↵ {isEs ? 'Abrir' : 'Toggle'} · +/- {isEs ? 'Ancho' : 'Width'} · Esc {isEs ? 'Cerrar' : 'Close'}
+          ↑↓ {isEs ? 'Mover' : 'Nav'} · ↵ {isEs ? 'Abrir' : 'Toggle'} · +/- {isEs ? 'Ancho' : 'Width'} · Esc/q {isEs ? 'Cerrar' : 'Close'}
         </Text>
       </Box>
     </Box>
