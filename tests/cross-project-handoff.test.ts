@@ -7,6 +7,10 @@ import {
   PoCliOrchestrator,
   Project,
 } from '../src/index.js';
+import {
+  HarnessRegistry,
+  buildRoleToolsInstruction,
+} from '../src/runtime/harnesses.js';
 
 describe('Feature #66 — Cross-Project Task and Autonomous Handoff Isolation', () => {
   let tmpDir: string;
@@ -200,16 +204,109 @@ describe('Feature #66 — Cross-Project Task and Autonomous Handoff Isolation', 
     // 4. Verify Architect interactions
     const arqSummary = storage.getExpertChatSummary(projectA.id, 'architect');
     expect(arqSummary.interactions.po).toBe(2);
-    expect(arqSummary.interactions.developer).toBe(1);
+    expect(arqSummary.interactions.developer).toBe(2);
 
     // 5. Verify Developer interactions (Issue #72 fix)
     const devSummary = storage.getExpertChatSummary(projectA.id, 'developer');
     expect(devSummary.interactions.po).toBe(0); // PO has not spoken to Developer
-    expect(devSummary.interactions.architect).toBe(1); // Architect initiated handoff to Developer
+    expect(devSummary.interactions.architect).toBe(2); // Exchanged handoff and completion report
 
     // 6. Verify SQLite message attribution
     const devMsgs = storage.listMessages(projectA.id, 'developer');
     expect(devMsgs.some((m) => m.fromRole === 'product_owner')).toBe(false);
     expect(devMsgs.some((m) => m.fromRole === 'architect' && m.toRole === 'developer')).toBe(true);
+    expect(devMsgs.some((m) => m.fromRole === 'developer' && m.toRole === 'architect')).toBe(true);
+  });
+
+  it('5. Issue #74 — Developer mandatory unit test creation, execution, coverage and Architect report', async () => {
+    const projectDir = path.join(tmpDir, 'ws-issue-74');
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    const project = orchestrator.createProject({
+      name: 'unit-test-verification-proj',
+      description: 'Unit test verification project',
+      workspaceDir: projectDir,
+    });
+
+    // 1. Verify Developer harness tools and instructions
+    const devHarness = HarnessRegistry.getHarness('developer');
+    expect(devHarness.allowedTools).toContain('run_unit_tests');
+    expect(devHarness.allowedTools).toContain('run_tests');
+    expect(devHarness.systemPrompt).toContain('MANDATORY UNIT TESTING');
+    expect(devHarness.systemPrompt).toContain('ARCHITECT REPORTING PROTOCOL');
+
+    const devToolInstructions = buildRoleToolsInstruction('developer');
+    expect(devToolInstructions).toContain('run_unit_tests');
+    expect(devToolInstructions).toContain('Mandatory Unit Testing');
+    expect(devToolInstructions).toContain('Definition of Done');
+
+    // 2. Setup Architect contracts and handoff
+    await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'architect',
+      message: 'Design system architecture for unit-test-verification-proj',
+    });
+
+    orchestrator.reviewArchitectureByPo({
+      projectId: project.id,
+      artifactCode: 'ARCH-001',
+      decision: 'APPROVED',
+      comments: 'PO approves ARCH-001',
+    });
+
+    const handoff = orchestrator.performDeveloperHandoff(
+      project.id,
+      'Implement features per SPEC-001 and ARCH-001. Unit tests and coverage are mandatory.',
+    );
+
+    // 3. Developer executes implementation turn with senderRole: 'architect'
+    const devTurn = await orchestrator.chatWithProfessional({
+      projectId: project.id,
+      targetRole: 'developer',
+      message: 'Implement features per SPEC-001 and ARCH-001. Unit tests and coverage are mandatory.',
+      messageId: handoff.handoffMessageId,
+      alreadyRecorded: true,
+      senderRole: 'architect',
+    });
+
+    // 4. Verify Developer reply text reports to Architect
+    expect(devTurn.reply).toContain('Reporting back to the Software Architect');
+    expect(devTurn.reply).toContain('Unit Tests Executed');
+    expect(devTurn.reply).toContain('Test Coverage');
+
+    // 5. Verify created artifacts include source code, unit tests, execution report, and IMP-001
+    const artifacts = storage.listArtifacts(project.id);
+    const codeArt = artifacts.find((a) => a.code === 'CODE-001');
+    const testArt = artifacts.find((a) => a.code === 'TEST-001');
+    const testExecArt = artifacts.find((a) => a.code === 'TEST-EXEC-001');
+    const impArt = artifacts.find((a) => a.code === 'IMP-001');
+
+    expect(codeArt).toBeDefined();
+    expect(testArt).toBeDefined();
+    expect(testExecArt).toBeDefined();
+    expect(impArt).toBeDefined();
+
+    // Verify source and test files on disk under repos/<project>.git/
+    const defaultRepo = `${project.name}.git`;
+    const repoSrc = path.join(projectDir, 'repos', defaultRepo, 'src', 'app-module.js');
+    const repoTest = path.join(projectDir, 'repos', defaultRepo, 'tests', 'app-module.test.js');
+    expect(fs.existsSync(repoSrc)).toBe(true);
+    expect(fs.existsSync(repoTest)).toBe(true);
+
+    // Verify unit test execution artifact
+    expect(testExecArt!.content).toContain('TEST-EXEC-001');
+    expect(testExecArt!.content).toContain('PASSED (100% green)');
+    expect(testExecArt!.content).toContain('Coverage');
+
+    // Verify IMP-001 content
+    expect(impArt!.content).toContain('Mandatory Unit Testing & Execution');
+    expect(impArt!.content).toContain('100% green');
+    expect(impArt!.content).toContain('100% statement and branch coverage');
+
+    // 6. Verify messages in SQLite: reply is to 'architect'
+    const messages = storage.listMessages(project.id, 'developer');
+    const devReplyMsg = messages.find((m) => m.fromRole === 'developer');
+    expect(devReplyMsg).toBeDefined();
+    expect(devReplyMsg!.toRole).toBe('architect');
   });
 });

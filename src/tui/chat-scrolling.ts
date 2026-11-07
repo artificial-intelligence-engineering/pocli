@@ -132,6 +132,7 @@ export interface BuildChatVisualLinesOptions {
   messages: Array<{
     id: string | number;
     fromRole: string;
+    toRole?: string;
     content: string;
     metadataJson?: string;
   }>;
@@ -384,6 +385,16 @@ export function buildChatVisualLines(
             language === 'es'
               ? '🤝 [ARQ → DEV] Traspaso Normativo de Arquitectura y Especificaciones'
               : '🤝 [ARQ → DEV] Normative Architecture & Specification Handoff',
+          sourceMessageId: m.id,
+        });
+      } else if (m.fromRole === 'developer' && m.toRole === 'architect') {
+        result.push({
+          id: `msg-${m.id}-dev-report-badge`,
+          kind: 'assistant-citation-header',
+          text:
+            language === 'es'
+              ? '📋 [DEV → ARQ] Informe de Implementación, Pruebas Unitarias y Cobertura'
+              : '📋 [DEV → ARQ] Implementation, Unit Tests & Coverage Report',
           sourceMessageId: m.id,
         });
       }
