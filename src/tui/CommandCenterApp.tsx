@@ -1570,6 +1570,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     targetRole: ActorRole,
     messageText: string,
     targetProjectId?: string,
+    senderRole?: ActorRole | 'product_owner',
+    existingMessageId?: string,
   ) => {
     const taskProjectId = targetProjectId ?? project?.id;
     if (!taskProjectId) {
@@ -1581,13 +1583,17 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // 1. Immediately record user prompt to SQLite so it appears in the chat log without delay
-    const userMsg = orchestrator.storage.recordMessage({
-      projectId: taskProjectId,
-      fromRole: 'product_owner',
-      toRole: targetRole,
-      content: messageText,
-    });
+    const actualSenderRole = senderRole ?? 'product_owner';
+
+    // 1. If not already recorded, immediately record prompt to SQLite so it appears in the chat log without delay
+    const userMsg = existingMessageId
+      ? { id: existingMessageId }
+      : orchestrator.storage.recordMessage({
+          projectId: taskProjectId,
+          fromRole: actualSenderRole,
+          toRole: targetRole,
+          content: messageText,
+        });
     if (currentProjectIdRef.current === taskProjectId) {
       setMessageScrollOffset(0);
       setChatScrollOffset(0);
@@ -1622,6 +1628,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         message: messageText,
         messageId: userMsg.id,
         alreadyRecorded: true,
+        senderRole: actualSenderRole,
         onStreamChunk: (chunk) => {
           if (currentProjectIdRef.current === taskProjectId) {
             setQueuedMessageIds((prev) => {
@@ -1677,7 +1684,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           );
           refreshState();
         }
-        void sendChatMessage('developer', res.autonomousHandoff.instructions, taskProjectId);
+        void sendChatMessage(
+          'developer',
+          res.autonomousHandoff.instructions,
+          taskProjectId,
+          'architect',
+          res.autonomousHandoff.handoffMessageId,
+        );
       }
     } catch (err) {
       if (currentProjectIdRef.current === taskProjectId) {

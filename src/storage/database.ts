@@ -1274,14 +1274,25 @@ export class PoCliDatabase {
       .prepare(
         `SELECT 
           COALESCE(SUM(CASE WHEN from_role = 'product_owner' AND to_role = ? THEN 1 ELSE 0 END), 0) AS po_count,
-          COALESCE(SUM(CASE WHEN from_role = ? AND to_role = 'architect' THEN 1 ELSE 0 END), 0) AS arq_count,
-          COALESCE(SUM(CASE WHEN from_role = ? AND to_role = 'developer' THEN 1 ELSE 0 END), 0) AS dev_count,
-          COALESCE(SUM(CASE WHEN from_role = ? AND to_role = 'qa' THEN 1 ELSE 0 END), 0) AS qa_count,
-          COALESCE(SUM(CASE WHEN from_role = ? AND to_role = 'pm' THEN 1 ELSE 0 END), 0) AS pm_count
+          COALESCE(SUM(CASE WHEN (from_role = ? AND to_role = 'architect') OR (from_role = 'architect' AND to_role = ?) THEN 1 ELSE 0 END), 0) AS arq_count,
+          COALESCE(SUM(CASE WHEN (from_role = ? AND to_role = 'developer') OR (from_role = 'developer' AND to_role = ?) THEN 1 ELSE 0 END), 0) AS dev_count,
+          COALESCE(SUM(CASE WHEN (from_role = ? AND to_role = 'qa') OR (from_role = 'qa' AND to_role = ?) THEN 1 ELSE 0 END), 0) AS qa_count,
+          COALESCE(SUM(CASE WHEN (from_role = ? AND to_role = 'pm') OR (from_role = 'pm' AND to_role = ?) THEN 1 ELSE 0 END), 0) AS pm_count
         FROM messages
         WHERE project_id = ?`,
       )
-      .get(expertRole, expertRole, expertRole, expertRole, expertRole, projectId) as {
+      .get(
+        expertRole,
+        expertRole,
+        expertRole,
+        expertRole,
+        expertRole,
+        expertRole,
+        expertRole,
+        expertRole,
+        expertRole,
+        projectId,
+      ) as {
         po_count: number;
         arq_count: number;
         dev_count: number;

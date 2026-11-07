@@ -40,11 +40,13 @@ export interface HandoffBundle {
   specifications: Artifact[];
   resolvedConsultations: ArchitecturalConsultation[];
   markdownSummary: string;
+  handoffMessageId?: string;
 }
 
 export interface AutonomousHandoffTrigger {
   nextRole: 'developer';
   instructions: string;
+  handoffMessageId?: string;
 }
 
 export interface QueuedChatTurn {
@@ -53,6 +55,7 @@ export interface QueuedChatTurn {
   targetRole: ActorRole;
   message: string;
   alreadyRecorded?: boolean;
+  senderRole?: ActorRole | 'product_owner';
   onStreamChunk?: (chunk: string) => void;
   resolve: (value: {
     reply: string;
@@ -174,6 +177,7 @@ export class PoCliOrchestrator extends EventEmitter {
     message: string;
     messageId?: string;
     alreadyRecorded?: boolean;
+    senderRole?: ActorRole | 'product_owner';
     onStreamChunk?: (chunk: string) => void;
   }): Promise<{
     reply: string;
@@ -202,6 +206,7 @@ export class PoCliOrchestrator extends EventEmitter {
           targetRole: params.targetRole,
           message: params.message,
           alreadyRecorded: params.alreadyRecorded,
+          senderRole: params.senderRole,
           onStreamChunk: params.onStreamChunk,
           resolve,
           reject,
@@ -256,6 +261,7 @@ export class PoCliOrchestrator extends EventEmitter {
           targetRole: nextTurn.targetRole,
           message: nextTurn.message,
           alreadyRecorded: nextTurn.alreadyRecorded,
+          senderRole: nextTurn.senderRole,
           onStreamChunk: nextTurn.onStreamChunk,
         });
         nextTurn.resolve(result);
@@ -276,6 +282,7 @@ export class PoCliOrchestrator extends EventEmitter {
     targetRole: ActorRole;
     message: string;
     alreadyRecorded?: boolean;
+    senderRole?: ActorRole | 'product_owner';
     onStreamChunk?: (chunk: string) => void;
   }): Promise<{
     reply: string;
@@ -292,16 +299,17 @@ export class PoCliOrchestrator extends EventEmitter {
     const harness = HarnessRegistry.getHarness(params.targetRole);
     const modelConfig = this.storage.getRoleConfig(project.id, params.targetRole);
 
-    // Record Product Owner's message if not already recorded prior to LLM dispatch
+    // Record prompt message if not already recorded prior to LLM dispatch
     if (!params.alreadyRecorded) {
+      const actualFromRole = params.senderRole ?? 'product_owner';
       Logger.info(
         'ORCHESTRATOR',
-        `Message to '${params.targetRole}': "${params.message.replace(/\s+/g, ' ').slice(0, 60)}"`,
+        `Message to '${params.targetRole}' from '${actualFromRole}': "${params.message.replace(/\s+/g, ' ').slice(0, 60)}"`,
         { projectId: project.id },
       );
       this.storage.recordMessage({
         projectId: project.id,
-        fromRole: 'product_owner',
+        fromRole: actualFromRole,
         toRole: params.targetRole,
         content: params.message,
       });
@@ -466,7 +474,10 @@ export class PoCliOrchestrator extends EventEmitter {
   // PHASE 4: ARCHITECT -> DEVELOPER HANDOFF BUNDLE
   // ==========================================================================
 
-  performDeveloperHandoff(projectId: string): HandoffBundle {
+  performDeveloperHandoff(
+    projectId: string,
+    instructions?: string,
+  ): HandoffBundle {
     const project = this.storage.getProject(projectId);
     if (!project) throw new Error(`Project ${projectId} not found.`);
     if (project.approvedArchitectureVersion < 1) {
@@ -518,16 +529,23 @@ export class PoCliOrchestrator extends EventEmitter {
         ...adrs.map((a) => a.content),
       );
     }
+    if (instructions && instructions.trim()) {
+      summarySections.push(
+        ``,
+        `## Implementation Instructions from Architect`,
+        instructions.trim(),
+      );
+    }
 
     const markdownSummary = summarySections.join('\n\n');
 
     // Record official Architect -> Developer handoff message
-    this.storage.recordMessage({
+    const handoffMsg = this.storage.recordMessage({
       projectId,
       fromRole: 'architect',
       toRole: 'developer',
       content: markdownSummary,
-      metadata: { handoffArchitectureVersion: arch.version },
+      metadata: { handoffArchitectureVersion: arch.version, isHandoff: true },
     });
 
     if (project.phase === 'PHASE_4_DEVELOPER_HANDOFF') {
@@ -543,6 +561,7 @@ export class PoCliOrchestrator extends EventEmitter {
       specifications,
       resolvedConsultations,
       markdownSummary,
+      handoffMessageId: handoffMsg.id,
     };
     this.emit('workflow:handoffCompleted', bundle);
     return bundle;
@@ -1367,15 +1386,16 @@ export class PoCliOrchestrator extends EventEmitter {
           }
         }
 
-        this.performDeveloperHandoff(projectId);
-
         const instructions =
           String(args.instructions ?? args.order ?? args.notes ?? '') ||
           'Implement the software strictly following the approved Handoff bundle and SPEC-001.';
 
+        const handoffBundle = this.performDeveloperHandoff(projectId, instructions);
+
         autonomousHandoff = {
           nextRole: 'developer',
           instructions,
+          handoffMessageId: handoffBundle.handoffMessageId,
         };
 
         Logger.info(
