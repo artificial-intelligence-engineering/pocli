@@ -406,10 +406,11 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       expect(fs.existsSync(path.join(ws, 'outputs'))).toBe(true);
       expect(fs.existsSync(path.join(ws, 'scripts'))).toBe(true);
 
-      // 2. Default single repository directory ends with .git
+      // 2. No repository directory is auto-created at project creation time;
+      // repository creation is strictly delegated to the Developer.
       const defaultRepoDir = path.join(ws, 'repos', 'SSOT-Demo-Project.git');
-      expect(fs.existsSync(defaultRepoDir)).toBe(true);
-      expect(project.repositories).toContain('SSOT-Demo-Project.git');
+      expect(fs.existsSync(defaultRepoDir)).toBe(false);
+      expect(project.repositories).toEqual([]);
 
       // 3. write_source_file with bare path routes into repos/<project-name>.git/
       const art1 = storage.saveArtifact({
@@ -426,6 +427,8 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       expect(art1.filePath).toBe(
         path.join(ws, 'repos', 'SSOT-Demo-Project.git', 'src', 'index.ts'),
       );
+      expect(fs.existsSync(defaultRepoDir)).toBe(true);
+      expect(storage.getProject(projectId)!.repositories).toContain('SSOT-Demo-Project.git');
 
       // 4. write_source_file with multi-repo path ending with .git
       const art2 = storage.saveArtifact({
@@ -465,6 +468,37 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       expect(updatedProj.repositories).toContain('worker.git');
       expect(updatedProj.repositories).toContain('auth-service.git');
       expect(updatedProj.repositories.every((r) => r.endsWith('.git'))).toBe(true);
+    });
+
+    it('Issue #70 — does not create repositories at project creation; delegates repository creation to Developer', () => {
+      const freshWs = path.join(tmpDir, 'issue-70-fresh-ws');
+      const freshProj = storage.createProject({
+        name: 'DistributedPlatform',
+        description: 'New project waiting for Architect-PO topology decision',
+        workspaceDir: freshWs,
+      });
+
+      // 1. Initial state: repos/ directory container exists, but contains zero folders/files
+      const reposDir = path.join(freshWs, 'repos');
+      expect(fs.existsSync(reposDir)).toBe(true);
+      expect(fs.readdirSync(reposDir)).toHaveLength(0);
+      expect(freshProj.repositories).toEqual([]);
+
+      // 2. Developer receives SPEC-001 and implements code
+      storage.saveArtifact({
+        projectId: freshProj.id,
+        code: 'CODE-001',
+        type: 'SOURCE_CODE',
+        title: 'Backend Service Main',
+        content: 'package main\nfunc main() {}',
+        authorRole: 'developer',
+        customRelPath: 'repos/backend-service.git/main.go',
+      });
+
+      // 3. Repository is now created and discovered dynamically in SQLite
+      const reloaded = storage.getProject(freshProj.id)!;
+      expect(reloaded.repositories).toEqual(['backend-service.git']);
+      expect(fs.existsSync(path.join(reposDir, 'backend-service.git', 'main.go'))).toBe(true);
     });
 
     it('formats clean markdown table of created and modified artifacts (Issue #58)', () => {
