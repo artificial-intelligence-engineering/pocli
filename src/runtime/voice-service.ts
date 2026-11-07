@@ -1,9 +1,137 @@
-import { spawn, ChildProcess } from 'node:child_process';
+import { spawn, execSync, ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { ActorRole } from '../core/contracts.js';
 import { AuthStorage } from '../core/auth.js';
 
 export type VoiceState = 'idle' | 'listening' | 'transcribing' | 'speaking' | 'muted';
+
+export interface AudioHardwareInfo {
+  defaultSource: string;
+  defaultSink: string;
+  sourceVolumePercent: number;
+  sourceVolumeDb: string;
+  sinkVolumePercent: number;
+  sinkVolumeDb: string;
+  sourceMuted: boolean;
+  sinkMuted: boolean;
+  ttsEngine: string;
+  captureMode: string;
+}
+
+export function getAudioHardwareInfo(): AudioHardwareInfo {
+  let defaultSource = 'Default ALSA/PulseAudio input';
+  let defaultSink = 'Default ALSA/PulseAudio output';
+  let sourceVolumePercent = 100;
+  let sourceVolumeDb = '0.00 dB';
+  let sinkVolumePercent = 80;
+  let sinkVolumeDb = '-4.00 dB';
+  let sourceMuted = false;
+  let sinkMuted = false;
+
+  try {
+    const rawSource = execSync('pactl get-default-source', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (rawSource) defaultSource = rawSource;
+  } catch {
+    // fallback
+  }
+
+  try {
+    const rawSink = execSync('pactl get-default-sink', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (rawSink) defaultSink = rawSink;
+  } catch {
+    // fallback
+  }
+
+  try {
+    const rawSrcVol = execSync('pactl get-source-volume @DEFAULT_SOURCE@', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const match = rawSrcVol.match(/(\d+)%\s*\/\s*(-?[\d.]+\s*dB)/);
+    if (match) {
+      sourceVolumePercent = parseInt(match[1], 10);
+      sourceVolumeDb = match[2];
+    }
+  } catch {
+    // fallback
+  }
+
+  try {
+    const rawSinkVol = execSync('pactl get-sink-volume @DEFAULT_SINK@', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const match = rawSinkVol.match(/(\d+)%\s*\/\s*(-?[\d.]+\s*dB)/);
+    if (match) {
+      sinkVolumePercent = parseInt(match[1], 10);
+      sinkVolumeDb = match[2];
+    }
+  } catch {
+    // fallback
+  }
+
+  try {
+    const rawSrcMute = execSync('pactl get-source-mute @DEFAULT_SOURCE@', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    sourceMuted = /Mute:\s*yes/i.test(rawSrcMute);
+  } catch {
+    // fallback
+  }
+
+  try {
+    const rawSinkMute = execSync('pactl get-sink-mute @DEFAULT_SINK@', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    sinkMuted = /Mute:\s*yes/i.test(rawSinkMute);
+  } catch {
+    // fallback
+  }
+
+  return {
+    defaultSource,
+    defaultSink,
+    sourceVolumePercent,
+    sourceVolumeDb,
+    sinkVolumePercent,
+    sinkVolumeDb,
+    sourceMuted,
+    sinkMuted,
+    ttsEngine: 'speech-dispatcher (spd-say)',
+    captureMode: 'arecord 16000Hz mono S16_LE (PipeWire/ALSA)',
+  };
+}
+
+export function adjustSourceVolume(deltaPercent: number): AudioHardwareInfo {
+  try {
+    const sign = deltaPercent >= 0 ? '+' : '';
+    execSync(`pactl set-source-volume @DEFAULT_SOURCE@ ${sign}${deltaPercent}%`, {
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+  } catch {
+    // ignore
+  }
+  return getAudioHardwareInfo();
+}
+
+export function toggleSourceMute(): AudioHardwareInfo {
+  try {
+    execSync('pactl set-source-mute @DEFAULT_SOURCE@ toggle', {
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+  } catch {
+    // ignore
+  }
+  return getAudioHardwareInfo();
+}
 
 export type VoiceIntentType =
   | 'select_language'
@@ -298,6 +426,7 @@ export class VoiceService extends EventEmitter {
   private autoSpeakReplies: boolean;
   private recordProcess: ChildProcess | null = null;
   private isCapturing = false;
+  private isMonitoringOnly = false;
   private speechChunks: Buffer[] = [];
   private hasSpoken = false;
   private lastSoundTimestamp = 0;
@@ -339,9 +468,32 @@ export class VoiceService extends EventEmitter {
   }
 
   /**
+   * Starts microphone capture in diagnostic monitoring mode (emits audio_level without turning on full agent live turns).
+   */
+  public startMonitoring(): void {
+    if (!this.isCapturing) {
+      this.isMonitoringOnly = true;
+      this.startMicrophoneCapture();
+    }
+  }
+
+  /**
+   * Stops diagnostic monitoring capture if live mode is not active.
+   */
+  public stopMonitoring(): void {
+    if (this.isMonitoringOnly) {
+      this.isMonitoringOnly = false;
+      if (this.state === 'idle') {
+        this.stopMicrophoneCapture();
+      }
+    }
+  }
+
+  /**
    * Activates live listening mode.
    */
   public async startLive(): Promise<void> {
+    this.isMonitoringOnly = false;
     if (this.isLive()) return;
     this.setState('listening');
     this.startMicrophoneCapture();
@@ -351,6 +503,7 @@ export class VoiceService extends EventEmitter {
    * Mutes live voice mode.
    */
   public mute(): void {
+    this.isMonitoringOnly = false;
     this.cancelSpeechOutput();
     this.stopMicrophoneCapture();
     this.setState('muted');
@@ -360,6 +513,7 @@ export class VoiceService extends EventEmitter {
    * Unmutes and restores live listening mode.
    */
   public unmute(): void {
+    this.isMonitoringOnly = false;
     if (this.state === 'muted') {
       this.setState('listening');
       this.startMicrophoneCapture();
@@ -370,6 +524,7 @@ export class VoiceService extends EventEmitter {
    * Deactivates live voice completely.
    */
   public stopLive(): void {
+    this.isMonitoringOnly = false;
     this.cancelSpeechOutput();
     this.stopMicrophoneCapture();
     this.setState('idle');
@@ -395,11 +550,25 @@ export class VoiceService extends EventEmitter {
       this.recordProcess = child;
 
       child.stdout.on('data', (chunk: Buffer) => {
+        const rms = computeRmsVolume(chunk);
+        const db = rms > 0 ? Math.max(-60, Math.round(20 * Math.log10(rms / 32768))) : -60;
+
+        // Emit real-time audio levels for the /check mixer VU-meter
+        this.emit('audio_level', {
+          rms,
+          db,
+          isSpeaking: this.state === 'speaking',
+          state: this.state,
+        });
+
         if (!this.isCapturing || this.state === 'speaking' || this.state === 'transcribing') {
           return;
         }
 
-        const rms = computeRmsVolume(chunk);
+        if (this.isMonitoringOnly && this.state === 'idle') {
+          return;
+        }
+
         const now = Date.now();
 
         if (rms >= this.vadRmsThreshold) {

@@ -320,6 +320,10 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         description: 'Mute microphone and deactivate real-time voice mode (/mute)',
       },
       {
+        command: '/check',
+        description: 'Audio mixer, hardware input/output diagnostics & live VU meters (/check)',
+      },
+      {
         command: '/agents',
         description: 'Switch active agent (Architect, Developer, QA, PM)',
       },
@@ -607,6 +611,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/mute',
         description: 'Silenciar micrófono y desactivar modo de voz en tiempo real (/mute)',
+      },
+      {
+        command: '/check',
+        description:
+          'Mezclador de audio, diagnóstico de hardware y vúmetro en tiempo real (/check)',
       },
       {
         command: '/agents',

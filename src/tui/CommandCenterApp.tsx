@@ -50,6 +50,10 @@ import {
   VoiceService,
   VoiceState,
   VoiceIntent,
+  AudioHardwareInfo,
+  getAudioHardwareInfo,
+  adjustSourceVolume,
+  toggleSourceMute,
   getSwitchConfirmationText,
 } from '../runtime/voice-service.js';
 export { wrapTextLines };
@@ -452,6 +456,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [isAwaitingVoiceLanguage, setIsAwaitingVoiceLanguage] = useState<boolean>(false);
   const isAwaitingVoiceLanguageRef = useRef<boolean>(false);
+
+  // Audio Mixer & Live Hardware Diagnostics (/check)
+  const [isAudioCheckOpen, setIsAudioCheckOpen] = useState<boolean>(false);
+  const [audioHwInfo, setAudioHwInfo] = useState<AudioHardwareInfo | null>(null);
+  const [audioInputLevel, setAudioInputLevel] = useState<{ rms: number; db: number }>({ rms: 0, db: -60 });
+  const [audioInputPeak, setAudioInputPeak] = useState<number>(-60);
+  const [isOutputTtsActive, setIsOutputTtsActive] = useState<boolean>(false);
   const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [activeRole, setActiveRole] = useState<ActorRole>('architect');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
@@ -828,6 +839,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setDbModalOutput('');
     setIsWorkersModalOpen(false);
     setIsTreeExplorerOpen(false);
+    setIsAudioCheckOpen(false);
+    voiceService.stopMonitoring();
     setProjectToDelete(null);
     setProjectWizardStep('CLOSED');
   };
@@ -1114,6 +1127,23 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setIsAwaitingVoiceLanguage(false);
         voiceService.mute();
         setStatusBanner(t.liveModeDeactivated);
+        return;
+      }
+
+      if (cmdToken === '/check' || cmdToken === '/audio' || cmdToken === '/mixer') {
+        inputValueRef.current = '';
+        setInputValue('');
+        closeAllModals();
+        const hwInfo = getAudioHardwareInfo();
+        setAudioHwInfo(hwInfo);
+        setAudioInputPeak(-60);
+        voiceService.startMonitoring();
+        setIsAudioCheckOpen(true);
+        setStatusBanner(
+          language === 'es'
+            ? '🎛 Mezclador de audio abierto. Habla para ver el vúmetro o pulsa T para probar salida.'
+            : '🎛 Audio mixer open. Speak to test microphone level or press T to test output.',
+        );
         return;
       }
 
@@ -2009,15 +2039,31 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       setStatusBanner(`✖ Audio: ${(err as Error)?.message || String(err)}`);
     };
 
+    const onAudioLevel = (data: { rms: number; db: number; isSpeaking: boolean }) => {
+      setAudioInputLevel({ rms: data.rms, db: data.db });
+      setAudioInputPeak((prev) => Math.max(prev, data.db));
+      setIsOutputTtsActive(data.isSpeaking);
+    };
+
+    const onSpeakingStart = () => setIsOutputTtsActive(true);
+    const onSpeakingEnd = () => setIsOutputTtsActive(false);
+
     voiceService.on('state_change', onStateChange);
     voiceService.on('transcription', onTranscription);
+    voiceService.on('audio_level', onAudioLevel);
+    voiceService.on('speaking_start', onSpeakingStart);
+    voiceService.on('speaking_end', onSpeakingEnd);
     voiceService.on('error', onError);
 
     return () => {
       voiceService.off('state_change', onStateChange);
       voiceService.off('transcription', onTranscription);
+      voiceService.off('audio_level', onAudioLevel);
+      voiceService.off('speaking_start', onSpeakingStart);
+      voiceService.off('speaking_end', onSpeakingEnd);
       voiceService.off('error', onError);
       voiceService.stopLive();
+      voiceService.stopMonitoring();
     };
   }, [voiceService, language, project, t]);
 
@@ -2573,6 +2619,55 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       // Consume all other keys so they do not leak into prompt while tree is focused
+      return;
+    }
+
+    // Interactive Audio Mixer & Hardware Diagnostics Modal (/check)
+    if (isAudioCheckOpen) {
+      if (key.escape || input === 'q' || input === 'Q') {
+        setIsAudioCheckOpen(false);
+        voiceService.stopMonitoring();
+        return;
+      }
+      if (input === 't' || input === 'T') {
+        const testPhrase =
+          language === 'es'
+            ? 'Prueba de audio del sistema PO CLI. Micrófono y altavoces operativos.'
+            : 'PO CLI audio system test. Microphone and speakers are operational.';
+        setStatusBanner(`🔊 ${testPhrase}`);
+        void voiceService.speak(testPhrase, { language });
+        return;
+      }
+      if (input === '+' || input === '=') {
+        const updated = adjustSourceVolume(5);
+        setAudioHwInfo(updated);
+        setStatusBanner(
+          `🎤 Input volume: ${updated.sourceVolumePercent}% (${updated.sourceVolumeDb})`,
+        );
+        return;
+      }
+      if (input === '-' || input === '_') {
+        const updated = adjustSourceVolume(-5);
+        setAudioHwInfo(updated);
+        setStatusBanner(
+          `🎤 Input volume: ${updated.sourceVolumePercent}% (${updated.sourceVolumeDb})`,
+        );
+        return;
+      }
+      if (input === 'm' || input === 'M') {
+        const updated = toggleSourceMute();
+        setAudioHwInfo(updated);
+        setStatusBanner(
+          `🎤 Microphone ${updated.sourceMuted ? 'MUTED' : 'UNMUTED'}`,
+        );
+        return;
+      }
+      if (input === 'r' || input === 'R') {
+        setAudioInputPeak(-60);
+        const updated = getAudioHardwareInfo();
+        setAudioHwInfo(updated);
+        return;
+      }
       return;
     }
 
@@ -5191,6 +5286,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     isAuthModalOpen ||
     isExitConfirmOpen ||
     isTreeExplorerOpen ||
+    isAudioCheckOpen ||
     dbModalOutput.length > 0 ||
     projectWizardStep !== 'CLOSED';
 
@@ -5549,6 +5645,166 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     );
   };
 
+  // Interactive Audio Mixer & Hardware Diagnostics Modal (/check)
+  const renderAudioCheckModal = () => {
+    const modalWidth = Math.min(96, Math.max(70, dimensions.columns - 6));
+    const meterWidth = Math.max(20, Math.min(36, modalWidth - 42));
+
+    const renderMeterBar = (currentDb: number, peakDb: number, active: boolean) => {
+      if (!active) {
+        return (
+          <Box flexDirection="row">
+            <Text bold color="gray">[</Text>
+            <Text dimColor color="gray">{'·'.repeat(meterWidth)}</Text>
+            <Text bold color="gray">]</Text>
+          </Box>
+        );
+      }
+      const clamped = Math.max(-60, Math.min(0, currentDb));
+      const ratio = (clamped + 60) / 60;
+      const filled = Math.max(0, Math.min(meterWidth, Math.round(ratio * meterWidth)));
+
+      const greenLimit = Math.round(meterWidth * 0.65);
+      const yellowLimit = Math.round(meterWidth * 0.88);
+
+      const greenCount = Math.min(filled, greenLimit);
+      const yellowCount = Math.max(0, Math.min(filled - greenLimit, yellowLimit - greenLimit));
+      const redCount = Math.max(0, filled - yellowLimit);
+      const emptyCount = Math.max(0, meterWidth - filled);
+
+      return (
+        <Box flexDirection="row">
+          <Text bold color="gray">[</Text>
+          {greenCount > 0 && <Text bold color="green">{'■'.repeat(greenCount)}</Text>}
+          {yellowCount > 0 && <Text bold color="yellow">{'■'.repeat(yellowCount)}</Text>}
+          {redCount > 0 && <Text bold color="red">{'■'.repeat(redCount)}</Text>}
+          {emptyCount > 0 && <Text dimColor color="gray">{'·'.repeat(emptyCount)}</Text>}
+          <Text bold color="gray">]</Text>
+        </Box>
+      );
+    };
+
+    const micDb = audioInputLevel.db;
+    const isMicClipping = micDb >= -2;
+    const isSpeechActive = micDb >= -28;
+
+    return (
+      <Box
+        flexDirection="column"
+        width={modalWidth}
+        borderStyle="double"
+        borderColor="cyan"
+        paddingX={2}
+        paddingY={1}
+        marginBottom={1}
+      >
+        {/* Header */}
+        <Box justifyContent="space-between" marginBottom={1}>
+          <Text bold color="cyan">
+            🎛 {language === 'es' ? 'MEZCLADOR DE AUDIO Y DIAGNÓSTICO (/check)' : 'AUDIO MIXER & HARDWARE DIAGNOSTICS (/check)'}
+          </Text>
+          <Text dimColor>{language === 'es' ? 'Esc / q para salir' : 'Esc / q to close'}</Text>
+        </Box>
+
+        {/* Input / Microphone Section */}
+        <Box flexDirection="column" marginBottom={1}>
+          <Box flexDirection="row" justifyContent="space-between">
+            <Text bold color="yellow">
+              🎤 {language === 'es' ? 'ENTRADA (MICRÓFONO)' : 'INPUT (MICROPHONE)'}
+            </Text>
+            <Text color={audioHwInfo?.sourceMuted ? 'red' : 'green'} bold>
+              {audioHwInfo?.sourceMuted ? '● MUTED' : '● ACTIVE'}
+            </Text>
+          </Box>
+          <Text dimColor wrap="truncate-end">
+            Device: {audioHwInfo?.defaultSource || 'PipeWire/ALSA input stream'}
+          </Text>
+          <Box flexDirection="row" justifyContent="space-between" marginTop={0}>
+            <Text>
+              <Text dimColor>Gain / Vol: </Text>
+              <Text bold color="white">{audioHwInfo?.sourceVolumePercent ?? 100}%</Text>
+              <Text dimColor> ({audioHwInfo?.sourceVolumeDb ?? '0.00 dB'}) · 16kHz mono S16_LE</Text>
+            </Text>
+            <Text color="gray">[+ / - adjust]</Text>
+          </Box>
+
+          {/* VU Meter Scale & Bar */}
+          <Box flexDirection="column" marginTop={1}>
+            <Box flexDirection="row" justifyContent="space-between" width={meterWidth + 2}>
+              <Text dimColor color="gray">-60dB</Text>
+              <Text dimColor color="green">-24dB</Text>
+              <Text dimColor color="yellow">-12dB</Text>
+              <Text dimColor color="red">0dB</Text>
+            </Box>
+            <Box flexDirection="row" alignItems="center">
+              {renderMeterBar(micDb, audioInputPeak, true)}
+              <Box marginLeft={1}>
+                <Text bold color={isMicClipping ? 'red' : isSpeechActive ? 'yellow' : 'green'}>
+                  {` ${micDb.toFixed(0)} dB `}
+                </Text>
+                <Text dimColor> Peak: </Text>
+                <Text bold color="cyan">{audioInputPeak.toFixed(0)} dB</Text>
+                <Text bold color={isSpeechActive ? 'green' : 'gray'}>
+                  {isSpeechActive ? '  ● SPEECH' : '  ○ SILENCE'}
+                </Text>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Divider */}
+        <Box width="100%" height={1} marginY={0}>
+          <Text dimColor color="gray">{'─'.repeat(Math.max(10, modalWidth - 6))}</Text>
+        </Box>
+
+        {/* Output / Playback Section */}
+        <Box flexDirection="column" marginTop={0} marginBottom={1}>
+          <Box flexDirection="row" justifyContent="space-between">
+            <Text bold color="cyan">
+              🔊 {language === 'es' ? 'SALIDA (ALTAVOCES / SÍNTESIS DE VOZ)' : 'OUTPUT (SPEAKERS / VOICE SYNTHESIS)'}
+            </Text>
+            <Text color={audioHwInfo?.sinkMuted ? 'red' : isOutputTtsActive ? 'green' : 'gray'} bold>
+              {audioHwInfo?.sinkMuted ? '● MUTED' : isOutputTtsActive ? '● SPEAKING' : '○ IDLE'}
+            </Text>
+          </Box>
+          <Text dimColor wrap="truncate-end">
+            Device: {audioHwInfo?.defaultSink || 'PipeWire/ALSA output stream'}
+          </Text>
+          <Text dimColor>
+            Volume: <Text bold color="white">{audioHwInfo?.sinkVolumePercent ?? 85}%</Text> ({audioHwInfo?.sinkVolumeDb ?? '-3.78 dB'}) · Engine: {audioHwInfo?.ttsEngine || 'spd-say'}
+          </Text>
+
+          {/* Output VU bar */}
+          <Box flexDirection="column" marginTop={1}>
+            <Box flexDirection="row" alignItems="center">
+              {renderMeterBar(isOutputTtsActive ? -10 : -60, -10, isOutputTtsActive)}
+              <Box marginLeft={1}>
+                <Text bold color={isOutputTtsActive ? 'green' : 'gray'}>
+                  {isOutputTtsActive
+                    ? (language === 'es' ? '🔊 Reproduciendo voz (TTS)' : '🔊 Speaking audio output')
+                    : (language === 'es' ? 'En espera (Pulsa T para probar)' : 'Idle (Press T to test)')}
+                </Text>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* Footer controls */}
+        <Box
+          marginTop={1}
+          paddingTop={1}
+          borderStyle="single"
+          borderColor="gray"
+          justifyContent="space-between"
+        >
+          <Text dimColor>
+            <Text bold color="white">[T]</Text> {language === 'es' ? 'Probar voz' : 'Test Speech'}  ·  <Text bold color="white">[+]</Text>/<Text bold color="white">[-] </Text>{language === 'es' ? 'Ganancia Mic' : 'Mic Gain'}  ·  <Text bold color="white">[M]</Text> {language === 'es' ? 'Silenciar' : 'Mute'}  ·  <Text bold color="white">[R]</Text> Reset  ·  <Text bold color="white">[Esc]</Text> {language === 'es' ? 'Cerrar' : 'Close'}
+          </Text>
+        </Box>
+      </Box>
+    );
+  };
+
   const renderSlashPopoverMenu = (menuWidth?: number | string) => {
     if (!isSlashMenuOpen) return null;
     const windowSize = 8;
@@ -5780,6 +6036,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isWorkersModalOpen && renderWorkersModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
             {isTreeExplorerOpen && renderTreeExplorerModal()}
+            {isAudioCheckOpen && renderAudioCheckModal()}
           </Box>
         ) : (
           <Box
@@ -6148,6 +6405,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isWorkersModalOpen && renderWorkersModal()}
             {isExitConfirmOpen && renderExitConfirmModal()}
             {isTreeExplorerOpen && renderTreeExplorerModal()}
+            {isAudioCheckOpen && renderAudioCheckModal()}
           </Box>
         ) : (
           <Box flexDirection="row" width="100%" height={contentHeight}>
@@ -6348,6 +6606,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text color={voiceService.isLive() ? 'green' : 'gray'} bold={voiceService.isLive()}>
               {' · '}/live {language === 'es' ? 'voz' : 'voice'}
             </Text>
+            <Text color={isAudioCheckOpen ? 'cyan' : 'gray'} bold={isAudioCheckOpen}>
+              {' · '}/check {language === 'es' ? 'audio' : 'mixer'}
+            </Text>
           </Box>
           <Box flexDirection="row">
             <Text color="gray">ctrl+n </Text>
@@ -6416,6 +6677,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {isWorkersModalOpen && renderWorkersModal()}
           {isExitConfirmOpen && renderExitConfirmModal()}
           {isTreeExplorerOpen && renderTreeExplorerModal()}
+          {isAudioCheckOpen && renderAudioCheckModal()}
         </Box>
       ) : (
         <>

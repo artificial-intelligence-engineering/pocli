@@ -5,6 +5,9 @@ import {
   getSwitchConfirmationText,
   pcmToWav,
   computeRmsVolume,
+  getAudioHardwareInfo,
+  adjustSourceVolume,
+  toggleSourceMute,
   VoiceService,
 } from '../src/runtime/voice-service.js';
 
@@ -251,6 +254,40 @@ describe('VoiceService — Real-time Bidirectional Live Voice System', () => {
         text: 'Quiero hablar con el Arquitecto',
         intent: res.intent,
       });
+    });
+
+    it('supports diagnostic monitoring mode without changing live state', () => {
+      const service = new VoiceService({ language: 'es' });
+      service.startMonitoring();
+      expect(service.getState()).toBe('idle');
+      expect(service.isLive()).toBe(false);
+
+      service.stopMonitoring();
+      expect(service.getState()).toBe('idle');
+    });
+  });
+
+  describe('Audio Hardware Diagnostics & Mixer (/check)', () => {
+    it('retrieves audio hardware information', () => {
+      const info = getAudioHardwareInfo();
+      expect(info).toHaveProperty('defaultSource');
+      expect(info).toHaveProperty('defaultSink');
+      expect(info).toHaveProperty('sourceVolumePercent');
+      expect(info).toHaveProperty('sinkVolumePercent');
+      expect(info.ttsEngine).toContain('spd-say');
+      expect(typeof info.sourceMuted).toBe('boolean');
+      expect(typeof info.sinkMuted).toBe('boolean');
+    });
+
+    it('adjusts volume and toggles mute safely', () => {
+      const adjusted = adjustSourceVolume(0);
+      expect(adjusted).toHaveProperty('sourceVolumePercent');
+
+      const toggled = toggleSourceMute();
+      expect(typeof toggled.sourceMuted).toBe('boolean');
+      // Toggle back to original state
+      const restored = toggleSourceMute();
+      expect(typeof restored.sourceMuted).toBe('boolean');
     });
   });
 });
