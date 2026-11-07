@@ -376,6 +376,18 @@ export function buildChatVisualLines(
         // ignore JSON parse error
       }
 
+      if (m.fromRole === 'architect') {
+        result.push({
+          id: `msg-${m.id}-handoff-badge`,
+          kind: 'assistant-citation-header',
+          text:
+            language === 'es'
+              ? '🤝 [ARQ → DEV] Traspaso Normativo de Arquitectura y Especificaciones'
+              : '🤝 [ARQ → DEV] Normative Architecture & Specification Handoff',
+          sourceMessageId: m.id,
+        });
+      }
+
       // Citations header and block
       if (citations.length > 0) {
         result.push({

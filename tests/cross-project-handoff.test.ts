@@ -158,4 +158,58 @@ describe('Feature #66 — Cross-Project Task and Autonomous Handoff Isolation', 
     expect(msgsB.some((m) => m.content.includes('Message 1 for Project B'))).toBe(true);
     expect(msgsB.some((m) => m.content.includes('Message 1 for Project A'))).toBe(false);
   });
+
+  it('4. Issue #72 — attributes autonomous handoff interactions to Architect (ARQ) instead of Product Owner (PO)', async () => {
+    // 1. PO chats 2 times with the Architect in Project A
+    await orchestrator.chatWithProfessional({
+      projectId: projectA.id,
+      targetRole: 'architect',
+      message: 'Hello Architect, please define the architecture for our project.',
+    });
+    await orchestrator.chatWithProfessional({
+      projectId: projectA.id,
+      targetRole: 'architect',
+      message: 'I agree with the architecture. Please proceed with handoff to Developer.',
+    });
+
+    // PO approves architecture
+    orchestrator.reviewArchitectureByPo({
+      projectId: projectA.id,
+      artifactCode: 'ARCH-001',
+      decision: 'APPROVED',
+      comments: 'PO approves ARCH-001',
+    });
+
+    // 2. Perform official handoff from Architect to Developer with instructions
+    const handoff = orchestrator.performDeveloperHandoff(
+      projectA.id,
+      'Implement the backend module per SPEC-001.',
+    );
+    expect(handoff.handoffMessageId).toBeDefined();
+
+    // 3. Developer executes the turn with senderRole: 'architect' and alreadyRecorded: true
+    await orchestrator.chatWithProfessional({
+      projectId: projectA.id,
+      targetRole: 'developer',
+      message: 'Implement the backend module per SPEC-001.',
+      messageId: handoff.handoffMessageId,
+      alreadyRecorded: true,
+      senderRole: 'architect',
+    });
+
+    // 4. Verify Architect interactions
+    const arqSummary = storage.getExpertChatSummary(projectA.id, 'architect');
+    expect(arqSummary.interactions.po).toBe(2);
+    expect(arqSummary.interactions.developer).toBe(1);
+
+    // 5. Verify Developer interactions (Issue #72 fix)
+    const devSummary = storage.getExpertChatSummary(projectA.id, 'developer');
+    expect(devSummary.interactions.po).toBe(0); // PO has not spoken to Developer
+    expect(devSummary.interactions.architect).toBe(1); // Architect initiated handoff to Developer
+
+    // 6. Verify SQLite message attribution
+    const devMsgs = storage.listMessages(projectA.id, 'developer');
+    expect(devMsgs.some((m) => m.fromRole === 'product_owner')).toBe(false);
+    expect(devMsgs.some((m) => m.fromRole === 'architect' && m.toRole === 'developer')).toBe(true);
+  });
 });
