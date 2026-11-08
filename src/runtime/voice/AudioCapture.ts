@@ -104,3 +104,4 @@ export class AudioCapture extends EventEmitter {
     }
   }
 }
+

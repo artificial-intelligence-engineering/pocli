@@ -506,3 +506,4 @@ export class WhisperCppSTT extends EventEmitter implements SpeechToTextProvider 
     return '';
   }
 }
+

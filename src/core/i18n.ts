@@ -304,21 +304,13 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       security_auditor: 'DevSecOps Security Auditor',
     },
     liveModeActivated:
-      '🎙 Live voice mode ACTIVATED. Speak through the microphone (use /mute to silence).',
+      '🎙 Hands-free voice mode ACTIVATED (Spanish). Speak naturally (press Ctrl+S to deactivate).',
     liveModeDeactivated:
-      '🔇 Live voice mode DEACTIVATED. Microphone muted.',
-    liveStateListening: 'LIVE · Listening...',
+      '🔇 Hands-free voice mode DEACTIVATED. Microphone off.',
+    liveStateListening: 'LIVE · Listening (ES)...',
     liveStateTranscribing: 'LIVE · Transcribing...',
     liveStateSpeaking: 'LIVE · Speaking...',
     slashCommands: [
-      {
-        command: '/live',
-        description: 'Activate real-time bidirectional voice chat with agents (/live)',
-      },
-      {
-        command: '/mute',
-        description: 'Mute microphone and deactivate real-time voice mode (/mute)',
-      },
       {
         command: '/check',
         description: 'Audio mixer, hardware input/output diagnostics & live VU meters (/check)',
@@ -596,22 +588,13 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       security_auditor: 'Auditor de Seguridad DevSecOps',
     },
     liveModeActivated:
-      '🎙 Modo de voz en tiempo real ACTIVADO. Habla por el micrófono (usa /mute para silenciar).',
+      '🎙 Modo de voz manos libres ACTIVADO (Español). Habla con naturalidad (pulsa Ctrl+S para desactivar).',
     liveModeDeactivated:
-      '🔇 Modo de voz DESACTIVADO. Micrófono silenciado.',
-    liveStateListening: 'LIVE · Escuchando...',
+      '🔇 Modo de voz manos libres DESACTIVADO. Micrófono apagado.',
+    liveStateListening: 'LIVE · Escuchando (ES)...',
     liveStateTranscribing: 'LIVE · Transcribiendo...',
     liveStateSpeaking: 'LIVE · Hablando...',
     slashCommands: [
-      {
-        command: '/live',
-        description:
-          'Activar modo de voz bidireccional en tiempo real con agentes por micrófono (/live)',
-      },
-      {
-        command: '/mute',
-        description: 'Silenciar micrófono y desactivar modo de voz en tiempo real (/mute)',
-      },
       {
         command: '/check',
         description:
