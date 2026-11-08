@@ -48,15 +48,17 @@ import {
 import { FileTreeExplorer, useFileTree } from './FileTreeExplorer.js';
 import {
   VoiceService,
+  getAudioHardwareInfo,
+  adjustSourceVolume,
+  toggleSourceMute,
+  getSwitchConfirmationText,
+} from '../runtime/voice-service.js';
+import type {
   VoiceState,
   VoiceTurnState,
   VoiceDraftUpdateEvent,
   VoiceIntent,
   AudioHardwareInfo,
-  getAudioHardwareInfo,
-  adjustSourceVolume,
-  toggleSourceMute,
-  getSwitchConfirmationText,
 } from '../runtime/voice-service.js';
 export { wrapTextLines };
 

@@ -1,11 +1,13 @@
 import { EventEmitter } from 'node:events';
-import { ActorRole } from '../../core/contracts.js';
-import { VoiceStateManager, VoiceTurnState, LegacyVoiceState } from './VoiceStateManager.js';
+import type { ActorRole } from '../../core/contracts.js';
+import { VoiceStateManager } from './VoiceStateManager.js';
+import type { VoiceTurnState, LegacyVoiceState } from './VoiceStateManager.js';
 import { AudioCapture } from './AudioCapture.js';
 import { VoiceActivityDetector } from './VoiceActivityDetector.js';
-import { VoiceCommandRecognizer, VoiceControlAction } from './VoiceCommandRecognizer.js';
-import { SpeechToTextProvider } from './SpeechToTextProvider.js';
-import { TextToSpeechProvider } from './TextToSpeechProvider.js';
+import { VoiceCommandRecognizer } from './VoiceCommandRecognizer.js';
+import type { VoiceControlAction } from './VoiceCommandRecognizer.js';
+import type { SpeechToTextProvider } from './SpeechToTextProvider.js';
+import type { TextToSpeechProvider } from './TextToSpeechProvider.js';
 
 export interface VoiceDraftUpdateEvent {
   committedText: string;
@@ -313,3 +315,4 @@ export class VoiceController extends EventEmitter {
     }
   }
 }
+

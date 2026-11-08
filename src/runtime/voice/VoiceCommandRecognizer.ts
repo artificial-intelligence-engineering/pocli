@@ -1,4 +1,4 @@
-import { ActorRole } from '../../core/contracts.js';
+import type { ActorRole } from '../../core/contracts.js';
 
 export type VoiceControlAction =
   | {
@@ -231,3 +231,4 @@ export class VoiceCommandRecognizer {
     return { type: 'none', text: trimmed, originalText: trimmed };
   }
 }
+

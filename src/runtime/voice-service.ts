@@ -4,44 +4,48 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ActorRole } from '../core/contracts.js';
+import type { ActorRole } from '../core/contracts.js';
 import { AuthStorage } from '../core/auth.js';
 import {
   VoiceController,
   VoiceStateManager,
-  VoiceTurnState,
   VoiceCommandRecognizer,
-  VoiceControlAction,
   VoiceActivityDetector,
   AudioCapture,
-  SpeechToTextProvider,
   OpenAIRealtimeSTT,
   VoskStreamingSTT,
   WhisperCppSTT,
-  TextToSpeechProvider,
   SystemNativeTTS,
   OpenAITTS,
-  VoiceDraftUpdateEvent,
   resample16kTo24kPcm16,
+} from './voice/index.js';
+import type {
+  VoiceTurnState,
+  VoiceControlAction,
+  SpeechToTextProvider,
+  TextToSpeechProvider,
+  VoiceDraftUpdateEvent,
 } from './voice/index.js';
 
 export {
   VoiceController,
   VoiceStateManager,
-  VoiceTurnState,
   VoiceCommandRecognizer,
-  VoiceControlAction,
   VoiceActivityDetector,
   AudioCapture,
-  SpeechToTextProvider,
   OpenAIRealtimeSTT,
   VoskStreamingSTT,
   WhisperCppSTT,
-  TextToSpeechProvider,
   SystemNativeTTS,
   OpenAITTS,
-  VoiceDraftUpdateEvent,
   resample16kTo24kPcm16,
+};
+export type {
+  VoiceTurnState,
+  VoiceControlAction,
+  SpeechToTextProvider,
+  TextToSpeechProvider,
+  VoiceDraftUpdateEvent,
 };
 
 const __filename = fileURLToPath(import.meta.url);
