@@ -317,10 +317,6 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         description: 'List all existing projects and switch the active project',
       },
       {
-        command: '/switch',
-        description: 'Switch active project by name or ID (/switch <name>)',
-      },
-      {
         command: '/architect',
         description: 'Switch active interlocutor to the Software Architect',
       },
@@ -588,10 +584,6 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
       {
         command: '/projects',
         description: 'Listar todos los proyectos existentes y cambiar de proyecto activo',
-      },
-      {
-        command: '/switch',
-        description: 'Cambiar al proyecto indicado por nombre o ID (/switch <nombre>)',
       },
       {
         command: '/architect',

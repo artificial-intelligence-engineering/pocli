@@ -1087,6 +1087,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
       if (cmdToken === '/projects') {
+        const query = parts.slice(1).join(' ').trim();
+        if (query) {
+          closeAllModals();
+          switchProjectTo(query);
+          return;
+        }
         const nextState = !isProjectsModalOpen;
         closeAllModals();
         const listed = orchestrator.storage.listProjects();
@@ -1096,22 +1102,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           : 0;
         setSelectedProjectIdx(currentIdx);
         setIsProjectsModalOpen(nextState);
-        return;
-      }
-      if (cmdToken === '/switch') {
-        closeAllModals();
-        const query = parts.slice(1).join(' ').trim();
-        if (query) {
-          switchProjectTo(query);
-          return;
-        }
-        const listed = orchestrator.storage.listProjects();
-        setAllProjects(listed);
-        const currentIdx = project
-          ? Math.max(0, listed.findIndex((p) => p.id === project.id))
-          : 0;
-        setSelectedProjectIdx(currentIdx);
-        setIsProjectsModalOpen(true);
         return;
       }
       if (cmdToken === '/settings') {

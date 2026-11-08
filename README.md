@@ -198,8 +198,7 @@ npm run build
 * Press **`Ctrl+Tab`** at any time to toggle between the **Clean OpenCode View** and the **Multipanel Command Center**.
 * Type **`/`** in the prompt input box to open the interactive command menu:
   * `/project` — Interactive wizard (or inline `/project <name> <directory>`) to create a new project in a filesystem directory, initialize `.pocli/artifacts`, automatically discover and register any existing repositories inside that directory, and set it as the active project.
-  * `/projects` — List all existing projects in SQLite with their `[ACTIVE]` status, phase, filesystem directory, and discovered repositories, allowing interactive project switching with `↑`/`↓` + `Enter`.
-  * `/switch` — Switch the active project by name or ID (`/switch <name-or-id>`) or open the interactive project selector.
+  * `/projects` — List all existing projects in SQLite with their `[ACTIVE]` status, phase, filesystem directory, and discovered repositories, allowing interactive project switching with `↑`/`↓` + `Enter` (or inline `/projects <name-or-id>`).
   * `/architect`, `/developer`, `/qa`, `/pm` — Switch active professional interlocutor (or run parallel/sequential PM inquiries). Architecture design is entirely conversational: discuss goals and constraints with the Architect, and when satisfied, instruct the Architect in chat to transfer the specification to the Developer to begin implementation.
   * `/validate` — Execute independent QA validation tests and collect evidence.
   * `/accept` — Final project acceptance by the Product Owner.
