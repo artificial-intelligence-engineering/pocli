@@ -9,6 +9,11 @@ import {
   adjustSourceVolume,
   toggleSourceMute,
   VoiceService,
+  VoiceStateManager,
+  VoiceCommandRecognizer,
+  VoiceActivityDetector,
+  VoiceController,
+  resample16kTo24kPcm16,
 } from '../src/runtime/voice-service.js';
 
 describe('VoiceService — Real-time Bidirectional Live Voice System', () => {
@@ -312,6 +317,198 @@ describe('VoiceService — Real-time Bidirectional Live Voice System', () => {
       if (name) {
         expect(typeof name).toBe('string');
       }
+    });
+  });
+
+  describe('Hands-Free Modular Architecture (VoiceStateManager, VoiceCommandRecognizer, VAD, VoiceController)', () => {
+    it('manages the IDLE -> LISTENING -> PROCESSING -> SPEAKING -> LISTENING state machine', () => {
+      const sm = new VoiceStateManager('IDLE');
+      const transitions: string[] = [];
+      sm.on('transition', (evt) => transitions.push(`${evt.from}->${evt.to}`));
+
+      expect(sm.getState()).toBe('IDLE');
+      expect(sm.isActiveConversation()).toBe(false);
+
+      sm.transitionTo('LISTENING', 'ctrl_space');
+      expect(sm.getState()).toBe('LISTENING');
+      expect(sm.getLegacyState()).toBe('listening');
+      expect(sm.isListening()).toBe(true);
+      expect(sm.isActiveConversation()).toBe(true);
+
+      sm.transitionTo('PROCESSING', 'end_of_speech');
+      expect(sm.getState()).toBe('PROCESSING');
+      expect(sm.getLegacyState()).toBe('transcribing');
+      expect(sm.isProcessing()).toBe(true);
+
+      sm.transitionTo('SPEAKING', 'agent_reply');
+      expect(sm.getState()).toBe('SPEAKING');
+      expect(sm.getLegacyState()).toBe('speaking');
+      expect(sm.isSpeaking()).toBe(true);
+
+      sm.transitionTo('LISTENING', 'tts_complete');
+      expect(sm.getState()).toBe('LISTENING');
+
+      sm.transitionTo('PAUSED', 'user_pause');
+      expect(sm.getState()).toBe('PAUSED');
+      expect(sm.getLegacyState()).toBe('muted');
+      expect(sm.isPaused()).toBe(true);
+
+      expect(transitions).toEqual([
+        'IDLE->LISTENING',
+        'LISTENING->PROCESSING',
+        'PROCESSING->SPEAKING',
+        'SPEAKING->LISTENING',
+        'LISTENING->PAUSED',
+      ]);
+    });
+
+    it('recognizes explicit send trigger phrases ("qué opinas", "enviar mensaje", "terminar intervención") and strips them', () => {
+      const recognizer = new VoiceCommandRecognizer({ language: 'es' });
+
+      const r1 = recognizer.analyze(
+        'Deberíamos desacoplar el servicio de inventario mediante eventos, ¿qué opinas?',
+      );
+      expect(r1).toEqual({
+        type: 'send_now',
+        cleanedText: 'Deberíamos desacoplar el servicio de inventario mediante eventos',
+        triggerPhrase: 'qué opinas',
+        originalText:
+          'Deberíamos desacoplar el servicio de inventario mediante eventos, ¿qué opinas?',
+      });
+
+      const r2 = recognizer.analyze('Revisa los tests unitarios de la pasarela enviar mensaje');
+      expect(r2).toEqual({
+        type: 'send_now',
+        cleanedText: 'Revisa los tests unitarios de la pasarela',
+        triggerPhrase: 'enviar mensaje',
+        originalText: 'Revisa los tests unitarios de la pasarela enviar mensaje',
+      });
+
+      const r3 = recognizer.analyze('Propongo usar PostgreSQL con PostGIS terminar intervención.');
+      expect(r3).toEqual({
+        type: 'send_now',
+        cleanedText: 'Propongo usar PostgreSQL con PostGIS',
+        triggerPhrase: 'terminar intervención',
+        originalText: 'Propongo usar PostgreSQL con PostGIS terminar intervención.',
+      });
+    });
+
+    it('preserves trigger phrase when escaped with "literalmente"', () => {
+      const recognizer = new VoiceCommandRecognizer({ language: 'es' });
+      const res = recognizer.analyze('El cliente me preguntó literalmente qué opinas');
+      expect(res.type).toBe('none');
+      if (res.type === 'none') {
+        expect(res.text).toBe('El cliente me preguntó qué opinas');
+      }
+    });
+
+    it('supports adding custom trigger phrases and control commands ("detener conversación", "pausar escucha")', () => {
+      const recognizer = new VoiceCommandRecognizer({ language: 'es' });
+      expect(recognizer.analyze('detener conversación').type).toBe('stop_conversation');
+      expect(recognizer.analyze('pausar escucha').type).toBe('pause_listening');
+      expect(recognizer.analyze('reanudar escucha').type).toBe('resume_listening');
+
+      recognizer.addSendTriggerPhrase('adelante compañero');
+      const custom = recognizer.analyze('Analiza este módulo por favor adelante compañero');
+      expect(custom).toMatchObject({
+        type: 'send_now',
+        cleanedText: 'Analiza este módulo por favor',
+        triggerPhrase: 'adelante compañero',
+      });
+    });
+
+    it('integrates trigger phrase stripping directly into parseVoiceIntent', () => {
+      const intent = parseVoiceIntent(
+        'Necesitamos validar la latencia del bus de eventos, qué opinas',
+        'architect',
+        'es',
+      );
+      expect(intent).toEqual({
+        type: 'agent_message',
+        targetRole: 'architect',
+        text: 'Necesitamos validar la latencia del bus de eventos',
+        triggerPhrase: 'qué opinas',
+        originalUtterance: 'Necesitamos validar la latencia del bus de eventos, qué opinas',
+      });
+    });
+
+    it('detects end_of_speech after configurable silence and barge_in during agent speech in VoiceActivityDetector', () => {
+      const vad = new VoiceActivityDetector({
+        rmsThreshold: 400,
+        silenceDurationMs: 1200,
+        bargeInRequiredFrames: 3,
+      });
+
+      const speechEvents: string[] = [];
+      vad.on('speech_start', () => speechEvents.push('speech_start'));
+      vad.on('end_of_speech', () => speechEvents.push('end_of_speech'));
+      vad.on('barge_in', () => speechEvents.push('barge_in'));
+
+      // Speak at t=1000..1500
+      vad.processChunk(2000, false, 1000);
+      vad.processChunk(2200, false, 1300);
+      expect(speechEvents).toContain('speech_start');
+
+      // Brief thinking pause (500ms < 1200ms) does NOT trigger end_of_speech
+      vad.processChunk(100, false, 1800);
+      expect(speechEvents).not.toContain('end_of_speech');
+
+      // Silence reaches 1300ms (>= 1200ms) -> triggers end_of_speech
+      vad.processChunk(100, false, 2650);
+      expect(speechEvents).toContain('end_of_speech');
+
+      // Test barge-in while agent is speaking (isAgentSpeaking = true)
+      vad.processChunk(3500, true, 5000);
+      vad.processChunk(3500, true, 5200);
+      expect(speechEvents).not.toContain('barge_in');
+      vad.processChunk(3500, true, 5400);
+      expect(speechEvents).toContain('barge_in');
+    });
+
+    it('accumulates streaming partial and final transcripts progressively without duplicates and dispatches on "qué opinas"', () => {
+      const controller = new VoiceController({
+        language: 'es',
+        silenceDurationMs: 1500,
+      });
+      controller.stateManager.transitionTo('LISTENING', 'test');
+
+      const drafts: string[] = [];
+      const readyTurns: Array<{ text: string; triggerPhrase?: string; reason: string }> = [];
+
+      controller.on('draft_update', (d) => drafts.push(d.fullText));
+      controller.on('turn_ready', (t) => readyTurns.push(t));
+
+      controller.handlePartialTranscript('vamos a revisar');
+      controller.handlePartialTranscript('vamos a revisar el diseño');
+      controller.handleFinalTranscript('vamos a revisar el diseño de microservicios');
+      // Duplicate final segment is ignored
+      controller.handleFinalTranscript('vamos a revisar el diseño de microservicios');
+
+      expect(controller.getAccumulatedText()).toBe(
+        'vamos a revisar el diseño de microservicios',
+      );
+
+      // Now user says "qué opinas"
+      controller.handleFinalTranscript('qué opinas');
+
+      expect(readyTurns).toHaveLength(1);
+      expect(readyTurns[0]).toEqual({
+        text: 'vamos a revisar el diseño de microservicios',
+        triggerPhrase: 'qué opinas',
+        reason: 'trigger_phrase',
+      });
+      expect(controller.getTurnState()).toBe('PROCESSING');
+      expect(controller.getAccumulatedText()).toBe('');
+    });
+
+    it('resamples 16kHz 16-bit PCM to 24kHz 16-bit PCM for OpenAI Realtime API', () => {
+      const pcm16k = Buffer.alloc(320); // 160 samples at 16kHz (10ms)
+      for (let i = 0; i < 160; i++) {
+        pcm16k.writeInt16LE(i * 10, i * 2);
+      }
+      const pcm24k = resample16kTo24kPcm16(pcm16k);
+      // 160 * 1.5 = 240 samples -> 480 bytes
+      expect(pcm24k.length).toBe(480);
     });
   });
 });

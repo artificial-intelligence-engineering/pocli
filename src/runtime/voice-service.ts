@@ -6,6 +6,43 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ActorRole } from '../core/contracts.js';
 import { AuthStorage } from '../core/auth.js';
+import {
+  VoiceController,
+  VoiceStateManager,
+  VoiceTurnState,
+  VoiceCommandRecognizer,
+  VoiceControlAction,
+  VoiceActivityDetector,
+  AudioCapture,
+  SpeechToTextProvider,
+  OpenAIRealtimeSTT,
+  VoskStreamingSTT,
+  WhisperCppSTT,
+  TextToSpeechProvider,
+  SystemNativeTTS,
+  OpenAITTS,
+  VoiceDraftUpdateEvent,
+  resample16kTo24kPcm16,
+} from './voice/index.js';
+
+export {
+  VoiceController,
+  VoiceStateManager,
+  VoiceTurnState,
+  VoiceCommandRecognizer,
+  VoiceControlAction,
+  VoiceActivityDetector,
+  AudioCapture,
+  SpeechToTextProvider,
+  OpenAIRealtimeSTT,
+  VoskStreamingSTT,
+  WhisperCppSTT,
+  TextToSpeechProvider,
+  SystemNativeTTS,
+  OpenAITTS,
+  VoiceDraftUpdateEvent,
+  resample16kTo24kPcm16,
+};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -249,6 +286,8 @@ export type VoiceIntentType =
   | 'switch_agent'
   | 'mute'
   | 'unmute'
+  | 'pause'
+  | 'stop_conversation'
   | 'agent_message';
 
 export interface VoiceIntent {
@@ -257,6 +296,7 @@ export interface VoiceIntent {
   roleName?: string;
   selectedLanguage?: 'es' | 'en';
   text?: string;
+  triggerPhrase?: string;
   originalUtterance: string;
 }
 
@@ -265,6 +305,9 @@ export interface VoiceServiceOptions {
   vadSilenceMs?: number;
   vadRmsThreshold?: number;
   autoSpeakReplies?: boolean;
+  preferredSttProvider?: 'auto' | 'openai-realtime' | 'vosk-stream' | 'whisper-cpp';
+  preferredTtsProvider?: 'system' | 'openai';
+  extraTriggerPhrases?: string[];
 }
 
 /**
@@ -430,11 +473,58 @@ export function parseVoiceIntent(
     };
   }
 
-  // 4. Default: message to current active agent
+  const recognizer = new VoiceCommandRecognizer({ language });
+  const controlAction = recognizer.analyze(trimmed);
+
+  if (controlAction.type === 'stop_conversation') {
+    return {
+      type: 'mute',
+      originalUtterance: trimmed,
+    };
+  }
+
+  if (controlAction.type === 'pause_listening') {
+    return {
+      type: 'mute',
+      originalUtterance: trimmed,
+    };
+  }
+
+  if (controlAction.type === 'resume_listening') {
+    return {
+      type: 'unmute',
+      originalUtterance: trimmed,
+    };
+  }
+
+  if (controlAction.type === 'send_now') {
+    const cleaned = controlAction.cleanedText.trim();
+    if (cleaned) {
+      // Check if the cleaned text itself was a switch_agent command (e.g. "quiero hablar con el arquitecto, qué opinas")
+      const inner = parseVoiceIntent(cleaned, currentRole, language);
+      if (inner.type !== 'agent_message') {
+        return {
+          ...inner,
+          triggerPhrase: controlAction.triggerPhrase,
+          originalUtterance: trimmed,
+        };
+      }
+      return {
+        type: 'agent_message',
+        targetRole: currentRole,
+        text: cleaned,
+        triggerPhrase: controlAction.triggerPhrase,
+        originalUtterance: trimmed,
+      };
+    }
+  }
+
+  // 4. Default: message to current active agent (with literal escape stripped if used)
+  const finalText = controlAction.type === 'none' ? controlAction.text : trimmed;
   return {
     type: 'agent_message',
     targetRole: currentRole,
-    text: trimmed,
+    text: finalText,
     originalUtterance: trimmed,
   };
 }
@@ -520,12 +610,15 @@ export function computeRmsVolume(buffer: Buffer): number {
  * Bidirectional Live Voice Service for PO CLI.
  */
 export class VoiceService extends EventEmitter {
+  public readonly controller: VoiceController;
   private state: VoiceState = 'idle';
   private language: 'es' | 'en' = 'es';
   private currentRole: ActorRole = 'architect';
   private vadSilenceMs: number;
   private vadRmsThreshold: number;
   private autoSpeakReplies: boolean;
+  private preferredSttProvider: 'auto' | 'openai-realtime' | 'vosk-stream' | 'whisper-cpp';
+  private preferredTtsProvider: 'system' | 'openai';
   private recordProcess: ChildProcess | null = null;
   private isCapturing = false;
   private isMonitoringOnly = false;
@@ -534,28 +627,171 @@ export class VoiceService extends EventEmitter {
   private lastSoundTimestamp = 0;
   private noiseFloor = 300;
   private utteranceStartTime = 0;
-  private maxUtteranceMs = 6000;
+  private maxUtteranceMs = 8000;
   private silenceCheckTimer: NodeJS.Timeout | null = null;
   private activeTtsProcess: ChildProcess | null = null;
+  private streamingStt: SpeechToTextProvider | null = null;
+  private isStreamingSttActive = false;
 
   constructor(options: VoiceServiceOptions = {}) {
     super();
     this.language = options.language ?? 'es';
-    this.vadSilenceMs = options.vadSilenceMs ?? 900;
+    this.vadSilenceMs = options.vadSilenceMs ?? 1500;
     this.vadRmsThreshold = options.vadRmsThreshold ?? 400;
     this.autoSpeakReplies = options.autoSpeakReplies ?? true;
+    this.preferredSttProvider =
+      options.preferredSttProvider ??
+      ((process.env.POCLI_STT_PROVIDER as VoiceServiceOptions['preferredSttProvider']) || 'auto');
+    this.preferredTtsProvider =
+      options.preferredTtsProvider ??
+      ((process.env.POCLI_TTS_PROVIDER as VoiceServiceOptions['preferredTtsProvider']) || 'system');
+
+    this.controller = new VoiceController({
+      language: this.language,
+      silenceDurationMs: this.vadSilenceMs,
+      rmsThreshold: this.vadRmsThreshold,
+    });
+
+    if (options.extraTriggerPhrases) {
+      for (const phrase of options.extraTriggerPhrases) {
+        this.controller.commandRecognizer.addSendTriggerPhrase(phrase);
+      }
+    }
+
+    this.wireControllerEvents();
+  }
+
+  private wireControllerEvents(): void {
+    this.controller.on('draft_update', (draft: VoiceDraftUpdateEvent) => {
+      this.emit('draft_update', draft);
+    });
+
+    this.controller.on('turn_state_change', (turnState: VoiceTurnState, evt: unknown) => {
+      this.emit('turn_state_change', turnState, evt);
+    });
+
+    this.controller.on('barge_in', () => {
+      this.cancelSpeechOutput();
+      this.setState('listening');
+      this.emit('barge_in');
+    });
+
+    this.controller.on(
+      'turn_ready',
+      (payload: { text: string; triggerPhrase?: string; reason: string }) => {
+        const cleanText = payload.text.trim();
+        if (!cleanText) return;
+        const intent = parseVoiceIntent(cleanText, this.currentRole, this.language);
+        if (payload.triggerPhrase && !intent.triggerPhrase) {
+          intent.triggerPhrase = payload.triggerPhrase;
+        }
+        this.setState('transcribing');
+        this.emit('transcription', {
+          text: cleanText,
+          intent,
+          triggerPhrase: payload.triggerPhrase,
+          reason: payload.reason,
+        });
+      },
+    );
+
+    this.controller.on('control_action', (action: VoiceControlAction) => {
+      if (action.type === 'stop_conversation') {
+        this.emit('transcription', {
+          text: action.originalText,
+          intent: { type: 'mute', originalUtterance: action.originalText } as VoiceIntent,
+        });
+        return;
+      }
+      if (action.type === 'pause_listening') {
+        this.pause();
+        this.emit('voice_paused', { reason: 'voice_command', text: action.originalText });
+        return;
+      }
+      if (action.type === 'resume_listening') {
+        this.resume();
+        this.emit('voice_resumed', { reason: 'voice_command', text: action.originalText });
+        return;
+      }
+      if (action.type === 'switch_agent') {
+        this.emit('transcription', {
+          text: action.originalText,
+          intent: {
+            type: 'switch_agent',
+            targetRole: action.targetRole,
+            roleName: action.roleName,
+            originalUtterance: action.originalText,
+          } as VoiceIntent,
+        });
+        return;
+      }
+      if (action.type === 'select_language') {
+        this.emit('transcription', {
+          text: action.originalText,
+          intent: {
+            type: 'select_language',
+            selectedLanguage: action.selectedLanguage,
+            originalUtterance: action.originalText,
+          } as VoiceIntent,
+        });
+      }
+    });
   }
 
   public setLanguage(lang: 'es' | 'en'): void {
+    const changed = this.language !== lang;
     this.language = lang;
+    this.controller.setLanguage(lang);
+    if (changed && this.isStreamingSttActive) {
+      // Restart streaming STT with the newly selected language model
+      void this.restartStreamingStt();
+    }
+  }
+
+  public getLanguage(): 'es' | 'en' {
+    return this.language;
   }
 
   public setCurrentRole(role: ActorRole): void {
     this.currentRole = role;
+    this.controller.setCurrentRole(role);
+  }
+
+  public getCurrentRole(): ActorRole {
+    return this.currentRole;
   }
 
   public getState(): VoiceState {
     return this.state;
+  }
+
+  public getTurnState(): VoiceTurnState {
+    return this.controller.getTurnState();
+  }
+
+  public setSilenceDurationMs(ms: number): void {
+    this.vadSilenceMs = Math.max(400, Math.min(10000, ms));
+    this.controller.vad.setSilenceDurationMs(this.vadSilenceMs);
+  }
+
+  public getSilenceDurationMs(): number {
+    return this.vadSilenceMs;
+  }
+
+  public addSendTriggerPhrase(phrase: string): void {
+    this.controller.commandRecognizer.addSendTriggerPhrase(phrase);
+  }
+
+  public getSendTriggerPhrases(): string[] {
+    return this.controller.commandRecognizer.getSendTriggerPhrases();
+  }
+
+  public getDraftText(): string {
+    return this.controller.getAccumulatedText();
+  }
+
+  public clearDraft(): void {
+    this.controller.clearDraft();
   }
 
   public isLive(): boolean {
@@ -564,6 +800,10 @@ export class VoiceService extends EventEmitter {
 
   public isMuted(): boolean {
     return this.state === 'muted';
+  }
+
+  public isPaused(): boolean {
+    return this.controller.getTurnState() === 'PAUSED' || this.state === 'muted';
   }
 
   public hasConfiguredSttProvider(): boolean {
@@ -576,13 +816,96 @@ export class VoiceService extends EventEmitter {
   }
 
   public getConfiguredSttProviderName(): string | null {
+    if (
+      this.preferredSttProvider === 'openai-realtime' &&
+      (process.env.OPENAI_API_KEY || AuthStorage.getApiKey('openai'))
+    ) {
+      return 'OpenAI Realtime Transcription (WebSocket Streaming)';
+    }
     return getConfiguredSttProviderName();
   }
 
   private setState(next: VoiceState): void {
     if (this.state === next) return;
     this.state = next;
+    this.controller.stateManager.setFromLegacyState(next);
     this.emit('state_change', next);
+  }
+
+  /**
+   * Resolves and starts the best streaming SpeechToTextProvider:
+   * - OpenAIRealtimeSTT if preferredSttProvider === 'openai-realtime' (or no local Vosk and OpenAI key exists)
+   * - VoskStreamingSTT for 0-token real-time local streaming
+   * - WhisperCppSTT if whisper-cli is installed
+   */
+  private async startStreamingStt(): Promise<void> {
+    if (this.streamingStt && this.isStreamingSttActive) {
+      return;
+    }
+
+    const openaiKey = process.env.OPENAI_API_KEY || AuthStorage.getApiKey('openai');
+    const py = findNativePythonBinary();
+    const nativeEngine = detectNativeSttEngine();
+    const scriptPath = getNativeSttScriptPath();
+
+    let provider: SpeechToTextProvider | null = null;
+
+    if (this.preferredSttProvider === 'openai-realtime' && openaiKey) {
+      provider = new OpenAIRealtimeSTT();
+    } else if (
+      (this.preferredSttProvider === 'auto' || this.preferredSttProvider === 'vosk-stream') &&
+      py &&
+      nativeEngine?.startsWith('Vosk')
+    ) {
+      provider = new VoskStreamingSTT({
+        pythonBin: py,
+        scriptPath,
+      });
+    } else if (this.preferredSttProvider === 'auto' && openaiKey && !nativeEngine) {
+      provider = new OpenAIRealtimeSTT();
+    } else if (nativeEngine?.startsWith('whisper-cli')) {
+      provider = new WhisperCppSTT({
+        pythonBin: py,
+        scriptPath,
+      });
+    }
+
+    if (!provider) return;
+
+    this.streamingStt = provider;
+    this.controller.setSttProvider(provider);
+
+    try {
+      const ok = await provider.startStream(this.language);
+      this.isStreamingSttActive = ok;
+      if (!ok) {
+        this.streamingStt = null;
+      }
+    } catch {
+      // Fall back silently to chunked transcription if streaming init fails
+      this.streamingStt = null;
+      this.isStreamingSttActive = false;
+    }
+  }
+
+  private async stopStreamingStt(): Promise<void> {
+    this.isStreamingSttActive = false;
+    if (this.streamingStt) {
+      const active = this.streamingStt;
+      this.streamingStt = null;
+      try {
+        await active.stopStream();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  private async restartStreamingStt(): Promise<void> {
+    await this.stopStreamingStt();
+    if (this.isLive()) {
+      await this.startStreamingStt();
+    }
   }
 
   /**
@@ -608,13 +931,82 @@ export class VoiceService extends EventEmitter {
   }
 
   /**
-   * Activates live listening mode.
+   * Activates live hands-free listening mode.
    */
   public async startLive(): Promise<void> {
     this.isMonitoringOnly = false;
     if (this.isLive()) return;
+    this.controller.clearDraft();
     this.setState('listening');
+    await this.startStreamingStt();
     this.startMicrophoneCapture();
+  }
+
+  /**
+   * Pauses listening temporarily (PAUSED / muted state).
+   */
+  public pause(): void {
+    this.mute();
+  }
+
+  /**
+   * Resumes listening from PAUSED / muted state.
+   */
+  public resume(): void {
+    this.unmute();
+  }
+
+  /**
+   * Toggles hands-free voice mode (used by Ctrl + Space):
+   * - If IDLE or PAUSED/muted -> starts/resumes LISTENING
+   * - If SPEAKING -> interrupts agent speech and returns to LISTENING
+   * - If LISTENING or PROCESSING -> stops hands-free voice mode (IDLE)
+   */
+  public async toggleHandsFree(): Promise<VoiceTurnState> {
+    const turnState = this.getTurnState();
+    if (turnState === 'SPEAKING') {
+      this.interruptSpeech();
+      return 'LISTENING';
+    }
+    if (turnState === 'IDLE' || turnState === 'PAUSED') {
+      if (this.state === 'muted') {
+        this.unmute();
+      } else {
+        await this.startLive();
+      }
+      return 'LISTENING';
+    }
+    this.stopLive();
+    return 'IDLE';
+  }
+
+  /**
+   * Interrupts ongoing agent TTS playback and returns immediately to LISTENING.
+   */
+  public interruptSpeech(): void {
+    this.cancelSpeechOutput();
+    this.controller.interruptSpeech();
+    if (this.state === 'speaking' || this.state === 'transcribing') {
+      this.setState('listening');
+    }
+  }
+
+  /**
+   * Marks the turn as currently processing by the active LLM agent.
+   */
+  public beginProcessing(): void {
+    if (this.isLive()) {
+      this.setState('transcribing');
+    }
+  }
+
+  /**
+   * Returns from PROCESSING/SPEAKING to LISTENING if hands-free mode is active.
+   */
+  public resumeListeningAfterTurn(): void {
+    if (this.state !== 'idle' && this.state !== 'muted') {
+      this.setState('listening');
+    }
   }
 
   /**
@@ -623,7 +1015,9 @@ export class VoiceService extends EventEmitter {
   public mute(): void {
     this.isMonitoringOnly = false;
     this.cancelSpeechOutput();
+    this.controller.clearDraft();
     this.stopMicrophoneCapture();
+    void this.stopStreamingStt();
     this.setState('muted');
   }
 
@@ -633,7 +1027,9 @@ export class VoiceService extends EventEmitter {
   public unmute(): void {
     this.isMonitoringOnly = false;
     if (this.state === 'muted') {
+      this.controller.clearDraft();
       this.setState('listening');
+      void this.startStreamingStt();
       this.startMicrophoneCapture();
     }
   }
@@ -644,7 +1040,9 @@ export class VoiceService extends EventEmitter {
   public stopLive(): void {
     this.isMonitoringOnly = false;
     this.cancelSpeechOutput();
+    this.controller.clearDraft();
     this.stopMicrophoneCapture();
+    void this.stopStreamingStt();
     this.setState('idle');
   }
 
@@ -684,9 +1082,10 @@ export class VoiceService extends EventEmitter {
           dynamicThreshold,
           isSpeaking: this.state === 'speaking',
           state: this.state,
+          turnState: this.getTurnState(),
         });
 
-        if (!this.isCapturing || this.state === 'speaking' || this.state === 'transcribing') {
+        if (!this.isCapturing) {
           return;
         }
 
@@ -694,6 +1093,26 @@ export class VoiceService extends EventEmitter {
           return;
         }
 
+        // During SPEAKING: do NOT feed audio to STT (prevents acoustic echo feedback),
+        // but monitor VAD for sustained high-energy barge-in interruption
+        if (this.state === 'speaking') {
+          this.controller.vad.processChunk(rms, true);
+          return;
+        }
+
+        // During PROCESSING ('transcribing'): block STT ingestion
+        if (this.state === 'transcribing') {
+          return;
+        }
+
+        // If streaming STT provider is active, stream raw PCM chunks in real time
+        if (this.streamingStt && this.isStreamingSttActive) {
+          this.controller.vad.processChunk(rms, false);
+          this.streamingStt.writeAudio(chunk);
+          return;
+        }
+
+        // Fallback batch mode when no streaming STT is active
         const now = Date.now();
 
         if (isSpeech) {
@@ -707,14 +1126,14 @@ export class VoiceService extends EventEmitter {
 
           // Hard safety limit: force utterance complete if speaking continuously for > maxUtteranceMs
           if (now - this.utteranceStartTime >= this.maxUtteranceMs) {
-            this.handleUtteranceComplete();
+            void this.handleUtteranceComplete();
           }
         } else if (this.hasSpoken) {
           // Keep trailing silence chunks up to vadSilenceMs for smooth utterance boundaries
           this.speechChunks.push(chunk);
           if (now - this.lastSoundTimestamp >= this.vadSilenceMs) {
             // Voice Activity Detection triggered end-of-utterance
-            this.handleUtteranceComplete();
+            void this.handleUtteranceComplete();
           }
         } else {
           // Adapt noise floor slowly during silence
@@ -734,12 +1153,15 @@ export class VoiceService extends EventEmitter {
       // Start periodic silence watchdog timer
       if (this.silenceCheckTimer) clearInterval(this.silenceCheckTimer);
       this.silenceCheckTimer = setInterval(() => {
+        if (this.streamingStt && this.isStreamingSttActive) {
+          return;
+        }
         if (
           this.hasSpoken &&
           this.isCapturing &&
           Date.now() - this.lastSoundTimestamp >= this.vadSilenceMs
         ) {
-          this.handleUtteranceComplete();
+          void this.handleUtteranceComplete();
         }
       }, 250);
     } catch (err) {
@@ -992,8 +1414,27 @@ export class VoiceService extends EventEmitter {
     }
 
     const previousState = this.state;
+    const nextStateAfterSpeech: VoiceState =
+      previousState === 'speaking' || previousState === 'transcribing'
+        ? 'listening'
+        : previousState;
     this.setState('speaking');
     this.emit('speaking_start', { text: cleaned });
+
+    const openaiKey = process.env.OPENAI_API_KEY || AuthStorage.getApiKey('openai');
+    if (this.preferredTtsProvider === 'openai' && openaiKey) {
+      const openaiTts = new OpenAITTS();
+      this.controller.setTtsProvider(openaiTts);
+      try {
+        await openaiTts.speak(cleaned, { language: lang });
+      } finally {
+        this.emit('speaking_end', { text: cleaned });
+        if (this.state === 'speaking') {
+          this.setState(nextStateAfterSpeech);
+        }
+      }
+      return;
+    }
 
     return new Promise<void>((resolve) => {
       try {
@@ -1008,7 +1449,7 @@ export class VoiceService extends EventEmitter {
           this.activeTtsProcess = null;
           this.emit('speaking_end', { text: cleaned });
           if (this.state === 'speaking') {
-            this.setState(previousState === 'speaking' ? 'listening' : previousState);
+            this.setState(nextStateAfterSpeech);
           }
           resolve();
         });
@@ -1017,14 +1458,14 @@ export class VoiceService extends EventEmitter {
           this.activeTtsProcess = null;
           this.emit('speaking_end', { text: cleaned });
           if (this.state === 'speaking') {
-            this.setState(previousState === 'speaking' ? 'listening' : previousState);
+            this.setState(nextStateAfterSpeech);
           }
           resolve();
         });
       } catch {
         this.emit('speaking_end', { text: cleaned });
         if (this.state === 'speaking') {
-          this.setState(previousState === 'speaking' ? 'listening' : previousState);
+          this.setState(nextStateAfterSpeech);
         }
         resolve();
       }

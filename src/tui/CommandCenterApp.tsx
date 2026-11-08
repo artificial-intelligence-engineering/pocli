@@ -49,6 +49,8 @@ import { FileTreeExplorer, useFileTree } from './FileTreeExplorer.js';
 import {
   VoiceService,
   VoiceState,
+  VoiceTurnState,
+  VoiceDraftUpdateEvent,
   VoiceIntent,
   AudioHardwareInfo,
   getAudioHardwareInfo,
@@ -449,11 +451,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     Math.max(68, Math.min(dimensions.columns - 6, 88 + treeWidthAdjustment)),
   );
 
-  // Bidirectional Real-time Live Voice Service (/live and /mute)
+  // Bidirectional Real-time Live Voice Service (/live, /mute, Ctrl+Space)
   const [voiceService] = useState<VoiceService>(
     () => new VoiceService({ language, autoSpeakReplies: true }),
   );
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [voiceTurnState, setVoiceTurnState] = useState<VoiceTurnState>('IDLE');
   const [isAwaitingVoiceLanguage, setIsAwaitingVoiceLanguage] = useState<boolean>(false);
   const isAwaitingVoiceLanguageRef = useRef<boolean>(false);
 
@@ -723,9 +726,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
   const cycleNextAgentRef = useRef<() => void>(() => {});
   const goToStartupWindowRef = useRef<() => void>(() => {});
+  const toggleHandsFreeVoiceRef = useRef<() => void>(() => {});
   const lastRawInputRef = useRef<string>('');
 
-  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab, Ctrl+N, Ctrl+A, Ctrl+H sequences via Ink's internal_eventEmitter
+  // Listen for raw CSI-u / xterm modifyOtherKeys Ctrl+Tab, Ctrl+N, Ctrl+A, Ctrl+H, Ctrl+Space sequences via Ink's internal_eventEmitter
   // (avoids attaching a competing 'data' listener on stdin that conflicts with Ink's 'readable' loop)
   useEffect(() => {
     const emitter = internal_eventEmitter ?? stdin;
@@ -734,6 +738,19 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const onRawData = (data: Buffer | string) => {
       const seq = typeof data === 'string' ? data : data.toString('utf8');
       lastRawInputRef.current = seq;
+
+      // Ctrl + Space across Linux terminal encodings:
+      // - '\x00': standard ASCII NUL emitted by Ctrl+Space
+      // - '\x1b[32;5u': Kitty / CSI-u Ctrl+Space
+      // - '\x1b[27;5;32~': xterm modifyOtherKeys Ctrl+Space
+      if (
+        seq === '\x00' ||
+        seq === '\x1b[32;5u' ||
+        seq === '\x1b[27;5;32~'
+      ) {
+        toggleHandsFreeVoiceRef.current();
+        return;
+      }
 
       if (
         seq === '\x0e' ||         // Ctrl+N raw
@@ -1158,6 +1175,31 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             ? '🎛 Mezclador de audio abierto. Habla para ver el vúmetro o pulsa T para probar salida.'
             : '🎛 Audio mixer open. Speak to test microphone level or press T to test output.',
         );
+        return;
+      }
+
+      if (cmdToken === '/architect') {
+        inputValueRef.current = '';
+        setInputValue('');
+        switchToAgentChat('architect');
+        return;
+      }
+      if (cmdToken === '/developer') {
+        inputValueRef.current = '';
+        setInputValue('');
+        switchToAgentChat('developer');
+        return;
+      }
+      if (cmdToken === '/qa') {
+        inputValueRef.current = '';
+        setInputValue('');
+        switchToAgentChat('qa');
+        return;
+      }
+      if (cmdToken === '/pm' && parts.length === 1) {
+        inputValueRef.current = '';
+        setInputValue('');
+        switchToAgentChat('pm');
         return;
       }
 
@@ -1731,6 +1773,58 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
   cycleNextAgentRef.current = cycleNextAgent;
 
+  const lastVoiceToggleTimeRef = useRef<number>(0);
+  const toggleHandsFreeVoice = async () => {
+    const now = Date.now();
+    if (now - lastVoiceToggleTimeRef.current < 150) return;
+    lastVoiceToggleTimeRef.current = now;
+
+    if (!voiceService.hasConfiguredSttProvider()) {
+      const warnText =
+        language === 'es'
+          ? '⚠ No se detectó motor de voz (Vosk, whisper-cli u OpenAI). Instala Vosk para transcripción local.'
+          : '⚠ No STT engine detected (Vosk, whisper-cli, or OpenAI). Install Vosk for local speech recognition.';
+      setStatusBanner(warnText);
+      return;
+    }
+
+    if (viewMode === 'startup') {
+      switchToAgentChat(activeRoleRef.current);
+    }
+
+    const currentTurnState = voiceService.getTurnState();
+    if (currentTurnState === 'SPEAKING') {
+      voiceService.interruptSpeech();
+      setStatusBanner(
+        language === 'es'
+          ? `🎙 [LISTENING] Reproducción interrumpida. ${getRoleDisplayName(activeRoleRef.current, language)} te escucha...`
+          : `🎙 [LISTENING] Speech interrupted. ${getRoleDisplayName(activeRoleRef.current, language)} is listening...`,
+      );
+      return;
+    }
+
+    isAwaitingVoiceLanguageRef.current = false;
+    setIsAwaitingVoiceLanguage(false);
+    const nextTurnState = await voiceService.toggleHandsFree();
+    if (nextTurnState === 'LISTENING') {
+      const roleLabel = getRoleDisplayName(activeRoleRef.current, language);
+      setStatusBanner(
+        language === 'es'
+          ? `🎙 [LISTENING] Modo manos libres activo con ${roleLabel}. Habla con naturalidad (pausa o di «qué opinas» para enviar).`
+          : `🎙 [LISTENING] Hands-free voice active with ${roleLabel}. Speak naturally (pause or say "what do you think" to send).`,
+      );
+    } else {
+      setStatusBanner(
+        language === 'es'
+          ? '🔇 [IDLE] Modo de conversación por voz desactivado (Ctrl+Space para reactivar).'
+          : '🔇 [IDLE] Hands-free voice conversation stopped (Ctrl+Space to re-enable).',
+      );
+    }
+  };
+  toggleHandsFreeVoiceRef.current = () => {
+    void toggleHandsFreeVoice();
+  };
+
   const sendChatMessage = async (
     targetRole: ActorRole,
     messageText: string,
@@ -1839,7 +1933,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         refreshState();
 
         if (voiceService.isLive() && res.reply) {
-          void voiceService.speak(res.reply, { language });
+          await voiceService.speak(res.reply, { language });
+        } else if (voiceService.isLive()) {
+          voiceService.resumeListeningAfterTurn();
         }
       }
 
@@ -1905,7 +2001,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         refreshState();
 
         if (voiceService.isLive() && cleanMsg) {
-          void voiceService.speak(cleanMsg, { language });
+          await voiceService.speak(cleanMsg, { language });
+        } else if (voiceService.isLive()) {
+          voiceService.resumeListeningAfterTurn();
         }
       } else {
         orchestrator.storage.recordMessage({
@@ -1949,11 +2047,49 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   useEffect(() => {
     const onStateChange = (st: VoiceState) => {
       setVoiceState(st);
+      setVoiceTurnState(voiceService.getTurnState());
     };
 
-    const onTranscription = async (evt: { text: string; intent: VoiceIntent }) => {
+    const onTurnStateChange = (turnSt: VoiceTurnState) => {
+      setVoiceTurnState(turnSt);
+    };
+
+    const onDraftUpdate = (draft: VoiceDraftUpdateEvent) => {
+      if (!voiceService.isLive()) return;
+      if (draft.fullText.length > 0) {
+        inputValueRef.current = draft.fullText;
+        roleDraftsRef.current[activeRoleRef.current] = draft.fullText;
+        setInputValue(draft.fullText);
+        setStatusBanner(
+          language === 'es'
+            ? `🎙 [LISTENING] ${draft.fullText.slice(-80)}`
+            : `🎙 [LISTENING] ${draft.fullText.slice(-80)}`,
+        );
+      }
+    };
+
+    const onBargeIn = () => {
+      setStatusBanner(
+        language === 'es'
+          ? `🎙 [LISTENING] Interrupción por voz detectada. ${getRoleDisplayName(activeRoleRef.current, language)} te escucha...`
+          : `🎙 [LISTENING] Voice interruption detected. ${getRoleDisplayName(activeRoleRef.current, language)} is listening...`,
+      );
+    };
+
+    const onTranscription = async (evt: {
+      text: string;
+      intent: VoiceIntent;
+      triggerPhrase?: string;
+      reason?: string;
+    }) => {
       const { text, intent } = evt;
       if (!intent) return;
+
+      // Clear live draft from input box now that turn is finalized
+      inputValueRef.current = '';
+      roleDraftsRef.current[activeRoleRef.current] = '';
+      setRoleDrafts((prev) => ({ ...prev, [activeRoleRef.current]: '' }));
+      setInputValue('');
 
       // 1. Handle Language Selection when requested or during live onboarding
       if (isAwaitingVoiceLanguageRef.current || intent.type === 'select_language') {
@@ -2045,7 +2181,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
       if (intent.type === 'agent_message' && intent.text) {
         setViewMode('chat');
-        void sendChatMessage(activeRoleRef.current, intent.text);
+        voiceService.beginProcessing();
+        const roleLabel = getRoleDisplayName(activeRoleRef.current, language);
+        if (intent.triggerPhrase) {
+          setStatusBanner(
+            language === 'es'
+              ? `⏳ [PROCESSING] Frase de envío («${intent.triggerPhrase}») → Enviando a ${roleLabel}...`
+              : `⏳ [PROCESSING] Trigger phrase ("${intent.triggerPhrase}") → Sending to ${roleLabel}...`,
+          );
+        } else {
+          setStatusBanner(
+            language === 'es'
+              ? `⏳ [PROCESSING] Fin de intervención detectado → Enviando a ${roleLabel}...`
+              : `⏳ [PROCESSING] End of speech detected → Sending to ${roleLabel}...`,
+          );
+        }
+        await sendChatMessage(activeRoleRef.current, intent.text);
       }
     };
 
@@ -2063,6 +2214,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const onSpeakingEnd = () => setIsOutputTtsActive(false);
 
     voiceService.on('state_change', onStateChange);
+    voiceService.on('turn_state_change', onTurnStateChange);
+    voiceService.on('draft_update', onDraftUpdate);
+    voiceService.on('barge_in', onBargeIn);
     voiceService.on('transcription', onTranscription);
     voiceService.on('audio_level', onAudioLevel);
     voiceService.on('speaking_start', onSpeakingStart);
@@ -2071,6 +2225,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
     return () => {
       voiceService.off('state_change', onStateChange);
+      voiceService.off('turn_state_change', onTurnStateChange);
+      voiceService.off('draft_update', onDraftUpdate);
+      voiceService.off('barge_in', onBargeIn);
       voiceService.off('transcription', onTranscription);
       voiceService.off('audio_level', onAudioLevel);
       voiceService.off('speaking_start', onSpeakingStart);
@@ -3368,6 +3525,19 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
+    // Ctrl + Space shortcut to activate/deactivate hands-free voice mode or interrupt agent speech
+    if (
+      (key.ctrl && input === ' ') ||
+      input === '\x00' ||
+      rawSeq === '\x00' ||
+      rawSeq === '\x1b[32;5u' ||
+      rawSeq === '\x1b[27;5;32~'
+    ) {
+      lastRawInputRef.current = '';
+      void toggleHandsFreeVoice();
+      return;
+    }
+
     // OpenCode Ctrl+O shortcut to open the Per-Agent Model Picker (/models)
     if (key.ctrl && input === 'o') {
       openModelsModal(activeRole);
@@ -3402,12 +3572,22 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // ESC key navigation: clears input, goes to previous screen, or asks to exit on startup screen
+    // ESC key navigation: interrupts TTS speech if speaking, clears input, or goes to previous screen
     if (key.escape) {
+      if (voiceState === 'speaking') {
+        voiceService.interruptSpeech();
+        setStatusBanner(
+          language === 'es'
+            ? '🎙 [LISTENING] Reproducción de voz interrumpida. Teclado y escucha listos.'
+            : '🎙 [LISTENING] Speech output interrupted. Keyboard and listening ready.',
+        );
+        return;
+      }
       if (inputValue.length > 0) {
         inputValueRef.current = '';
         roleDraftsRef.current[activeRole] = '';
         setRoleDrafts((d) => ({ ...d, [activeRole]: '' }));
+        voiceService.clearDraft();
         setInputValue('');
         return;
       }
@@ -3574,6 +3754,10 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       ) {
         return;
       }
+      // Recover keyboard control immediately if agent TTS is currently speaking
+      if (voiceState === 'speaking') {
+        voiceService.interruptSpeech();
+      }
       setInputValue((prev) => {
         const next = prev + input;
         inputValueRef.current = next;
@@ -3676,13 +3860,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     if (isAwaitingVoiceLanguage) {
       liveVoiceBadge = '  │  🎙 LIVE · [1] English [2] Español';
     } else if (voiceState === 'listening') {
-      liveVoiceBadge = `  │  🎙 ${t.liveStateListening}`;
+      liveVoiceBadge = `  │  🎙 [LISTENING] ${t.liveStateListening}`;
     } else if (voiceState === 'transcribing') {
-      liveVoiceBadge = `  │  ⏳ ${t.liveStateTranscribing}`;
+      liveVoiceBadge = `  │  ⏳ [PROCESSING] ${t.liveStateTranscribing}`;
     } else if (voiceState === 'speaking') {
-      liveVoiceBadge = `  │  🔊 ${t.liveStateSpeaking}`;
+      liveVoiceBadge = `  │  🔊 [SPEAKING] ${t.liveStateSpeaking}`;
     } else if (voiceState === 'muted') {
-      liveVoiceBadge = '  │  🔇 MUTED';
+      liveVoiceBadge = '  │  ⏸ [PAUSED] MUTED';
     }
     const bannerText = ` ${projLabel}  │  ${activeRoleDisplayName}  │  ${vendorLabel}/${activeModelCfg.modelId}${liveVoiceBadge} `;
     const fullBannerLine = fitAndPadLine(bannerText, barWidth);
@@ -6640,7 +6824,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               shift+t {language === 'es' ? 'árbol' : 'tree'}
             </Text>
             <Text color={voiceService.isLive() ? 'green' : 'gray'} bold={voiceService.isLive()}>
-              {' · '}/live {language === 'es' ? 'voz' : 'voice'}
+              {' · '}ctrl+space {language === 'es' ? 'voz' : 'voice'} ({voiceTurnState})
             </Text>
             <Text color={isAudioCheckOpen ? 'cyan' : 'gray'} bold={isAudioCheckOpen}>
               {' · '}/check {language === 'es' ? 'audio' : 'mixer'}

@@ -2,6 +2,7 @@
 """
 PO CLI Native Speech-to-Text (STT) Engine
 Local, offline, 0-token speech recognition using native OS tools (Vosk/Kaldi, whisper-cli, PocketSphinx).
+Supports both real-time continuous streaming (--stream <lang>) and batch WAV transcription (<lang> <wav_path>).
 """
 
 import sys
@@ -10,6 +11,64 @@ import json
 import wave
 import subprocess
 import shutil
+
+
+def run_vosk_stream(lang: str):
+    try:
+        from vosk import Model, KaldiRecognizer, SetLogLevel
+        SetLogLevel(-1)
+
+        model_lang = "es" if lang.startswith("es") else "en-us"
+        model = Model(lang=model_lang)
+        rec = KaldiRecognizer(model, 16000)
+        rec.SetWords(False)
+
+        print(
+            json.dumps({
+                "type": "ready",
+                "engine": f"Vosk Streaming ({model_lang} local · 0 Tokens)",
+            }),
+            flush=True,
+        )
+
+        last_partial = ""
+        while True:
+            data = sys.stdin.buffer.read(3200)
+            if not data:
+                break
+
+            if rec.AcceptWaveform(data):
+                res = json.loads(rec.Result())
+                text = res.get("text", "").strip()
+                if text:
+                    print(
+                        json.dumps({"type": "final", "text": text}),
+                        flush=True,
+                    )
+                last_partial = ""
+            else:
+                pres = json.loads(rec.PartialResult())
+                partial = pres.get("partial", "").strip()
+                if partial != last_partial:
+                    print(
+                        json.dumps({"type": "partial", "text": partial}),
+                        flush=True,
+                    )
+                    last_partial = partial
+
+        final_res = json.loads(rec.FinalResult())
+        final_text = final_res.get("text", "").strip()
+        if final_text:
+            print(
+                json.dumps({"type": "final", "text": final_text}),
+                flush=True,
+            )
+    except Exception as e:
+        print(
+            json.dumps({"type": "error", "error": f"Vosk stream error: {e}"}),
+            flush=True,
+        )
+
 
 def run_vosk(lang: str, wav_path: str):
     try:
@@ -33,12 +92,12 @@ def run_vosk(lang: str, wav_path: str):
     except Exception as e:
         return {"error": f"Vosk error: {e}", "text": ""}
 
+
 def run_whisper_cli(lang: str, wav_path: str):
     whisper_bin = shutil.which("whisper-cli") or shutil.which("whisper-cpp") or shutil.which("whisper")
     if not whisper_bin:
         return None
 
-    # Check for models in common directories
     home = os.path.expanduser("~")
     common_models = [
         os.path.join(home, ".cache", "whisper", "ggml-tiny.bin"),
@@ -61,6 +120,7 @@ def run_whisper_cli(lang: str, wav_path: str):
         pass
     return None
 
+
 def run_pocketsphinx(lang: str, wav_path: str):
     ps_bin = shutil.which("pocketsphinx")
     if not ps_bin:
@@ -73,13 +133,13 @@ def run_pocketsphinx(lang: str, wav_path: str):
         pass
     return None
 
+
 def main():
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "Usage: native-stt.py [--detect | <lang> <wav_path>]"}))
+        print(json.dumps({"error": "Usage: native-stt.py [--detect | --stream <lang> | <lang> <wav_path>]"}))
         sys.exit(1)
 
     if sys.argv[1] == "--detect":
-        # Check available native engines
         engines = []
         try:
             import vosk
@@ -97,6 +157,11 @@ def main():
             "engines": engines,
             "primary": engines[0] if engines else None
         }))
+        sys.exit(0)
+
+    if sys.argv[1] == "--stream":
+        stream_lang = sys.argv[2].lower() if len(sys.argv) > 2 else "es"
+        run_vosk_stream(stream_lang)
         sys.exit(0)
 
     if len(sys.argv) < 3:
@@ -134,6 +199,6 @@ def main():
 
     print(json.dumps({"text": "", "engine": None, "error": "No speech recognized or no engine ready"}))
 
+
 if __name__ == "__main__":
     main()
-
