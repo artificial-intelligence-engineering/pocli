@@ -444,6 +444,28 @@ export class HeadlessCliRunner {
       };
     }
 
+    if (
+      raw === '/report' ||
+      raw.startsWith('/report ') ||
+      raw === '/pm report' ||
+      raw.startsWith('/pm report ')
+    ) {
+      const rep = await this.orchestrator.generateProjectHtmlReport(project.id);
+      return {
+        ok: true,
+        action: 'pm:report',
+        project: this.storage.getProject(project.id)!,
+        turns: [],
+        outputText: [
+          `[PM Project Status Report Generated]`,
+          `- File: ${rep.reportPath}`,
+          `- Status: ${rep.isUnderConstruction ? '🚧 EN CONSTRUCCIÓN' : '✅ FINALIZADO Y ACEPTADO'}`,
+          `- Phase: ${rep.metrics.activePhaseLabel}`,
+          `- Metrics: ${rep.metrics.totalMessages} messages, ${rep.metrics.totalArtifacts} artifacts, ${rep.metrics.allMarkdownFiles.length} markdown/gherkin files`,
+        ].join('\n'),
+      };
+    }
+
     if (raw.startsWith('/pm ')) {
       const topic = raw.slice('/pm '.length).trim();
       const pmRes = await this.orchestrator.executePmInquiry({

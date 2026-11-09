@@ -35,6 +35,11 @@ import { LinuxAgentProcessRunner, WorkerExecutionResult } from './process-runner
 import { Logger } from '../core/logger.js';
 import { PoCliCoordinator } from './coordinator.js';
 import { PersistentAgentRuntime } from './persistent-runtime.js';
+import {
+  collectProjectReportMetrics,
+  generateProjectHtmlDocument,
+  ProjectStatusMetrics,
+} from './pm-reporter.js';
 
 export const MAX_QA_CORRECTION_CYCLES = 3;
 
@@ -2450,6 +2455,109 @@ export class PoCliOrchestrator extends EventEmitter {
     return { report, artifact };
   }
 
+  /**
+   * Generates a 100% self-contained HTML Project Status Report created by PM Agent in workspace/deliveries/.
+   * Detects whether the project is under construction or completed, summarizes all architectures,
+   * specifications, implementation layout, unit tests, QA verification, Robot Framework logs,
+   * system prompts, and SQLite quantitative metrics.
+   */
+  async generateProjectHtmlReport(
+    projectId: string,
+    options?: {
+      filename?: string;
+      title?: string;
+      recordPoMessage?: boolean;
+    },
+  ): Promise<{
+    reportPath: string;
+    artifact: Artifact;
+    isUnderConstruction: boolean;
+    htmlContent: string;
+    metrics: ProjectStatusMetrics;
+  }> {
+    const project = this.storage.getProject(projectId);
+    if (!project) throw new Error(`Project ${projectId} not found.`);
+
+    // Check active turns and working agents
+    const activeTurnsCount = this.activeTurns.size;
+    const activeRoles = Array.from(this.activeTurns)
+      .filter((k) => k.startsWith(`${projectId}:`))
+      .map((k) => k.split(':')[1]);
+
+    const metrics = collectProjectReportMetrics({
+      storage: this.storage,
+      project,
+      activeTurnsCount,
+      activeRoles,
+    });
+
+    const htmlContent = generateProjectHtmlDocument(metrics, project);
+
+    const deliveriesDir = path.join(project.workspaceDir, 'deliveries');
+    fs.mkdirSync(deliveriesDir, { recursive: true });
+
+    const filename = options?.filename || 'project-status-report.html';
+    const reportPath = path.join(deliveriesDir, filename);
+    fs.writeFileSync(reportPath, htmlContent, 'utf8');
+
+    const pmArtifacts = this.storage
+      .listArtifacts(project.id, true)
+      .filter((a) => a.type === 'PM_REPORT');
+    const reportCode = `PM-${String(pmArtifacts.length + 1).padStart(3, '0')}`;
+
+    const artifact = await this.coordinator.saveArtifact({
+      projectId: project.id,
+      role: 'pm',
+      code: reportCode,
+      type: 'PM_REPORT',
+      title: options?.title ?? `Project Status Report — ${project.name}`,
+      content: htmlContent,
+      customRelPath: path.join('deliveries', filename),
+      tracesTo: this.storage.listArtifacts(project.id, true).map((a) => a.code),
+    });
+
+    // Also write a copy to deliveries/<reportCode>_project_report.html if distinct
+    const versionedFileName = `${reportCode}_project_report.html`;
+    if (filename !== versionedFileName) {
+      const versionedPath = path.join(deliveriesDir, versionedFileName);
+      try {
+        fs.writeFileSync(versionedPath, htmlContent, 'utf8');
+      } catch {}
+    }
+
+    if (options?.recordPoMessage) {
+      this.storage.recordMessage({
+        projectId: project.id,
+        fromRole: 'pm',
+        toRole: 'product_owner',
+        content: [
+          `[Project Manager] Informe completo generado en formato HTML (100%):`,
+          `- **Fichero**: \`${artifact.filePath}\``,
+          `- **Estado**: ${metrics.isUnderConstruction ? '🚧 EN CONSTRUCCIÓN' : '✅ FINALIZADO Y ACEPTADO'}`,
+          `- **Fase**: ${metrics.activePhaseLabel}`,
+          `- **Métricas**: ${metrics.totalMessages} mensajes, ${metrics.totalArtifacts} artefactos, ${metrics.allMarkdownFiles.length} ficheros markdown/gherkin`,
+          metrics.qaVerdict
+            ? `- **QA**: ${metrics.qaVerdict} (${metrics.qaMetrics?.passedCount ?? 0}/${metrics.qaMetrics?.totalTests ?? 0} tests)`
+            : `- **QA**: Verificación en curso`,
+        ].join('\n'),
+        metadata: {
+          reportCode,
+          reportPath: artifact.filePath,
+          isUnderConstruction: metrics.isUnderConstruction,
+        },
+      });
+    }
+
+    this.emit('pm:reportGenerated', { reportPath, artifact, metrics });
+    return {
+      reportPath,
+      artifact,
+      isUnderConstruction: metrics.isUnderConstruction,
+      htmlContent,
+      metrics,
+    };
+  }
+
   // ==========================================================================
   // NOTEBOOKS & RAG MANAGEMENT FACADE (PHASE 6)
   // ==========================================================================
@@ -3253,6 +3361,20 @@ export class PoCliOrchestrator extends EventEmitter {
         Logger.info(
           'ORCHESTRATOR',
           `Executed tool call '${call.name}': saved ${art.code} (${art.filePath}) status=${statusBadge}`,
+        );
+      } else if (
+        name === 'generate_project_status_report' ||
+        name === 'write_pm_report' ||
+        name === 'generate_project_report'
+      ) {
+        const rep = await this.generateProjectHtmlReport(projectId, {
+          title: typeof args.title === 'string' ? args.title : undefined,
+          filename: typeof args.filename === 'string' ? args.filename : undefined,
+        });
+        created.push(rep.artifact);
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed PM tool '${call.name}': saved ${rep.artifact.code} (${rep.artifact.filePath}) isUnderConstruction=${rep.isUnderConstruction}`,
         );
       } else if (call.name === 'write_llm_artifact') {
         const relFilePath = String(

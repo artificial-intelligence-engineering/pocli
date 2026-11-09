@@ -264,10 +264,11 @@ const FALLBACK_PROMPTS: Record<string, string> = {
     'You are the Project Manager (PM) of the PO CLI virtual engineering team.',
     'The Software Architect, Senior Developer, and Independent QA Engineer remain permanently active in the runtime.',
     'Responsibilities:',
-    '1. Query active agents in PARALLEL (simultaneously) or SEQUENTIALLY (chained context) as requested by the Product Owner or as best fits the inquiry.',
+    '1. Multi-Agent Status Inquiries: Query active agents in PARALLEL (simultaneously) or SEQUENTIALLY (chained context) as requested by the Product Owner or as best fits the inquiry.',
     '2. Record all questions asked and responses received, identify incomplete replies, distinguish each agent contribution, and detect discrepancies or contradictions.',
     '3. Deliver both individual agent responses and a consolidated summary to the Product Owner without attributing unexpressed agreements.',
-    '4. STRICT AUTHORITY BOUNDARY: You have NO authority to direct, modify, or interrupt the work of the engineering agents.',
+    '4. Comprehensive 100% HTML Project Status Reporting: When requested by the Product Owner to provide a project status report (e.g. "informe del proyecto", "project report", "/report"), evaluate whether the project is currently under construction (i.e. active work in progress) vs completed/verified, and emit `generate_project_status_report` to generate a 100% self-contained HTML report in `deliveries/project-status-report.html` consolidating architectures, specifications, Developer implementation and unit tests (100% green metrics), developer Gherkin, independent QA behavioral contracts, Robot Framework execution logs (log.html, report.html, output.xml), mutation testing metrics, defect logs (DEF-*), file links to all .md contracts and system prompts, and SQLite quantitative interaction metrics.',
+    '5. STRICT AUTHORITY BOUNDARY: You have NO authority to direct, modify, or interrupt the work of the engineering agents, nor alter technical contracts (ARCH-*, SPEC-*, CODE-*, QA-*).',
   ].join('\n'),
 };
 
@@ -351,6 +352,31 @@ export function buildRoleToolsInstruction(role: ActorRole): string {
         '- `write_test_case(code: string, title: string, content: string, tracesTo?: string[])`: Alias to record a QA test case artifact in `contracts/qa/`.',
         '- `run_verification_test(testCommand: string)`: Alias to execute a verification command in `scripts/`.',
         '- `submit_qa_report(code: string, title: string, content: string, passed: boolean)`: Alias to submit a QA verification report.',
+      ].join('\n');
+
+    case 'pm':
+      return [
+        '## [AVAILABLE TOOLS AND PROTOCOL]',
+        'You are the Project Manager (PM). You monitor project progress, coordinate multi-agent status queries, and deliver consolidated reports to the Product Owner.',
+        'STRICT BOUNDARY: You have NO authority to modify architecture, source code, or QA verification verdicts.',
+        '',
+        'Emit ```tool_call blocks for authorized tools:',
+        '- `generate_project_status_report(title?: string, filename?: string)`: Generates a comprehensive 100% HTML project status report in `deliveries/` containing construction status (active work in progress vs completed), summaries of architectures, specifications, implementation layout, unit tests (100% green metrics), developer Gherkin ready for QA, QA behavioral contracts and test results, Robot Framework logs (log.html, report.html, output.xml), system prompts, all .md file links, and numerical interaction metrics from SQLite.',
+        '- `write_pm_report(title: string, content: string, customRelPath?: string)`: Records a PM report or deliverable in `deliveries/`.',
+        '- `write_llm_artifact(code: string, title: string, relFilePath: string, content: string)`: Generates PM deliverables such as spreadsheets (`deliveries/pm_project_metrics.csv`) or helper scripts (`scripts/pocli_task_helper.py`).',
+        '- `query_agents_parallel(topic: string, agents?: string[])`: Queries active engineering agents simultaneously in parallel.',
+        '- `query_agents_sequential(topic: string, agents?: string[])`: Queries active engineering agents sequentially with chained context.',
+        '',
+        'Format each tool call strictly as:',
+        '```tool_call',
+        '{',
+        '  "name": "generate_project_status_report",',
+        '  "arguments": {',
+        '    "title": "Project Status & Governance Report"',
+        '  }',
+        '}',
+        '```',
+        'Always accompany tool calls with conversational, professional explanations to the Product Owner.',
       ].join('\n');
 
     default:
@@ -446,9 +472,16 @@ const BUILTIN_HARNESSES: Record<string, AgentHarness> = {
       'query_notebooks',
       'query_agents_parallel',
       'query_agents_sequential',
+      'generate_project_status_report',
       'write_pm_report',
+      'write_llm_artifact',
     ],
-    allowedArtifactTypes: ['PM_REPORT', 'DOCUMENTATION'],
+    allowedArtifactTypes: [
+      'PM_REPORT',
+      'DOCUMENTATION',
+      'LLM_OUTPUT',
+      'OBSERVATION',
+    ],
   },
 };
 

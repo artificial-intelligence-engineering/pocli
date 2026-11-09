@@ -682,6 +682,7 @@ const KNOWN_TOOLS = new Set([
   'write_test_case',
   'run_verification_test',
   'submit_qa_report',
+  'generate_project_status_report',
   'write_pm_report',
   'write_llm_artifact',
   'run_command',
@@ -1716,6 +1717,23 @@ export class LlmGateway {
     } else if (input.role === 'pm') {
       const promptLower = input.userPrompt.toLowerCase();
       if (
+        promptLower.includes('informe') ||
+        promptLower.includes('report') ||
+        promptLower.includes('resumen del proyecto') ||
+        promptLower.includes('estado del proyecto')
+      ) {
+        toolCalls.push({
+          name: 'generate_project_status_report',
+          arguments: {
+            title: `Project Status & Governance Report — ${input.projectName}`,
+            filename: 'project-status-report.html',
+          },
+        });
+        replyText =
+          `[Project Manager] Generando el informe completo del proyecto en formato HTML 100% en \`deliveries/project-status-report.html\`. ` +
+          `Incluye el estado de construcción, resumen de arquitecturas (ARCH-*), especificaciones (SPEC-*), diseño e implementación del Developer, pruebas unitarias 100% green, escenarios Gherkin, verificación independiente de QA con Robot Framework, mutación adversarial, métricas numéricas de interacción de base de datos y enlaces directos a todos los ficheros .md y system prompts.${citationFooter}`;
+      }
+      if (
         promptLower.includes('csv') ||
         promptLower.includes('spreadsheet') ||
         promptLower.includes('excel') ||
@@ -1765,9 +1783,11 @@ export class LlmGateway {
           },
         });
       }
-      replyText =
-        `[Project Manager (PM)] Consolidated status check for **${input.projectName}** (Phase: \`${input.phase}\`). ` +
-        `I can execute parallel or sequential inquiries across the active Architect, Developer, and QA agents and store requested outputs (Python scripts, spreadsheets, reports) in the project workspace (scripts/, outputs/, deliveries/).${citationFooter}`;
+      if (!replyText) {
+        replyText =
+          `[Project Manager (PM)] Consolidated status check for **${input.projectName}** (Phase: \`${input.phase}\`). ` +
+          `I can execute parallel or sequential inquiries across the active Architect, Developer, and QA agents and store requested outputs (Python scripts, spreadsheets, reports) in the project workspace (scripts/, outputs/, deliveries/).${citationFooter}`;
+      }
     } else {
       replyText = `[Specialist ${input.role}] Analysis completed for ${input.projectName}.${citationFooter}`;
     }
