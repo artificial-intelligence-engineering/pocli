@@ -838,6 +838,51 @@ export function extractToolCalls(rawText: string): {
     }
   }
 
+  // Pass 3: Support function-call style tool invocations inside ```tool_call blocks
+  // e.g. clone_repo_for_qa(repoName="pysqlite-crud-api")
+  const fnBlockRegex =
+    /```(?:tool_call|toolCall|json:tool_call)\s*([\s\S]*?)(?:```|$)/gi;
+  let fnBlockMatch: RegExpExecArray | null;
+  while ((fnBlockMatch = fnBlockRegex.exec(rawText)) !== null) {
+    const bStart = fnBlockMatch.index;
+    const bEnd = bStart + fnBlockMatch[0].length;
+    if (removalRanges.some((r) => bStart >= r.start && bStart < r.end)) continue;
+
+    const inner = fnBlockMatch[1].trim();
+    const fnCallRegex =
+      /\b([a-z_][a-z0-9_]*)\s*\(([\s\S]*?)\)/gi;
+    let callMatch: RegExpExecArray | null;
+    let foundFn = false;
+    while ((callMatch = fnCallRegex.exec(inner)) !== null) {
+      const fnName = callMatch[1];
+      const argsBody = callMatch[2].trim();
+      if (!isRecognizedToolName(fnName)) continue;
+      const argsObj: Record<string, unknown> = {};
+      if (argsBody.startsWith('{') && argsBody.endsWith('}')) {
+        try {
+          Object.assign(argsObj, JSON.parse(argsBody));
+        } catch {}
+      } else if (argsBody.length > 0) {
+        const kvRegex =
+          /([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|(true|false|\d+(?:\.\d+)?))/g;
+        let kv: RegExpExecArray | null;
+        while ((kv = kvRegex.exec(argsBody)) !== null) {
+          const key = kv[1];
+          if (kv[2] !== undefined) argsObj[key] = kv[2].replace(/\\"/g, '"');
+          else if (kv[3] !== undefined) argsObj[key] = kv[3].replace(/\\'/g, "'");
+          else if (kv[4] === 'true') argsObj[key] = true;
+          else if (kv[4] === 'false') argsObj[key] = false;
+          else if (kv[4] !== undefined) argsObj[key] = Number(kv[4]);
+        }
+      }
+      toolCalls.push({ name: fnName, arguments: argsObj });
+      foundFn = true;
+    }
+    if (foundFn) {
+      removalRanges.push({ start: bStart, end: bEnd });
+    }
+  }
+
   // Construct cleanText by removing identified ranges
   removalRanges.sort((a, b) => b.start - a.start);
   let cleanText = rawText;
