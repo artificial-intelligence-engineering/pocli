@@ -14,7 +14,7 @@ const ALLOWED_PHASE_TRANSITIONS: Record<WorkflowPhase, WorkflowPhase[]> = {
     'PHASE_2_ARCHITECT_ANALYSIS', // PO requests changes to architecture proposal
     'PHASE_4_DEVELOPER_HANDOFF',   // PO approves architecture
   ],
-  PHASE_4_DEVELOPER_HANDOFF: ['PHASE_5_IMPLEMENTATION'],
+  PHASE_4_DEVELOPER_HANDOFF: ['PHASE_5_IMPLEMENTATION', 'PHASE_6_QA_VALIDATION'],
   PHASE_5_IMPLEMENTATION: [
     'PHASE_3_ARCHITECTURE_APPROVAL', // If architectural amendment requires PO re-approval
     'PHASE_6_QA_VALIDATION',         // Developer finishes implementation and submits to QA
@@ -26,8 +26,10 @@ const ALLOWED_PHASE_TRANSITIONS: Record<WorkflowPhase, WorkflowPhase[]> = {
   PHASE_7_CORRECTION_CYCLE: [
     'PHASE_3_ARCHITECTURE_APPROVAL', // Fix impacts architecture and needs PO approval
     'PHASE_6_QA_VALIDATION',         // Developer fixes defects and resubmits to QA
+    'PHASE_8_FINAL_ACCEPTANCE',      // Escalated to Architect/PO after max correction cycles
   ],
   PHASE_8_FINAL_ACCEPTANCE: [
+    'PHASE_6_QA_VALIDATION',    // Re-trigger QA validation if requested
     'PHASE_7_CORRECTION_CYCLE', // PO rejects final result and requests adjustments
     'COMPLETED',                // PO accepts project delivery
   ],
@@ -179,16 +181,12 @@ export class AuthorityGuard {
     ) {
       return true;
     }
-    // Developer <-> QA is allowed during Implementation, QA Validation, and Correction Cycle
+    // Developer <-> QA is allowed across workflow phases for autonomous handoff and bidirectional defect resolution
     if (
       (from === 'developer' && to === 'qa') ||
       (from === 'qa' && to === 'developer')
     ) {
-      return [
-        'PHASE_5_IMPLEMENTATION',
-        'PHASE_6_QA_VALIDATION',
-        'PHASE_7_CORRECTION_CYCLE',
-      ].includes(phase);
+      return true;
     }
     // Custom specialists can communicate with Architect
     if (from === 'architect' || to === 'architect') {

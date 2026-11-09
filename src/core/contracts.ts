@@ -190,26 +190,74 @@ export type ArchitecturalConsultation = z.infer<typeof ArchitecturalConsultation
 export const DefectSeveritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 export type DefectSeverity = z.infer<typeof DefectSeveritySchema>;
 
+export const QaVerdictSchema = z.enum(['PASS', 'FAIL', 'NEEDS_REVIEW']);
+export type QaVerdict = z.infer<typeof QaVerdictSchema>;
+
+export const QaDefectClassificationSchema = z.enum([
+  'functional_bug',
+  'edge_case_bug',
+  'performance_issue',
+  'security_issue',
+  'specification_issue',
+  'missing_requirement',
+]);
+export type QaDefectClassification = z.infer<typeof QaDefectClassificationSchema>;
+
 export const QaDefectSchema = z.object({
   id: z.string(),
   code: z.string(), // e.g., DEF-001
   title: z.string(),
   severity: DefectSeveritySchema,
+  classification: QaDefectClassificationSchema.optional(),
   violatedCriteria: z.string(),
   evidence: z.string(),
+  reproductionSteps: z.string().optional(),
+  regressionGherkin: z.string().optional(),
   status: z.enum(['OPEN', 'FIXED', 'VERIFIED']),
 });
 export type QaDefect = z.infer<typeof QaDefectSchema>;
 
+export const QaTestExecutionItemSchema = z.object({
+  id: z.string(),
+  suite: z.string().default('functional'),
+  title: z.string(),
+  gherkinRef: z.string().optional(),
+  status: z.enum(['PASS', 'FAIL', 'SKIP']),
+  durationMs: z.number().nonnegative().default(0),
+  command: z.string().optional(),
+  evidenceSummary: z.string().optional(),
+});
+export type QaTestExecutionItem = z.infer<typeof QaTestExecutionItemSchema>;
+
+export const QaMetricsSchema = z.object({
+  totalTests: z.number().int().nonnegative(),
+  passedCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  skippedCount: z.number().int().nonnegative().default(0),
+  bugDetectionRate: z.number().min(0).max(100).optional(),
+  mutationScore: z.number().min(0).max(100).optional(),
+  testCoverage: z.number().min(0).max(100).optional(),
+  requirementCoverage: z.number().min(0).max(100).optional(),
+  reproducibilityRate: z.number().min(0).max(100).default(100),
+  correctionCycle: z.number().int().nonnegative().default(0),
+});
+export type QaMetrics = z.infer<typeof QaMetricsSchema>;
+
 export const QaReportPayloadSchema = z.object({
+  verdict: QaVerdictSchema.optional(),
   executedTests: z.array(z.string()),
   passedTests: z.array(z.string()),
   failedTests: z.array(z.string()),
+  skippedTests: z.array(z.string()).optional(),
   evidences: z.array(z.string()),
   defects: z.array(QaDefectSchema),
   unmetCriteria: z.array(z.string()),
   recommendation: z.enum(['ACCEPT', 'REJECT']),
   summary: z.string(),
+  testExecutions: z.array(QaTestExecutionItemSchema).optional(),
+  metrics: QaMetricsSchema.optional(),
+  gherkinContracts: z.array(z.string()).optional(),
+  isolatedEnvPath: z.string().optional(),
 });
 export type QaReportPayload = z.infer<typeof QaReportPayloadSchema>;
 

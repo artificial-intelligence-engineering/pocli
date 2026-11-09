@@ -1698,23 +1698,55 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         refreshState();
       }
 
-      if (res.autonomousHandoff?.nextRole === 'developer') {
-        if (currentProjectIdRef.current === taskProjectId) {
-          switchActiveRole('developer');
-          setStatusBanner(
-            language === 'es'
-              ? '🤝 El Arquitecto ha transferido el proyecto al Desarrollador. Iniciando implementación...'
-              : '🤝 Architect handed off project to Senior Developer. Starting implementation...',
+      if (res.autonomousHandoff) {
+        const nextRole = res.autonomousHandoff.nextRole;
+        const fromRole = res.autonomousHandoff.senderRole ?? targetRole;
+
+        if (res.autonomousHandoff.alreadyDeliveredToArchitect) {
+          if (currentProjectIdRef.current === taskProjectId) {
+            switchActiveRole('architect');
+            setMessageScrollOffset(0);
+            setChatScrollOffset(0);
+            setMessagesVersion((prev) => prev + 1);
+            setStatusBanner(
+              language === 'es'
+                ? '📋 QA ha finalizado las pruebas e informado al Arquitecto con la tabla resumen.'
+                : '📋 QA finished verification and reported the summary table to the Architect.',
+            );
+            refreshState();
+          }
+        } else {
+          if (currentProjectIdRef.current === taskProjectId) {
+            switchActiveRole(nextRole);
+            if (nextRole === 'developer' && fromRole === 'qa') {
+              setStatusBanner(
+                language === 'es'
+                  ? '🔄 QA detectó errores en las pruebas. Devolviendo al Desarrollador para corrección...'
+                  : '🔄 QA detected test failures. Returning to Developer for correction...',
+              );
+            } else if (nextRole === 'qa') {
+              setStatusBanner(
+                language === 'es'
+                  ? '🧪 El Desarrollador ha finalizado y notificado a QA. Ejecutando pruebas independientes...'
+                  : '🧪 Developer finished and notified QA. Running independent verification tests...',
+              );
+            } else {
+              setStatusBanner(
+                language === 'es'
+                  ? '🤝 El Arquitecto ha transferido el proyecto al Desarrollador. Iniciando implementación...'
+                  : '🤝 Architect handed off project to Senior Developer. Starting implementation...',
+              );
+            }
+            refreshState();
+          }
+          void sendChatMessage(
+            nextRole,
+            res.autonomousHandoff.instructions,
+            taskProjectId,
+            fromRole,
+            res.autonomousHandoff.handoffMessageId,
           );
-          refreshState();
         }
-        void sendChatMessage(
-          'developer',
-          res.autonomousHandoff.instructions,
-          taskProjectId,
-          'architect',
-          res.autonomousHandoff.handoffMessageId,
-        );
       }
     } catch (err) {
       if (currentProjectIdRef.current === taskProjectId) {
