@@ -97,6 +97,20 @@ describe('Issue #54 — Tool Calling & Filesystem Single Source of Truth', () =>
       expect(res.toolCalls[0].arguments.relFilePath).toBe('app/main.py');
     });
 
+    it('extracts tool calls formatted with tool name on header line followed by arguments JSON', () => {
+      const raw = [
+        '```tool_call',
+        'install_qa_tool',
+        '{"toolName": "robotframework"}',
+        '```',
+      ].join('\n');
+
+      const res = extractToolCalls(raw);
+      expect(res.toolCalls).toHaveLength(1);
+      expect(res.toolCalls[0].name).toBe('install_qa_tool');
+      expect(res.toolCalls[0].arguments.toolName).toBe('robotframework');
+    });
+
     it('robustly extracts tool calls containing nested markdown code blocks and ASCII diagrams without truncation', () => {
       const raw = [
         'I have designed the system architecture.',
