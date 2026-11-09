@@ -151,7 +151,7 @@ describe('Autonomous Independent QA Agent System (Issue #90)', () => {
     );
     expect(qaToArchMsg).toBeDefined();
     expect(qaToArchMsg!.content).toContain('PASS');
-  });
+  }, 30000);
 
   it('3. Enforces strict QA workspace isolation: blocks QA from writing outside scripts/ or contracts/qa/', async () => {
     const wsDir = path.join(tmpDir, 'ws-qa-security');
@@ -261,7 +261,7 @@ describe('Autonomous Independent QA Agent System (Issue #90)', () => {
     expect(qaTurn2.autonomousHandoff?.alreadyDeliveredToArchitect).toBe(true);
     expect(qaTurn2.autonomousHandoff?.instructions).toContain('[QA → ARQ]');
     expect(qaTurn2.autonomousHandoff?.instructions).toContain('PASS');
-  });
+  }, 30000);
 
   it('5. End-to-End executeAutonomousWorkflowChain runs Architect -> Developer -> QA -> Architect seamlessly', async () => {
     const wsDir = path.join(tmpDir, 'ws-full-chain');
@@ -296,5 +296,5 @@ describe('Autonomous Independent QA Agent System (Issue #90)', () => {
       (m) => m.fromRole === 'qa' && m.toRole === 'architect' && m.content.includes('[QA → ARQ]'),
     );
     expect(qaSummaryMsg).toBeDefined();
-  });
+  }, 30000);
 });

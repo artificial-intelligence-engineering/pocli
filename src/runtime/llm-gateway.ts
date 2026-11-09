@@ -673,6 +673,8 @@ const KNOWN_TOOLS = new Set([
   'handoff_to_qa',
   'clone_repo_for_qa',
   'write_qa_gherkin',
+  'install_qa_tool',
+  'provision_qa_tool',
   'write_qa_test_script',
   'run_qa_test_suite',
   'run_mutation_check',
@@ -1642,6 +1644,12 @@ export class LlmGateway {
                 `    When executeBusinessLogic is called`,
                 `    Then it rejects each payload with Error "INVALID_INPUT"`,
               ].join('\n') + '\n',
+            },
+          },
+          {
+            name: 'install_qa_tool',
+            arguments: {
+              toolName: 'robotframework',
             },
           },
           {
