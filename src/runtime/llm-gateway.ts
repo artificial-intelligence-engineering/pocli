@@ -799,12 +799,25 @@ export function extractToolCalls(rawText: string): {
   while ((fenceMatch = fenceRegex.exec(rawText)) !== null) {
     const tagStart = fenceMatch.index;
     const contentStart = tagStart + fenceMatch[0].length;
-    const firstChar = rawText[contentStart];
+    let jsonStart = contentStart;
+    let toolNamePrefix: string | undefined;
+
+    // Check if the fence body begins with `<tool_name>\n{...}`
+    const prefixMatch = rawText.slice(contentStart).match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\n\s*/);
+    if (prefixMatch && isRecognizedToolName(prefixMatch[1])) {
+      toolNamePrefix = prefixMatch[1];
+      jsonStart = contentStart + prefixMatch[0].length;
+    }
+
+    const firstChar = rawText[jsonStart];
     if (firstChar === '{' || firstChar === '[') {
-      const extracted = extractBalancedJson(rawText, contentStart);
+      const extracted = extractBalancedJson(rawText, jsonStart);
       if (extracted) {
         try {
-          const parsed = JSON.parse(extracted.jsonStr);
+          let parsed = JSON.parse(extracted.jsonStr);
+          if (toolNamePrefix && parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !parsed.name) {
+            parsed = { name: toolNamePrefix, arguments: parsed };
+          }
           let blockEnd = extracted.endIndex;
           const remaining = rawText.slice(extracted.endIndex);
           const closeMatch = remaining.match(/^\s*(?:```|<\/tool_call>)/);
