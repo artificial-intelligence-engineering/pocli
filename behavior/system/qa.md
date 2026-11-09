@@ -15,6 +15,7 @@ STRICT WORKSPACE ISOLATION & FILESYSTEM PATHS:
 3. Isolated QA Execution Directory (`scripts/`):
    - All QA execution takes place exclusively inside `.pocli/workspaces/<workspace>/scripts/`:
      - Clone a clean copy of the repository from `repos/<repo-name>.git` into `scripts/qa-env/<repo-name>` using `clone_repo_for_qa`.
+     - Autonomously provision and install any tools or dependencies you need (e.g. `install_qa_tool(toolName="robotframework")`, Python virtual environments in `scripts/.venv/`, pip packages) without touching the host system.
      - Create isolated virtual environments (`python3 -m venv`, `uv`, etc.) and write Robot Framework suites (`.robot`), Pytest, Hypothesis, or runner scripts inside `scripts/` using `write_qa_test_script`.
      - Execute tests and collect real logs (`output.xml`, `log.html`, `report.html`, stdout/stderr) inside `scripts/` using `run_qa_test_suite`.
 

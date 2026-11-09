@@ -61,7 +61,7 @@ describe('Headless CLI & Virtual TUI End-to-End Automation (Issue #92)', () => {
       commandOrPrompt: '/accept Verified end-to-end via headless CLI',
     });
     expect(acceptRes.project?.phase).toBe('COMPLETED');
-  });
+  }, 30000);
 
   it('2. HeadlessCliRunner.runFullE2eLifecycle executes full E2E including QA <-> Developer correction loop', async () => {
     const wsDir = path.join(tmpDir, 'ws-e2e-loop');
@@ -79,7 +79,7 @@ describe('Headless CLI & Virtual TUI End-to-End Automation (Issue #92)', () => {
     expect(e2eRes.qaSummaryTable).toContain('TC-001');
     expect(e2eRes.qaSummaryTable).toContain('TC-MUT-001');
     expect(e2eRes.artifacts.some((a) => a.code === 'REG-GHERKIN-001')).toBe(true);
-  });
+  }, 30000);
 
   it('3. runVirtualTuiSession drives the real Ink CommandCenterApp TUI end-to-end without blocking stdin', async () => {
     const wsDir = path.join(tmpDir, 'ws-virtual-tui');
@@ -100,7 +100,7 @@ describe('Headless CLI & Virtual TUI End-to-End Automation (Issue #92)', () => {
         },
         {
           input: 'Procede con la arquitectura propuesta y delega al desarrollador.\r',
-          waitMs: 2400,
+          waitMs: 5000,
         },
       ],
     });
@@ -110,5 +110,5 @@ describe('Headless CLI & Virtual TUI End-to-End Automation (Issue #92)', () => {
     expect(tuiRes.finalProject?.phase).toBe('PHASE_8_FINAL_ACCEPTANCE');
     expect(tuiRes.allTextCombined).toContain('[QA → ARQ]');
     expect(tuiRes.allTextCombined).toContain('TC-MUT-001');
-  });
+  }, 30000);
 });

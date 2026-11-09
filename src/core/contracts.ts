@@ -229,6 +229,15 @@ export const QaTestExecutionItemSchema = z.object({
 });
 export type QaTestExecutionItem = z.infer<typeof QaTestExecutionItemSchema>;
 
+export const QaToolProvisionResultSchema = z.object({
+  toolName: z.string(),
+  installed: z.boolean(),
+  envPath: z.string(),
+  binaryPath: z.string(),
+  output: z.string(),
+});
+export type QaToolProvisionResult = z.infer<typeof QaToolProvisionResultSchema>;
+
 export const QaMetricsSchema = z.object({
   totalTests: z.number().int().nonnegative(),
   passedCount: z.number().int().nonnegative(),

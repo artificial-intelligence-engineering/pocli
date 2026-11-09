@@ -850,6 +850,143 @@ export class PoCliOrchestrator extends EventEmitter {
     };
   }
 
+  /**
+   * Helper to parse genuine Robot Framework output.xml files into structured QaTestExecutionItems.
+   */
+  private parseRobotOutputXml(xmlContent: string): QaTestExecutionItem[] {
+    const items: QaTestExecutionItem[] = [];
+    const testBlockRegex = /<test\s+id="([^"]+)"\s+name="([^"]+)"[\s\S]*?<\/test>/g;
+    let testMatch: RegExpExecArray | null;
+    while ((testMatch = testBlockRegex.exec(xmlContent)) !== null) {
+      const rawId = testMatch[1];
+      const rawName = testMatch[2];
+      const block = testMatch[0];
+      const lastStatusIdx = block.lastIndexOf('<status');
+      const statusMatch =
+        /<status\s+status="([^"]+)"(?:[^>]*elapsed="([^"]*)")?[^>]*(?:>(.*?)<\/status>|\/>)/is.exec(
+          block.slice(lastStatusIdx),
+        );
+      const rawStatus = (statusMatch?.[1]?.toUpperCase() ?? 'PASS') as 'PASS' | 'FAIL' | 'SKIP';
+      const elapsedSec = parseFloat(statusMatch?.[2] ?? '0.005');
+      const durationMs = Math.max(1, Math.round(elapsedSec * 1000));
+      const errMsg = statusMatch?.[3]?.trim();
+      const tcId = rawName.startsWith('TC-') ? rawName.split(/\s+/)[0] : rawId;
+      items.push({
+        id: tcId,
+        suite: 'robot_framework',
+        title: rawName,
+        gherkinRef: 'QA-GHERKIN-001',
+        status: rawStatus === 'PASS' ? 'PASS' : 'FAIL',
+        durationMs,
+        command: 'robot',
+        evidenceSummary: errMsg || `Robot Framework test execution: ${rawStatus} (${durationMs}ms)`,
+      });
+    }
+    return items;
+  }
+
+  /**
+   * Ensures that the QA isolated working directory (`scripts/`) has a Python virtual
+   * environment (`scripts/.venv`) and installs necessary QA packages (e.g. `robotframework`)
+   * on-demand if missing.
+   */
+  public ensureQaToolEnvironment(
+    projectId: string,
+    toolName: 'robotframework' | 'pytest' | string = 'robotframework',
+  ): {
+    toolName: string;
+    venvDir: string;
+    envPath: string;
+    pythonBin: string;
+    pipBin: string;
+    robotBin: string;
+    binaryPath: string;
+    installed: boolean;
+    installedNow: boolean;
+    output: string;
+  } {
+    const project = this.storage.getProject(projectId);
+    if (!project) throw new Error(`Project ${projectId} not found.`);
+
+    const scriptsDir = path.join(project.workspaceDir, 'scripts');
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    const venvDir = path.join(scriptsDir, '.venv');
+    const pythonBinCandidate = path.join(venvDir, 'bin', 'python3');
+    const pipBinCandidate = path.join(venvDir, 'bin', 'pip');
+    const robotBin = path.join(venvDir, 'bin', 'robot');
+
+    let installedNow = false;
+    let outputLog = '';
+
+    // 1. Create isolated virtual environment if it does not exist
+    if (!fs.existsSync(pythonBinCandidate) && !fs.existsSync(path.join(venvDir, 'bin', 'python'))) {
+      Logger.info(
+        'QA_ENVIRONMENT',
+        `Creating Python virtual environment in ${venvDir}...`,
+      );
+      const venvProc = spawnSync('python3', ['-m', 'venv', venvDir], {
+        cwd: scriptsDir,
+        encoding: 'utf8',
+        timeout: 25000,
+      });
+      outputLog += `VENV CREATION:\n${venvProc.stdout || ''}\n${venvProc.stderr || ''}\n`;
+      if (venvProc.status !== 0) {
+        throw new Error(
+          `Failed to create virtual environment in ${venvDir}: ${outputLog}`,
+        );
+      }
+    }
+
+    const effectivePython = fs.existsSync(pythonBinCandidate)
+      ? pythonBinCandidate
+      : path.join(venvDir, 'bin', 'python');
+
+    // 2. Install requested package if binary does not exist
+    const isRobot =
+      toolName.toLowerCase() === 'robotframework' ||
+      toolName.toLowerCase() === 'robot';
+    const binaryToCheck = isRobot
+      ? robotBin
+      : path.join(venvDir, 'bin', toolName);
+    const pkgToInstall = isRobot ? 'robotframework' : toolName;
+
+    if (!fs.existsSync(binaryToCheck)) {
+      Logger.info(
+        'QA_ENVIRONMENT',
+        `Installing tool '${pkgToInstall}' into ${venvDir} via pip...`,
+      );
+      const pipProc = spawnSync(
+        effectivePython,
+        ['-m', 'pip', 'install', '--quiet', pkgToInstall],
+        {
+          cwd: scriptsDir,
+          encoding: 'utf8',
+          timeout: 45000,
+        },
+      );
+      outputLog += `PIP INSTALL ${pkgToInstall}:\n${pipProc.stdout || ''}\n${pipProc.stderr || ''}\n`;
+      installedNow = true;
+      if (pipProc.status !== 0 && !fs.existsSync(binaryToCheck)) {
+        throw new Error(
+          `Failed to install QA tool '${pkgToInstall}' in ${venvDir}: ${outputLog}`,
+        );
+      }
+    }
+
+    return {
+      toolName,
+      venvDir,
+      envPath: venvDir,
+      pythonBin: effectivePython,
+      pipBin: pipBinCandidate,
+      robotBin,
+      binaryPath: binaryToCheck,
+      installed: installedNow,
+      installedNow,
+      output: outputLog.trim(),
+    };
+  }
+
   public cloneRepoToIsolatedQaEnv(
     projectId: string,
     repoName?: string,
@@ -995,11 +1132,25 @@ export class PoCliOrchestrator extends EventEmitter {
       const safeCwd =
         cwd.startsWith(scriptsDir) && fs.existsSync(cwd) ? cwd : scriptsDir;
 
+      // If command invokes robot, ensure robotframework is installed in QA venv
+      if (cmd.includes('robot')) {
+        this.ensureQaToolEnvironment(project.id, 'robotframework');
+      }
+
+      const venvBinDir = path.join(scriptsDir, '.venv', 'bin');
+      const customEnv = {
+        ...process.env,
+        PATH: fs.existsSync(venvBinDir)
+          ? `${venvBinDir}:${process.env.PATH || ''}`
+          : process.env.PATH,
+      };
+
       const t0 = Date.now();
       const proc = spawnSync('bash', ['-c', cmd], {
         cwd: safeCwd,
+        env: customEnv,
         encoding: 'utf8',
-        timeout: 15000,
+        timeout: 25000,
       });
       const durationMs = Math.max(1, Date.now() - t0);
       const stdout = proc.stdout ?? '';
@@ -1008,47 +1159,88 @@ export class PoCliOrchestrator extends EventEmitter {
       const output = `EXIT_CODE=${exitCode}\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`.trim();
       evidences.push(output);
 
-      const title = `Command execution: ${cmd}`;
-      executedTests.push(title);
-      if (exitCode === 0) {
-        passedTests.push(title);
-        testExecutions.push({
-          id: 'TC-CMD-001',
-          suite: 'custom_command',
-          title,
-          gherkinRef: 'QA-GHERKIN-001',
-          status: 'PASS',
-          durationMs,
-          command: cmd,
-          evidenceSummary: `Exit code 0 (${durationMs}ms)`,
-        });
+      // If robot was run, check if output.xml was generated and parse it
+      const robotXmlCandidate = [
+        path.join(qaLogsDir, 'output.xml'),
+        path.join(safeCwd, 'output.xml'),
+      ].find((p) => fs.existsSync(p));
+
+      let parsedRobotItems: QaTestExecutionItem[] = [];
+      if (cmd.includes('robot') && robotXmlCandidate) {
+        try {
+          const xmlData = fs.readFileSync(robotXmlCandidate, 'utf8');
+          parsedRobotItems = this.parseRobotOutputXml(xmlData);
+        } catch {
+          // fallback
+        }
+      }
+
+      if (parsedRobotItems.length > 0) {
+        for (const item of parsedRobotItems) {
+          executedTests.push(item.title);
+          if (item.status === 'PASS') {
+            passedTests.push(item.title);
+          } else {
+            failedTests.push(item.title);
+          }
+          testExecutions.push(item);
+        }
+        if (exitCode !== 0 || failedTests.length > 0) {
+          defects.push({
+            id: `def_${Date.now()}`,
+            code: 'DEF-001',
+            title: 'Robot Framework test suite failed',
+            severity: 'HIGH',
+            classification: 'functional_bug',
+            violatedCriteria: 'SPEC-001 / QA-GHERKIN-001',
+            evidence: output.slice(0, 300),
+            reproductionSteps: `Run \`${cmd}\` inside \`${path.relative(project.workspaceDir, safeCwd)}\``,
+            status: 'OPEN',
+          });
+        }
       } else {
-        failedTests.push(title);
-        testExecutions.push({
-          id: 'TC-CMD-001',
-          suite: 'custom_command',
-          title,
-          gherkinRef: 'QA-GHERKIN-001',
-          status: 'FAIL',
-          durationMs,
-          command: cmd,
-          evidenceSummary: `Exit code ${exitCode}`,
-        });
-        defects.push({
-          id: `def_${Date.now()}`,
-          code: 'DEF-001',
-          title: 'QA verification command execution failed',
-          severity: 'HIGH',
-          classification: 'functional_bug',
-          violatedCriteria: 'REQ-001 / SPEC-001',
-          evidence: output.slice(0, 300),
-          reproductionSteps: `Run \`${cmd}\` inside \`${path.relative(project.workspaceDir, safeCwd)}\``,
-          status: 'OPEN',
-        });
+        const title = `Command execution: ${cmd}`;
+        executedTests.push(title);
+        if (exitCode === 0) {
+          passedTests.push(title);
+          testExecutions.push({
+            id: 'TC-CMD-001',
+            suite: 'custom_command',
+            title,
+            gherkinRef: 'QA-GHERKIN-001',
+            status: 'PASS',
+            durationMs,
+            command: cmd,
+            evidenceSummary: `Exit code 0 (${durationMs}ms)`,
+          });
+        } else {
+          failedTests.push(title);
+          testExecutions.push({
+            id: 'TC-CMD-001',
+            suite: 'custom_command',
+            title,
+            gherkinRef: 'QA-GHERKIN-001',
+            status: 'FAIL',
+            durationMs,
+            command: cmd,
+            evidenceSummary: `Exit code ${exitCode}`,
+          });
+          defects.push({
+            id: `def_${Date.now()}`,
+            code: 'DEF-001',
+            title: 'QA verification command execution failed',
+            severity: 'HIGH',
+            classification: 'functional_bug',
+            violatedCriteria: 'REQ-001 / SPEC-001',
+            evidence: output.slice(0, 300),
+            reproductionSteps: `Run \`${cmd}\` inside \`${path.relative(project.workspaceDir, safeCwd)}\``,
+            status: 'OPEN',
+          });
+        }
       }
 
       return {
-        passed: exitCode === 0,
+        passed: exitCode === 0 && failedTests.length === 0,
         exitCode,
         stdout,
         stderr,
@@ -1061,6 +1253,143 @@ export class PoCliOrchestrator extends EventEmitter {
         testExecutions,
         isolatedEnvPath: isolatedEnvRel,
       };
+    }
+
+    // Check if Robot Framework test suite files (.robot) are present in scripts/
+    const robotFiles = fs.existsSync(scriptsDir)
+      ? fs.readdirSync(scriptsDir).filter((f) => f.endsWith('.robot'))
+      : [];
+
+    if (robotFiles.length > 0) {
+      // 1. Ensure robotframework is provisioned in scripts/.venv
+      const envInfo = this.ensureQaToolEnvironment(project.id, 'robotframework');
+
+      // 2. If JS target exists, write runner script so Robot test cases can invoke it
+      if (fs.existsSync(targetFileInClone)) {
+        const runnerPath = path.join(scriptsDir, 'qa_adversarial_runner.mjs');
+        const runnerScript = [
+          `import fs from 'node:fs';`,
+          `const targetPath = ${JSON.stringify(targetFileInClone)};`,
+          `const results = [];`,
+          `if (!fs.existsSync(targetPath)) {`,
+          `  results.push({ id: 'TC-001', suite: 'discovery', gherkinRef: 'DEV-GHERKIN-001', title: 'Verify existence of implemented module in isolated QA clone', status: 'FAIL', durationMs: 1, evidence: 'Missing ' + targetPath });`,
+          `  console.log(JSON.stringify({ passed: false, results }));`,
+          `  process.exit(1);`,
+          `}`,
+          `results.push({ id: 'TC-001', suite: 'discovery', gherkinRef: 'DEV-GHERKIN-001', title: 'Verify existence of implemented module in isolated QA clone', status: 'PASS', durationMs: 1, evidence: 'Found ' + targetPath });`,
+          `const mod = await import(targetPath + '?t=' + Date.now());`,
+          `try {`,
+          `  const res = mod.executeBusinessLogic({ value: 21 });`,
+          `  if (res && res.ok === true && res.result === 42) {`,
+          `    results.push({ id: 'TC-002', suite: 'functional', gherkinRef: 'DEV-GHERKIN-001', title: 'Verify functional contract executeBusinessLogic({ value: 21 }) === 42', status: 'PASS', durationMs: 2, evidence: JSON.stringify(res) });`,
+          `  } else {`,
+          `    results.push({ id: 'TC-002', suite: 'functional', gherkinRef: 'DEV-GHERKIN-001', title: 'Verify functional contract executeBusinessLogic({ value: 21 }) === 42', status: 'FAIL', durationMs: 2, evidence: 'ASSERTION_FAILED: expected result 42, got ' + JSON.stringify(res) });`,
+          `  }`,
+          `} catch (err) {`,
+          `  results.push({ id: 'TC-002', suite: 'functional', gherkinRef: 'DEV-GHERKIN-001', title: 'Verify functional contract executeBusinessLogic({ value: 21 }) === 42', status: 'FAIL', durationMs: 2, evidence: String(err) });`,
+          `}`,
+          `try {`,
+          `  const rZero = mod.executeBusinessLogic({ value: 0 });`,
+          `  const rNeg = mod.executeBusinessLogic({ value: -15 });`,
+          `  if (rZero?.result === 0 && rNeg?.result === -30) {`,
+          `    results.push({ id: 'TC-003', suite: 'boundary', gherkinRef: 'QA-GHERKIN-001', title: 'Verify boundary values (0 and -15) handling', status: 'PASS', durationMs: 2, evidence: '0->0, -15->-30' });`,
+          `  } else {`,
+          `    results.push({ id: 'TC-003', suite: 'boundary', gherkinRef: 'QA-GHERKIN-001', title: 'Verify boundary values (0 and -15) handling', status: 'FAIL', durationMs: 2, evidence: JSON.stringify({ rZero, rNeg }) });`,
+          `  }`,
+          `} catch (err) {`,
+          `  results.push({ id: 'TC-003', suite: 'boundary', gherkinRef: 'QA-GHERKIN-001', title: 'Verify boundary values (0 and -15) handling', status: 'FAIL', durationMs: 2, evidence: String(err) });`,
+          `}`,
+          `try {`,
+          `  let rejectedNull = false;`,
+          `  let rejectedString = false;`,
+          `  try { mod.executeBusinessLogic(null); } catch { rejectedNull = true; }`,
+          `  try { mod.executeBusinessLogic({ value: 'malicious_payload' }); } catch { rejectedString = true; }`,
+          `  if (rejectedNull && rejectedString) {`,
+          `    results.push({ id: 'TC-004', suite: 'adversarial', gherkinRef: 'QA-GHERKIN-001', title: 'Verify invalid input handling executeBusinessLogic(null) and malformed payloads', status: 'PASS', durationMs: 2, evidence: 'Properly threw INVALID_INPUT on null and string payloads' });`,
+          `  } else {`,
+          `    results.push({ id: 'TC-004', suite: 'adversarial', gherkinRef: 'QA-GHERKIN-001', title: 'Verify invalid input handling executeBusinessLogic(null) and malformed payloads', status: 'FAIL', durationMs: 2, evidence: 'Did not reject invalid input payloads' });`,
+          `  }`,
+          `} catch (err) {`,
+          `  results.push({ id: 'TC-004', suite: 'adversarial', gherkinRef: 'QA-GHERKIN-001', title: 'Verify invalid input handling executeBusinessLogic(null) and malformed payloads', status: 'FAIL', durationMs: 2, evidence: String(err) });`,
+          `}`,
+          `const allPassed = results.every((r) => r.status === 'PASS');`,
+          `console.log(JSON.stringify({ passed: allPassed, results }));`,
+          `process.exit(allPassed ? 0 : 1);`,
+        ].join('\n');
+        fs.writeFileSync(runnerPath, runnerScript, 'utf8');
+      }
+
+      // 3. Execute robot
+      const t0 = Date.now();
+      const robotProc = spawnSync(
+        envInfo.robotBin,
+        ['--outputdir', qaLogsDir, ...robotFiles.map((f) => path.join(scriptsDir, f))],
+        {
+          cwd: scriptsDir,
+          env: {
+            ...process.env,
+            PATH: `${path.join(scriptsDir, '.venv', 'bin')}:${process.env.PATH || ''}`,
+          },
+          encoding: 'utf8',
+          timeout: 30000,
+        },
+      );
+      const durationMs = Math.max(1, Date.now() - t0);
+      const stdout = robotProc.stdout ?? '';
+      const stderr = robotProc.stderr ?? '';
+      const exitCode = robotProc.status ?? 1;
+      evidences.push(`ROBOT_EXIT=${exitCode}\nSTDOUT:\n${stdout}\nSTDERR:\n${stderr}`);
+
+      const robotXmlPath = path.join(qaLogsDir, 'output.xml');
+      let parsedItems: QaTestExecutionItem[] = [];
+      if (fs.existsSync(robotXmlPath)) {
+        try {
+          parsedItems = this.parseRobotOutputXml(fs.readFileSync(robotXmlPath, 'utf8'));
+        } catch {
+          // fallback
+        }
+      }
+
+      if (parsedItems.length > 0) {
+        for (const item of parsedItems) {
+          executedTests.push(item.title);
+          if (item.status === 'PASS') {
+            passedTests.push(item.title);
+          } else {
+            failedTests.push(item.title);
+          }
+          testExecutions.push(item);
+        }
+
+        if (exitCode !== 0 || failedTests.length > 0) {
+          defects.push({
+            id: `def_${Date.now()}_robot`,
+            code: 'DEF-001',
+            title: 'Robot Framework test suite failure',
+            severity: 'HIGH',
+            classification: 'functional_bug',
+            violatedCriteria: 'SPEC-001 / QA-GHERKIN-001',
+            evidence: (stderr || stdout).slice(0, 300),
+            reproductionSteps: `Run \`robot --outputdir scripts/qa-logs ${robotFiles.join(' ')}\` in scripts/`,
+            status: 'OPEN',
+          });
+        }
+
+        return {
+          passed: exitCode === 0 && failedTests.length === 0,
+          exitCode,
+          stdout,
+          stderr,
+          durationMs,
+          executedTests,
+          passedTests,
+          failedTests,
+          evidences,
+          defects,
+          testExecutions,
+          isolatedEnvPath: isolatedEnvRel,
+        };
+      }
     }
 
     // Check if the cloned repository is a Python project (when src/app-module.js is not the primary module)
@@ -3151,6 +3480,39 @@ export class PoCliOrchestrator extends EventEmitter {
         Logger.info(
           'ORCHESTRATOR',
           `Executed tool call '${call.name}': wrote QA script ${art.filePath}`,
+        );
+      } else if (name === 'install_qa_tool' || name === 'provision_qa_tool') {
+        const toolName = String(
+          args.toolName ?? args.name ?? args.tool ?? 'robotframework',
+        );
+        const provisionRes = this.ensureQaToolEnvironment(projectId, toolName);
+        const art = await this.coordinator.saveArtifact({
+          projectId,
+          role,
+          code: 'QA-TOOL-001',
+          type: 'OBSERVATION',
+          title: `QA Tool Provisioned: ${toolName}`,
+          content: [
+            `# QA-TOOL-001: Tool Provisioning in Isolated QA Workspace`,
+            ``,
+            `- **Tool**: \`${toolName}\``,
+            `- **Virtual Environment**: \`${path.relative(project.workspaceDir, provisionRes.venvDir)}\``,
+            `- **Python Binary**: \`${provisionRes.pythonBin}\``,
+            `- **Binary Path**: \`${provisionRes.binaryPath}\``,
+            `- **Installed Now**: \`${provisionRes.installedNow}\``,
+            ``,
+            `## Output Log`,
+            `\`\`\``,
+            provisionRes.output || `Tool '${toolName}' is ready in isolated environment.`,
+            `\`\`\``,
+          ].join('\n'),
+          customRelPath: path.join('scripts', 'qa-tools.md'),
+          tracesTo: ['SPEC-001', 'QA-GHERKIN-001'],
+        });
+        created.push(art);
+        Logger.info(
+          'ORCHESTRATOR',
+          `Executed tool call '${call.name}': provisioned ${toolName} in ${provisionRes.venvDir}`,
         );
       } else if (name === 'run_qa_test_suite' || name === 'run_verification_test') {
         const command = String(
