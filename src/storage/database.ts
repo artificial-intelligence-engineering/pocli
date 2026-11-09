@@ -153,6 +153,7 @@ export class PoCliDatabase {
     fs.mkdirSync(path.join(workspaceDir, 'contracts', 'architecture'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'contracts', 'specification'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'contracts', 'implementation'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'contracts', 'qa'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'scripts'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'deliveries'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'outputs'), { recursive: true });
@@ -1835,6 +1836,8 @@ export class PoCliDatabase {
         relPath = path.join('outputs', `${params.code}_v${nextVersion}.md`);
       } else if (params.type === 'IMPLEMENTATION' || params.type === 'IMPLEMENTATION_PLAN') {
         relPath = path.join('contracts', 'implementation', `${params.code}_v${nextVersion}.md`);
+      } else if (params.type === 'QA_REPORT' || params.type === 'TEST_CASE' || params.type === 'DEFECT') {
+        relPath = path.join('contracts', 'qa', `${params.code}_v${nextVersion}.md`);
       } else {
         relPath = path.join(
           'contracts',
@@ -2236,11 +2239,61 @@ export class PoCliDatabase {
   }
 
   private formatQaReportMarkdown(code: string, payload: QaReportPayload): string {
-    return [
+    const verdict = payload.verdict ?? (payload.recommendation === 'ACCEPT' ? 'PASS' : 'FAIL');
+    const lines: string[] = [
       `# ${code} — Independent QA Validation Report`,
       ``,
+      `**Verdict:** \`${verdict}\``,
       `**Recommendation:** \`${payload.recommendation}\``,
       `**Summary:** ${payload.summary}`,
+    ];
+
+    if (payload.isolatedEnvPath) {
+      lines.push(`**Isolated QA Workspace:** \`${payload.isolatedEnvPath}\``);
+    }
+
+    if (payload.metrics) {
+      const m = payload.metrics;
+      lines.push(
+        ``,
+        `## 0. Quality & Verification Metrics`,
+        `| Metric | Value |`,
+        `| :--- | :--- |`,
+        `| Total Tests Executed | ${m.totalTests} |`,
+        `| Passed Tests | ${m.passedCount} |`,
+        `| Failed Tests | ${m.failedCount} |`,
+        `| Skipped Tests | ${m.skippedCount ?? 0} |`,
+        `| Requirement Coverage | ${m.requirementCoverage !== undefined ? `${m.requirementCoverage}%` : 'N/A'} |`,
+        `| Test Coverage | ${m.testCoverage !== undefined ? `${m.testCoverage}%` : 'N/A'} |`,
+        `| Mutation Score | ${m.mutationScore !== undefined ? `${m.mutationScore}%` : 'N/A'} |`,
+        `| Bug Detection Rate | ${m.bugDetectionRate !== undefined ? `${m.bugDetectionRate}%` : 'N/A'} |`,
+        `| Reproducibility Rate | ${m.reproducibilityRate}% |`,
+        `| Correction Cycle | ${m.correctionCycle} |`,
+      );
+    }
+
+    if (payload.testExecutions && payload.testExecutions.length > 0) {
+      lines.push(
+        ``,
+        `## Test Execution Summary Table`,
+        `| ID | Suite | Gherkin | Description | Status | Duration | Evidence |`,
+        `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |`,
+        ...payload.testExecutions.map(
+          (tc) =>
+            `| \`${tc.id}\` | ${tc.suite} | ${tc.gherkinRef ? `\`${tc.gherkinRef}\`` : '-'} | ${tc.title} | **${tc.status}** | ${tc.durationMs}ms | ${tc.evidenceSummary ?? '-'} |`,
+        ),
+      );
+    }
+
+    if (payload.gherkinContracts && payload.gherkinContracts.length > 0) {
+      lines.push(
+        ``,
+        `## Gherkin Behavioral Contracts`,
+        ...payload.gherkinContracts.map((g) => `- \`${g}\``),
+      );
+    }
+
+    lines.push(
       ``,
       `## 1. Executed Tests (${payload.executedTests.length})`,
       ...payload.executedTests.map((t) => `- ${t}`),
@@ -2260,10 +2313,12 @@ export class PoCliDatabase {
       ...(payload.defects.length > 0
         ? payload.defects.map(
             (d) =>
-              `- **[${d.code}] (${d.severity}) ${d.title}**: Violated criteria: ${d.violatedCriteria}. Evidence: \`${d.evidence}\``,
+              `- **[${d.code}] (${d.severity}${d.classification ? ` | ${d.classification}` : ''}) ${d.title}**: Violated criteria: ${d.violatedCriteria}. Evidence: \`${d.evidence}\`${d.reproductionSteps ? ` | Reproduction: ${d.reproductionSteps}` : ''}`,
           )
         : ['- No open defects.']),
-    ].join('\n');
+    );
+
+    return lines.join('\n');
   }
 
   // ==========================================================================

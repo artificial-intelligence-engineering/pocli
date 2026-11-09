@@ -665,10 +665,18 @@ const KNOWN_TOOLS = new Set([
   'record_implementation_log',
   'write_implementation_plan',
   'write_source_file',
+  'write_gherkin_scenarios',
   'run_unit_tests',
   'run_tests',
   'consult_architect',
   'submit_for_qa',
+  'handoff_to_qa',
+  'clone_repo_for_qa',
+  'write_qa_gherkin',
+  'write_qa_test_script',
+  'run_qa_test_suite',
+  'run_mutation_check',
+  'submit_qa_verdict',
   'write_test_case',
   'run_verification_test',
   'submit_qa_report',
@@ -685,7 +693,10 @@ function isRecognizedToolName(name: string): boolean {
     name.startsWith('propose_') ||
     name.startsWith('create_') ||
     name.startsWith('handoff_') ||
-    name.startsWith('initiate_')
+    name.startsWith('initiate_') ||
+    name.startsWith('submit_') ||
+    name.startsWith('run_') ||
+    name.startsWith('clone_')
   );
 }
 
@@ -1331,7 +1342,25 @@ export class LlmGateway {
 
     if (input.role === 'architect') {
       const promptLower = input.userPrompt.toLowerCase();
-      if (
+      const wantsDeveloperHandoff =
+        promptLower.includes('initiate_developer') ||
+        promptLower.includes('delega al desarrollador') ||
+        promptLower.includes('handoff_to_developer');
+
+      if (wantsDeveloperHandoff) {
+        toolCalls.push({
+          name: 'handoff_to_developer',
+          arguments: {
+            instructions:
+              'Implement the approved architecture ARCH-001 and technical specification SPEC-001, run unit tests, write DEV-GHERKIN-001.feature, and submit to QA.',
+            approvalComments:
+              'Approved by Product Owner in conversation and delegated to Senior Developer.',
+          },
+        });
+        replyText =
+          `[Software Architect] Architecture \`ARCH-001\` and specification \`SPEC-001\` are formally approved. ` +
+          `I have initiated the autonomous handoff (\`[ARQ → DEV]\`) to the Senior Developer via \`handoff_to_developer\`.${citationFooter}`;
+      } else if (
         promptLower.includes('architecture') ||
         promptLower.includes('design') ||
         promptLower.includes('propose') ||
@@ -1398,13 +1427,31 @@ export class LlmGateway {
           `[Senior Developer] I detected a potential deviation or ambiguity regarding \`ARCH-001\`. ` +
           `Following the authority rule, I will not modify the architecture unilaterally: I have submitted a formal consultation (\`consult_architect\`) to the Software Architect.${citationFooter}`;
       } else {
+        const shouldHandoffToQa =
+          input.senderRole === 'architect' ||
+          input.senderRole === 'qa' ||
+          [
+            'PHASE_4_DEVELOPER_HANDOFF',
+            'PHASE_5_IMPLEMENTATION',
+            'PHASE_6_QA_VALIDATION',
+            'PHASE_7_CORRECTION_CYCLE',
+          ].includes(input.phase) ||
+          promptLower.includes('submit_for_qa') ||
+          promptLower.includes('gherkin');
+
+        const simulateDefect =
+          input.senderRole !== 'qa' &&
+          (promptLower.includes('force_test_failure') ||
+            promptLower.includes('simulate_bug'));
+        const multiplier = simulateDefect ? 3 : 2;
+
         toolCalls.push(
           {
             name: 'write_source_file',
             arguments: {
               code: 'CODE-001',
               relFilePath: 'src/app-module.js',
-              content: `// Generated in compliance with ARCH-001 and SPEC-001\nexport function executeBusinessLogic(input) {\n  if (!input || typeof input.value !== 'number') {\n    throw new Error('INVALID_INPUT');\n  }\n  return { ok: true, result: input.value * 2, architectureVersion: 'ARCH-001' };\n}\n`,
+              content: `// Generated in compliance with ARCH-001 and SPEC-001\nexport function executeBusinessLogic(input) {\n  if (!input || typeof input.value !== 'number') {\n    throw new Error('INVALID_INPUT');\n  }\n  return { ok: true, result: input.value * ${multiplier}, architectureVersion: 'ARCH-001' };\n}\n`,
               tracesTo: ['ARCH-001', 'SPEC-001'],
               citations: citationTags,
             },
@@ -1425,37 +1472,181 @@ export class LlmGateway {
               testCommand: 'node --test tests/app-module.test.js',
             },
           },
+          ...(shouldHandoffToQa
+            ? [
+                {
+                  name: 'write_gherkin_scenarios',
+                  arguments: {
+                    code: 'DEV-GHERKIN-001',
+                    title: `Developer Behavioral Scenarios — ${input.projectName}`,
+                    filename: 'DEV-GHERKIN-001.feature',
+                    content: [
+                      `Feature: ${input.projectName} Core Business Logic (SPEC-001)`,
+                      `  As a consumer of ${input.projectName}`,
+                      `  I want executeBusinessLogic to process valid numeric inputs and reject invalid inputs`,
+                      `  So that the service complies with ARCH-001 and SPEC-001`,
+                      ``,
+                      `  Scenario: Valid numeric input is multiplied by 2`,
+                      `    Given a valid input object with value 21`,
+                      `    When executeBusinessLogic is invoked`,
+                      `    Then the result should be 42 with ok true and architectureVersion "ARCH-001"`,
+                      ``,
+                      `  Scenario: Null or non-numeric input is rejected`,
+                      `    Given an invalid input such as null or a non-numeric value`,
+                      `    When executeBusinessLogic is invoked`,
+                      `    Then it should throw an "INVALID_INPUT" error`,
+                    ].join('\n') + '\n',
+                    tracesTo: ['ARCH-001', 'SPEC-001'],
+                  },
+                },
+              ]
+            : []),
           {
             name: 'write_implementation_log',
             arguments: {
               code: 'IMP-001',
               title: `Technical Implementation Log — ${input.projectName}`,
-              content: `# IMP-001: Technical Implementation Log\n\nBased on input contract \`SPEC-001\` and reference architecture \`ARCH-001\`:\n\n## 1. Feature Implementation\n- Implemented business logic module in \`src/app-module.js\` (\`CODE-001\`).\n- Exported \`executeBusinessLogic\` function with strict input validation.\n\n## 2. Mandatory Unit Testing & Execution\n- Created unit test suite in \`tests/app-module.test.js\` (\`TEST-001\`).\n- Executed unit tests via \`run_unit_tests\` (\`node --test tests/app-module.test.js\`).\n- Test Results: 2/2 tests passed (100% green).\n- Test Coverage: 100% statement and branch coverage.\n\n## 3. Definition of Done & QA Readiness\n- All unit tests verified green.\n- Deliverable submitted for independent QA verification.`,
+              content: `# IMP-001: Technical Implementation Log\n\nBased on input contract \`SPEC-001\` and reference architecture \`ARCH-001\`:\n\n## 1. Feature Implementation\n- Implemented business logic module in \`src/app-module.js\` (\`CODE-001\`).\n- Exported \`executeBusinessLogic\` function with strict input validation.\n\n## 2. Mandatory Unit Testing & Execution\n- Created unit test suite in \`tests/app-module.test.js\` (\`TEST-001\`).\n- Executed unit tests via \`run_unit_tests\` (\`node --test tests/app-module.test.js\`).\n- Test Results: 2/2 tests passed (100% green).\n- Test Coverage: 100% statement and branch coverage.\n\n## 3. Definition of Done & QA Readiness\n- Authoring Developer Gherkin scenarios in \`contracts/qa/DEV-GHERKIN-001.feature\`.\n- All unit tests verified green.\n- Deliverable submitted for independent QA verification via \`submit_for_qa\`.`,
               tracesTo: ['ARCH-001', 'SPEC-001'],
               citations: citationTags,
             },
           },
+          ...(shouldHandoffToQa
+            ? [
+                {
+                  name: 'submit_for_qa',
+                  arguments: {
+                    deliverableNotes: `Completed implementation of ${input.projectName} per ARCH-001 and SPEC-001. All unit tests (2/2) pass with 100% coverage and Developer Gherkin contract DEV-GHERKIN-001.feature is ready in contracts/qa/. Please execute independent QA verification.`,
+                    testCommand: 'node --test tests/app-module.test.js',
+                  },
+                },
+              ]
+            : []),
         );
         const isFromArchitect = input.senderRole === 'architect';
+        const isFromQa = input.senderRole === 'qa';
         if (isFromArchitect) {
           replyText =
             `[Senior Developer] Reporting back to the Software Architect on the implementation of \`SPEC-001\` / \`ARCH-001\`:\n` +
             `1. **Feature Implemented**: Core business logic module in \`src/app-module.js\` per specifications.\n` +
             `2. **Unit Tests Executed**: Created and executed \`tests/app-module.test.js\` via \`run_unit_tests\` (2/2 passing, 100% green).\n` +
             `3. **Test Coverage**: Achieved 100% coverage on implemented logic.\n` +
-            `4. **Deliverables & Logbook**: Recorded technical logbook in \`IMP-001\`. Ready for QA validation.${citationFooter}`;
+            `4. **Developer Gherkin & QA Handoff**: Recorded \`DEV-GHERKIN-001.feature\` in \`contracts/qa/\`, logged \`IMP-001\`, and notified the Independent QA Engineer (\`[DEV → QA]\`) via \`submit_for_qa\`.${citationFooter}`;
+        } else if (isFromQa) {
+          replyText =
+            `[Senior Developer] Addressed the defects reported by the Independent QA Engineer (\`[QA → DEV]\`):\n` +
+            `- Fixed the root cause in \`src/app-module.js\` to comply with \`SPEC-001\` and regression scenarios.\n` +
+            `- Re-executed unit tests (\`2/2 passed\`, 100% green) and updated \`IMP-001\`.\n` +
+            `- Re-submitted deliverable to QA (\`[DEV → QA]\`) via \`submit_for_qa\` for regression verification.${citationFooter}`;
         } else {
           replyText =
             `[Senior Developer] Worked on the approved Handoff bundle (\`ARCH-001\`, \`SPEC-001\`) and completed implementation:\n` +
             `- **Feature**: Business logic module implemented in \`src/app-module.js\`.\n` +
             `- **Unit Tests & Execution**: Created and executed \`tests/app-module.test.js\` (100% green).\n` +
             `- **Coverage**: 100% code coverage achieved.\n` +
-            `- **Logbook**: \`IMP-001\` recorded with complete test evidence.${citationFooter}`;
+            `- **Gherkin & QA Handoff**: \`DEV-GHERKIN-001\` and \`IMP-001\` recorded; notified Independent QA Engineer via \`submit_for_qa\`.${citationFooter}`;
         }
       }
     } else if (input.role === 'qa') {
-      replyText =
-        `[Independent QA Engineer] Ready to execute independent validation tests against \`REQ-001\`, \`ARCH-001\`, and \`CODE-001\`, collecting real execution evidence before issuing a verdict (\`ACCEPT\` or \`REJECT\`).${citationFooter}`;
+      const promptLower = input.userPrompt.toLowerCase();
+      const isPmInquiry =
+        promptLower.startsWith('[pm ') ||
+        promptLower.includes('report executed tests, discovered defects');
+      const shouldRunAutonomousQa =
+        !isPmInquiry &&
+        (input.senderRole === 'developer' ||
+          promptLower.includes('verify') ||
+          promptLower.includes('validat') ||
+          promptLower.includes('handoff') ||
+          promptLower.includes('submit_for_qa') ||
+          promptLower.includes('pruebas') ||
+          promptLower.includes('audit'));
+
+      if (shouldRunAutonomousQa) {
+        toolCalls.push(
+          {
+            name: 'clone_repo_for_qa',
+            arguments: {},
+          },
+          {
+            name: 'write_qa_gherkin',
+            arguments: {
+              code: 'QA-GHERKIN-001',
+              category: 'QA',
+              filename: 'QA-GHERKIN-001.feature',
+              title: `Independent Adversarial & Boundary QA Scenarios — ${input.projectName}`,
+              content: [
+                `Feature: Independent Adversarial Verification of ${input.projectName}`,
+                `  As the Independent QA Engineer`,
+                `  I want to challenge ${input.projectName} with functional, boundary, and adversarial inputs`,
+                `  So that I can prove whether SPEC-001 and ARCH-001 hold under stress`,
+                ``,
+                `  Scenario: Functional contract verification (value = 21 -> 42)`,
+                `    Given the isolated QA clone in scripts/qa-env`,
+                `    When executeBusinessLogic is called with { value: 21 }`,
+                `    Then it returns { ok: true, result: 42, architectureVersion: "ARCH-001" }`,
+                ``,
+                `  Scenario: Boundary value zero and negative numbers`,
+                `    Given boundary numeric values 0 and -15`,
+                `    When executeBusinessLogic is called`,
+                `    Then it returns 0 and -30 respectively without precision loss`,
+                ``,
+                `  @adversarial`,
+                `  Scenario: Adversarial malformed payloads (null, undefined, string, NaN)`,
+                `    Given malformed payloads null, undefined, and { value: "malicious" }`,
+                `    When executeBusinessLogic is called`,
+                `    Then it rejects each payload with Error "INVALID_INPUT"`,
+              ].join('\n') + '\n',
+            },
+          },
+          {
+            name: 'write_qa_test_script',
+            arguments: {
+              relFilePath: 'qa_acceptance.robot',
+              content: [
+                `*** Settings ***`,
+                `Documentation     Independent QA Robot Framework Acceptance Suite for ${input.projectName}`,
+                `Library           Process`,
+                ``,
+                `*** Test Cases ***`,
+                `TC-001 Verify Nominal Business Logic Contract`,
+                `    [Documentation]    Verifies SPEC-001 nominal calculation (21 * 2 == 42)`,
+                `    [Tags]             functional    SPEC-001`,
+                `    \${result}=    Run Process    node    qa_adversarial_runner.mjs    cwd=\${CURDIR}`,
+                `    Should Be Equal As Integers    \${result.rc}    0`,
+                ``,
+                `TC-002 Verify Boundary And Adversarial Inputs`,
+                `    [Documentation]    Verifies negative, zero, null, and malformed payload handling`,
+                `    [Tags]             adversarial    boundary    QA-GHERKIN-001`,
+                `    \${result}=    Run Process    node    qa_adversarial_runner.mjs    cwd=\${CURDIR}`,
+                `    Should Be Equal As Integers    \${result.rc}    0`,
+              ].join('\n') + '\n',
+            },
+          },
+          {
+            name: 'run_qa_test_suite',
+            arguments: {
+              command: 'auto',
+            },
+          },
+          {
+            name: 'run_mutation_check',
+            arguments: {},
+          },
+          {
+            name: 'submit_qa_verdict',
+            arguments: {
+              autoEvaluateFromExecution: true,
+              summary: `Executed 7-phase independent QA verification (Discovery, Requirements Analysis, Static Code Review, Adversarial Gherkin & Robot Test Generation, Isolated Test Execution, and Mutation Testing) for ${input.projectName}.`,
+            },
+          },
+        );
+        replyText =
+          `[Independent QA Engineer] Completed the 7-phase autonomous QA verification in isolated workspace (\`contracts/qa/\` and \`scripts/\`) for **${input.projectName}** and emitted the verdict and summary table.${citationFooter}`;
+      } else {
+        replyText =
+          `[Independent QA Engineer] Ready to execute independent validation tests against \`REQ-001\`, \`ARCH-001\`, and \`CODE-001\`, collecting real execution evidence before issuing a verdict (\`ACCEPT\` or \`REJECT\`).${citationFooter}`;
+      }
     } else if (input.role === 'pm') {
       const promptLower = input.userPrompt.toLowerCase();
       if (
