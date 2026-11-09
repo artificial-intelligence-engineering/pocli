@@ -11,5 +11,6 @@ export * from './runtime/coordinator.js';
 export * from './runtime/persistent-runtime.js';
 export * from './runtime/mcp-client.js';
 export * from './runtime/orchestrator.js';
+export * from './runtime/headless-runner.js';
 export * from './tui/mouse.js';
 export * from './tui/CommandCenterApp.js';

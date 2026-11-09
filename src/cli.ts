@@ -13,6 +13,11 @@ import {
 } from './storage/db-repl.js';
 import { PoCliOrchestrator } from './runtime/orchestrator.js';
 import {
+  HeadlessCliRunner,
+  runVirtualTuiSession,
+} from './runtime/headless-runner.js';
+import { ActorRole } from './core/contracts.js';
+import {
   AVAILABLE_MODELS_CATALOG,
   resolveModelSpec,
 } from './runtime/llm-gateway.js';
@@ -293,6 +298,193 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Headless CLI commands (`pocli exec`, `pocli run`, `pocli e2e`, `pocli tui-test`)
+  if (
+    subcommand === 'exec' ||
+    subcommand === 'run' ||
+    subcommand === 'e2e' ||
+    subcommand === 'tui-test'
+  ) {
+    const restArgs = args.slice(1);
+    let isIsolated = false;
+    let projectName: string | undefined;
+    let workspaceDir: string | undefined;
+    let role: ActorRole = 'architect';
+    let modelSpec: string | undefined;
+    let followHandoffs = true;
+    let simulateDefect = false;
+    let format: 'text' | 'json' = 'text';
+    const promptTokens: string[] = [];
+
+    for (let i = 0; i < restArgs.length; i++) {
+      const token = restArgs[i];
+      if (token === '--isolated') {
+        isIsolated = true;
+      } else if ((token === '--project' || token === '-p') && restArgs[i + 1]) {
+        projectName = restArgs[++i];
+      } else if ((token === '--workspace' || token === '-w') && restArgs[i + 1]) {
+        workspaceDir = restArgs[++i];
+      } else if ((token === '--role' || token === '-r') && restArgs[i + 1]) {
+        const candidate = restArgs[++i].toLowerCase();
+        if (
+          candidate === 'architect' ||
+          candidate === 'developer' ||
+          candidate === 'qa' ||
+          candidate === 'pm'
+        ) {
+          role = candidate;
+        }
+      } else if ((token === '--model' || token === '-m') && restArgs[i + 1]) {
+        modelSpec = restArgs[++i];
+      } else if (token === '--no-follow') {
+        followHandoffs = false;
+      } else if (token === '--simulate-defect') {
+        simulateDefect = true;
+      } else if ((token === '--format' || token === '-f') && restArgs[i + 1]) {
+        const fmt = restArgs[++i].toLowerCase();
+        if (fmt === 'json' || fmt === 'text') format = fmt;
+      } else {
+        promptTokens.push(token);
+      }
+    }
+
+    let isolatedTmpDir: string | undefined;
+    let activeStorage = storage;
+    let activeOrchestrator = orchestrator;
+
+    if (isIsolated) {
+      isolatedTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pocli-headless-'));
+      activeStorage = new PoCliDatabase(path.join(isolatedTmpDir, 'pocli.sqlite'));
+      activeOrchestrator = new PoCliOrchestrator(activeStorage);
+      if (!workspaceDir) {
+        workspaceDir = path.join(isolatedTmpDir, 'workspace');
+      }
+    }
+
+    const cleanupHeadless = async () => {
+      try {
+        activeOrchestrator.rag.stopWatchers();
+      } catch {}
+      try {
+        await activeOrchestrator.stopAllWorkers();
+      } catch {}
+      try {
+        activeStorage.close();
+      } catch {}
+      if (isIsolated && activeStorage !== storage) {
+        try {
+          storage.close();
+        } catch {}
+      }
+      if (isolatedTmpDir) {
+        try {
+          fs.rmSync(isolatedTmpDir, { recursive: true, force: true });
+        } catch {}
+      }
+    };
+
+    try {
+      const runner = new HeadlessCliRunner(activeOrchestrator);
+
+      if (subcommand === 'e2e') {
+        const res = await runner.runFullE2eLifecycle({
+          projectName: projectName ?? 'HeadlessE2EApp',
+          workspaceDir,
+          architectPrompt: promptTokens.join(' ').trim() || undefined,
+          simulateDefectCycle: simulateDefect,
+          useDeterministicModel: !modelSpec,
+        });
+        if (format === 'json') {
+          console.log(JSON.stringify(res, null, 2));
+        } else {
+          console.log(res.outputText);
+        }
+        await cleanupHeadless();
+        process.exit(res.ok ? 0 : 1);
+      }
+
+      if (subcommand === 'tui-test') {
+        const pName = projectName ?? 'VirtualTuiDemo';
+        const proj = runner.ensureProject({
+          projectName: pName,
+          workspaceDir,
+          useDeterministicModel: true,
+        });
+        const tuiRes = await runVirtualTuiSession({
+          orchestrator: activeOrchestrator,
+          initialProject: proj,
+          steps: [
+            { input: '/agents architect\r', waitMs: 200 },
+            {
+              input: 'Design and propose the formal architecture and requirements.\r',
+              waitMs: 900,
+            },
+            {
+              input:
+                'Procede con la arquitectura propuesta y delega al desarrollador.\r',
+              waitMs: 2500,
+            },
+          ],
+        });
+        if (format === 'json') {
+          console.log(
+            JSON.stringify(
+              {
+                ok: tuiRes.ok,
+                framesCount: tuiRes.framesCount,
+                finalProject: tuiRes.finalProject,
+                lastFrameText: tuiRes.lastFrameText,
+              },
+              null,
+              2,
+            ),
+          );
+        } else {
+          console.log(
+            [
+              `=== PO CLI — VIRTUAL TUI E2E SESSION (${pName}) ===`,
+              `Frames Captured : ${tuiRes.framesCount}`,
+              `Final Phase     : ${tuiRes.finalProject?.phase ?? 'UNKNOWN'}`,
+              `--- Last Rendered TUI Frame ---`,
+              tuiRes.lastFrameText,
+            ].join('\n'),
+          );
+        }
+        await cleanupHeadless();
+        process.exit(tuiRes.ok ? 0 : 1);
+      }
+
+      // `pocli exec` / `pocli run`
+      const commandOrPrompt = promptTokens.join(' ').trim();
+      if (!commandOrPrompt) {
+        console.error(
+          'Usage: pocli exec [--isolated] [--project <name>] [--role <architect|developer|qa|pm>] "<command-or-prompt>"',
+        );
+        await cleanupHeadless();
+        process.exit(1);
+      }
+      const res = await runner.executeCommand({
+        commandOrPrompt,
+        projectName,
+        workspaceDir,
+        role,
+        modelSpec: modelSpec ?? (isIsolated ? 'deterministic/pocli-specialist-v1' : undefined),
+        followHandoffs,
+      });
+      if (format === 'json') {
+        console.log(JSON.stringify(res, null, 2));
+      } else {
+        console.log(res.outputText);
+      }
+      await cleanupHeadless();
+      process.exit(res.ok ? 0 : 1);
+    } catch (err) {
+      await cleanupHeadless();
+      console.error(`Headless execution error: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  }
+
   if (subcommand === 'tui' || subcommand === 'pocli') {
     const project = storage.getActiveProject() || null;
 
@@ -336,6 +528,9 @@ async function main(): Promise<void> {
   console.log(
     [
       c.cyanBold('Product Owner CLI (pocli) — Available commands:'),
+      `  ${c.cyan('pocli exec')} ${c.yellow('"<cmd-or-prompt>"')}         ${c.dim('Execute a slash command or agent prompt headlessly (--isolated, --role)')}`,
+      `  ${c.cyan('pocli e2e')} ${c.yellow('[--isolated]')}               ${c.dim('Run a full start-to-finish E2E lifecycle (ARQ -> DEV -> QA -> ARQ -> PO)')}`,
+      `  ${c.cyan('pocli tui-test')} ${c.yellow('[--isolated]')}          ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
       `  ${c.cyan('pocli auth')} ${c.yellow('[status|set|remove|path]')} ${c.dim('Manage LLM provider API keys ($HOME/.pocli/auth.json)')}`,
       `  ${c.cyan('pocli models')} ${c.yellow('[agent] [model]')}        ${c.dim('List or assign LLM models for roles')}`,
       `  ${c.cyan('pocli db')}                            ${c.dim('Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)')}`,
