@@ -2,17 +2,6 @@
 
 <img src="docs/images/pocli-logo.jpg" alt="POCLI Logo" width="220" />
 
-<pre>
-██████╗  ██████╗      ██████╗██╗     ██╗
-██╔══██╗██╔═══██╗    ██╔════╝██║     ██║
-██████╔╝██║   ██║    ██║     ██║     ██║
-██╔═══╝ ██║   ██║    ██║     ██║     ██║
-██║     ╚██████╔╝    ╚██████╗███████╗██║
-╚═╝      ╚═════╝      ╚═════╝╚══════╝╚═╝
-</pre>
-
-# POCLI
-
 > **The open-source AI dev team in your terminal — with you as the Product Owner.**
 
 > *POCLI connects human product vision with autonomous AI agents to design, spec, and build software from the command line.*
