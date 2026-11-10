@@ -1,0 +1,61 @@
+name: Deploy POCLI Installer to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "install.sh"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy-installer:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare static installer Pages site
+        run: |
+          mkdir -p _pages
+          cp install.sh _pages/install.sh
+          chmod 0755 _pages/install.sh
+          cat >_pages/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>POCLI — Redirecting to Website</title>
+            <meta http-equiv="refresh" content="0; url=https://artificial-intelligence-engineering.github.io/pocli-website/">
+            <link rel="canonical" href="https://artificial-intelligence-engineering.github.io/pocli-website/">
+          </head>
+          <body>
+            <p>Redirecting to <a href="https://artificial-intelligence-engineering.github.io/pocli-website/">POCLI Website</a>. Installer available at <a href="./install.sh">install.sh</a>.</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "_pages"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

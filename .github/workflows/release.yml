@@ -1,0 +1,88 @@
+name: Build & Publish POCLI Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck & Test
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build distribution bundle
+        run: npm run build
+
+      - name: Assemble self-contained Linux release tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+
+          STAGE_DIR="/tmp/pocli-stage"
+          OUT_DIR="${GITHUB_WORKSPACE}/release-artifacts"
+          rm -rf "$STAGE_DIR" "$OUT_DIR"
+          mkdir -p "$STAGE_DIR" "$OUT_DIR"
+
+          cp package.json package-lock.json README.md LICENSE install.sh "$STAGE_DIR/"
+          cp -r dist behavior data "$STAGE_DIR/"
+
+          pushd "$STAGE_DIR" >/dev/null
+          npm ci --omit=dev --ignore-scripts
+          chmod 0755 dist/cli.js install.sh
+          tar -czf "${OUT_DIR}/pocli-linux.tar.gz" .
+          cp "${OUT_DIR}/pocli-linux.tar.gz" "${OUT_DIR}/pocli-${TAG}-linux.tar.gz"
+          popd >/dev/null
+
+          pushd "$OUT_DIR" >/dev/null
+          sha256sum pocli-linux.tar.gz > pocli-linux.tar.gz.sha256
+          ls -lh "$OUT_DIR"
+          popd >/dev/null
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-artifacts/* --clobber
+          else
+            gh release create "$TAG" release-artifacts/* \
+              --title "POCLI $TAG" \
+              --generate-notes
+          fi
+

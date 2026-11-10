@@ -9,10 +9,14 @@
   "files": [
     "dist",
     "behavior",
-    "data"
+    "data",
+    "install.sh",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('node:fs').cpSync('behavior', 'dist/behavior', { recursive: true });\"",
+    "build": "tsc && node -e \"const fs=require('node:fs'); fs.cpSync('behavior','dist/behavior',{recursive:true}); fs.cpSync('data','dist/data',{recursive:true}); fs.chmodSync('dist/cli.js', 0o755);\"",
+    "prepack": "npm run build",
     "pocli": "tsx src/cli.ts",
     "start": "tsx src/cli.ts",
     "tui": "tsx src/cli.ts tui",

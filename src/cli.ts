@@ -24,7 +24,45 @@ import {
 import { Logger } from './core/logger.js';
 import { AuthStorage } from './core/auth.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
+import { fileURLToPath } from 'node:url';
 import { c, formatLogLineForTerminal } from './core/colors.js';
+
+function getCliVersion(): string {
+  try {
+    const dir = path.dirname(fileURLToPath(import.meta.url));
+    const pkgCandidates = [
+      path.resolve(dir, '..', 'package.json'),
+      path.resolve(dir, '..', '..', 'package.json'),
+    ];
+    for (const p of pkgCandidates) {
+      if (fs.existsSync(p)) {
+        const parsed = JSON.parse(fs.readFileSync(p, 'utf8')) as { version?: string };
+        if (parsed.version) return parsed.version;
+      }
+    }
+  } catch {}
+  return '1.0.0';
+}
+
+function printCliHelp(): void {
+  console.log(
+    [
+      c.cyanBold(`Product Owner CLI (pocli v${getCliVersion()}) — Available commands:`),
+      `  ${c.cyan('pocli')}                                ${c.dim('Launch fullscreen Ink Command Center TUI')}`,
+      `  ${c.cyan('pocli report')} ${c.yellow('[project]')}              ${c.dim('Generate 100% HTML Project Status Report in deliveries/')}`,
+      `  ${c.cyan('pocli exec')} ${c.yellow('"<cmd-or-prompt>"')}        ${c.dim('Execute a slash command or agent prompt headlessly (--isolated, --role)')}`,
+      `  ${c.cyan('pocli e2e')} ${c.yellow('[--isolated]')}              ${c.dim('Run a full start-to-finish E2E lifecycle (ARQ -> DEV -> QA -> ARQ -> PO)')}`,
+      `  ${c.cyan('pocli tui-test')} ${c.yellow('[--isolated]')}         ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
+      `  ${c.cyan('pocli auth')} ${c.yellow('[status|set|remove|path]')} ${c.dim('Manage LLM provider API keys ($HOME/.pocli/auth.json)')}`,
+      `  ${c.cyan('pocli models')} ${c.yellow('[agent] [model]')}       ${c.dim('List or assign LLM models for roles')}`,
+      `  ${c.cyan('pocli db')}                           ${c.dim('Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)')}`,
+      `  ${c.cyan('pocli db path')}                      ${c.dim('Print the active SQLite database file path')}`,
+      `  ${c.cyan('pocli db')} ${c.yellow('"<sql>"')} ${c.dim('[--format json]')}   ${c.dim('Execute a SQL query or dot-command (.tables, .stats)')}`,
+      `  ${c.cyan('pocli logs')} ${c.yellow('[-n 50|path|clear]')}      ${c.dim('Inspect or clear runtime diagnostic logs ($HOME/.pocli/logs/)')}`,
+      `  ${c.cyan('pocli --version | --help')}           ${c.dim('Show version or this help message')}`,
+    ].join('\n'),
+  );
+}
 
 function enterFullscreenTerminal(): void {
   if (process.stdout.isTTY) {
@@ -46,6 +84,16 @@ function exitFullscreenTerminal(): void {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const subcommand = args[0] ?? 'tui';
+
+  if (subcommand === '--version' || subcommand === '-v') {
+    console.log(getCliVersion());
+    return;
+  }
+
+  if (subcommand === '--help' || subcommand === '-h' || subcommand === 'help') {
+    printCliHelp();
+    return;
+  }
 
   // Central CLI folder defaults to $HOME/.pocli/ so pocli can run from anywhere
   const dataDir = resolveDefaultWorkDir();
@@ -600,20 +648,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(
-    [
-      c.cyanBold('Product Owner CLI (pocli) — Available commands:'),
-      `  ${c.cyan('pocli exec')} ${c.yellow('"<cmd-or-prompt>"')}         ${c.dim('Execute a slash command or agent prompt headlessly (--isolated, --role)')}`,
-      `  ${c.cyan('pocli e2e')} ${c.yellow('[--isolated]')}               ${c.dim('Run a full start-to-finish E2E lifecycle (ARQ -> DEV -> QA -> ARQ -> PO)')}`,
-      `  ${c.cyan('pocli tui-test')} ${c.yellow('[--isolated]')}          ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
-      `  ${c.cyan('pocli auth')} ${c.yellow('[status|set|remove|path]')} ${c.dim('Manage LLM provider API keys ($HOME/.pocli/auth.json)')}`,
-      `  ${c.cyan('pocli models')} ${c.yellow('[agent] [model]')}        ${c.dim('List or assign LLM models for roles')}`,
-      `  ${c.cyan('pocli db')}                            ${c.dim('Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)')}`,
-      `  ${c.cyan('pocli db path')}                       ${c.dim('Print the active SQLite database file path')}`,
-      `  ${c.cyan('pocli db')} ${c.yellow('"<sql>"')} ${c.dim('[--format json]')}    ${c.dim('Execute a SQL query or dot-command (.tables, .stats)')}`,
-      `  ${c.cyan('pocli logs')} ${c.yellow('[-n 50|path|clear]')}       ${c.dim('Inspect or clear runtime diagnostic logs ($HOME/.pocli/logs/)')}`,
-    ].join('\n'),
-  );
+  printCliHelp();
   storage.close();
 }
 
