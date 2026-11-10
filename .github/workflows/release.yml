@@ -30,13 +30,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck & Test
+      - name: Typecheck & Build
         run: |
           npm run typecheck
-          npm test
+          npm run build
 
-      - name: Build distribution bundle
-        run: npm run build
+      - name: Run full test suite (sequential for CI CPU)
+        run: npx vitest run --fileParallelism=false --maxWorkers=1
 
       - name: Assemble self-contained Linux release tarball
         shell: bash
