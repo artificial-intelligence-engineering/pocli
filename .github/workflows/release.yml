@@ -36,6 +36,8 @@ jobs:
           npm run build
 
       - name: Run full test suite (sequential for CI CPU)
+        env:
+          CI: "false"
         run: npx vitest run --fileParallelism=false --maxWorkers=1
 
       - name: Assemble self-contained Linux release tarball
