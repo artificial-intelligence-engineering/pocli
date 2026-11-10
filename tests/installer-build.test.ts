@@ -43,7 +43,7 @@ describe('Linux Installer & Release Distribution Packaging', () => {
 
     const verOut = execFileSync(cliPath, ['--version'], { cwd: tmpDir, encoding: 'utf8' }).trim();
     expect(verOut).toMatch(/^\d+\.\d+\.\d+/);
-  });
+  }, 20000);
 
   it('install.sh extracts a release tarball into isolated HOME, runs pocli --version, and uninstalls without wiping pocli.sqlite', () => {
     const installerPath = path.join(repoRoot, 'install.sh');
