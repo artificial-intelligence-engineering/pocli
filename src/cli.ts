@@ -59,6 +59,8 @@ function printCliHelp(): void {
       `  ${c.cyan('pocli tui-test')} ${c.yellow('[--isolated]')}         ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
       `  ${c.cyan('pocli auth')} ${c.yellow('[status|set|remove|path]')} ${c.dim('Manage LLM provider API keys ($HOME/.pocli/auth.json)')}`,
       `  ${c.cyan('pocli models')} ${c.yellow('[agent] [model]')}       ${c.dim('List or assign LLM models for roles')}`,
+      `  ${c.cyan('pocli models refresh')} ${c.yellow('[--force]')}     ${c.dim('Download latest models.json catalog from GitHub')}`,
+      `  ${c.cyan('pocli models status')}                ${c.dim('Show active models catalog source and sync metadata')}`,
       `  ${c.cyan('pocli db')}                           ${c.dim('Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)')}`,
       `  ${c.cyan('pocli db path')}                      ${c.dim('Print the active SQLite database file path')}`,
       `  ${c.cyan('pocli db')} ${c.yellow('"<sql>"')} ${c.dim('[--format json]')}   ${c.dim('Execute a SQL query or dot-command (.tables, .stats)')}`,
