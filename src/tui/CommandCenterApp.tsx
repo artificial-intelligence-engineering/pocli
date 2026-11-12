@@ -5242,9 +5242,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             marginBottom={1}
           >
             <Text bold color="green">
-              {language === 'es'
-                ? `Ingresar API Key para ${activeProv?.name ?? 'Proveedor'}:`
-                : `Enter API Key for ${activeProv?.name ?? 'Provider'}:`}
+              {activeProv?.id === 'gemini'
+                ? language === 'es'
+                  ? 'Ingresar API Key para Google Antigravity (Google AI Studio key):'
+                  : 'Enter API key for Google Antigravity (Google AI Studio key):'
+                : language === 'es'
+                  ? `Ingresar API Key para ${activeProv?.name ?? 'Proveedor'}:`
+                  : `Enter API Key for ${activeProv?.name ?? 'Provider'}:`}
             </Text>
             <Box flexDirection="row" marginTop={0}>
               <Text color="cyan">❯ </Text>
