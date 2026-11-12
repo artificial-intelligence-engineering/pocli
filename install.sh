@@ -2,7 +2,7 @@
 # POCLI Installer — https://github.com/artificial-intelligence-engineering/pocli
 # Usage:
 #   curl -fsSL https://artificial-intelligence-engineering.github.io/pocli/install.sh | sh
-#   curl -fsSL https://artificial-intelligence-engineering.github.io/pocli/install.sh | sh -s -- --version v1.0.0
+#   curl -fsSL https://artificial-intelligence-engineering.github.io/pocli/install.sh | sh -s -- --version v1.0.1
 #   curl -fsSL https://artificial-intelligence-engineering.github.io/pocli/install.sh | sh -s -- --uninstall
 
 set -eu

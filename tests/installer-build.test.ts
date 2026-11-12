@@ -82,7 +82,8 @@ describe('Linux Installer & Release Distribution Packaging', () => {
       env: { ...process.env, HOME: fakeHome },
       encoding: 'utf8',
     }).trim();
-    expect(versionFromLauncher).toBe('1.0.0');
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as { version: string };
+    expect(versionFromLauncher).toBe(pkg.version);
 
     // Verify uninstall preserves user sqlite data
     execFileSync('sh', [installerPath, '--uninstall'], {
