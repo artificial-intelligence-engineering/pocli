@@ -58,7 +58,9 @@ function printCliHelp(): void {
       `  ${c.cyan('pocli e2e')} ${c.yellow('[--isolated]')}              ${c.dim('Run a full start-to-finish E2E lifecycle (ARQ -> DEV -> QA -> ARQ -> PO)')}`,
       `  ${c.cyan('pocli tui-test')} ${c.yellow('[--isolated]')}         ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
       `  ${c.cyan('pocli auth')} ${c.yellow('[status|set|remove|path]')} ${c.dim('Manage LLM provider API keys ($HOME/.pocli/auth.json)')}`,
-      `  ${c.cyan('pocli models')} ${c.yellow('[agent] [model]')}       ${c.dim('List or assign LLM models for roles')}`,
+      `  ${c.cyan('pocli models list')}                  ${c.dim('List all available LLM models in catalog')}`,
+      `  ${c.cyan('pocli models agents')}                ${c.dim('List active project agents and their configured models')}`,
+      `  ${c.cyan('pocli models')} ${c.yellow('<agent> <model>')}       ${c.dim('Assign an LLM model to a role (or all)')}`,
       `  ${c.cyan('pocli models refresh')} ${c.yellow('[--force]')}     ${c.dim('Download latest models.json catalog from GitHub')}`,
       `  ${c.cyan('pocli models status')}                ${c.dim('Show active models catalog source and sync metadata')}`,
       `  ${c.cyan('pocli db')}                           ${c.dim('Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)')}`,
@@ -264,29 +266,41 @@ async function main(): Promise<void> {
       return;
     }
 
-    if (project) {
-      const roleConfigs = storage.listRoleConfigs(project.id);
-      console.log(
-        `\n${c.cyanBold(`=== Active Project "${project.name}" — Per-Agent Model Assignments ===`)}`,
-      );
-      for (const rc of roleConfigs) {
+    if (arg1Lower === 'agents') {
+      if (project) {
+        const roleConfigs = storage.listRoleConfigs(project.id);
         console.log(
-          `  • ${c.cyanBold(rc.role.padEnd(12, ' '))} -> ${c.green(`${rc.provider}/${rc.modelId}`)} ${c.dim(`(temp=${rc.temperature}, mode=${rc.executionModality})`)}`,
+          `\n${c.cyanBold(`=== Active Project "${project.name}" — Per-Agent Model Assignments ===`)}`,
+        );
+        for (const rc of roleConfigs) {
+          console.log(
+            `  • ${c.cyanBold(rc.role.padEnd(12, ' '))} -> ${c.green(`${rc.provider}/${rc.modelId}`)} ${c.dim(`(temp=${rc.temperature}, mode=${rc.executionModality})`)}`,
+          );
+        }
+      } else {
+        console.log(
+          `\n${c.yellow('No active project found.')} ${c.dim('Run "pocli" to create or select a project.')}`,
         );
       }
-    } else {
-      console.log(
-        `\n${c.yellow('No active project found.')} ${c.dim('Run "pocli" to create or select a project.')}`,
-      );
+      storage.close();
+      return;
     }
-    console.log(`\n${c.cyanBold('=== Available Models Catalog (pocli models / /models) ===')}`);
-    for (const m of AVAILABLE_MODELS_CATALOG) {
-      console.log(
-        `  • ${c.bold((m.provider + '/' + m.modelId).padEnd(36, ' '))} ${m.displayName.padEnd(32, ' ')} ${c.yellow(`[${m.contextWindow} · ${m.recommendedFor}]`)}`,
-      );
+
+    if (arg1Lower === 'list' || !arg1) {
+      console.log(`\n${c.cyanBold('=== Available Models Catalog (pocli models list / /models) ===')}`);
+      for (const m of AVAILABLE_MODELS_CATALOG) {
+        console.log(
+          `  • ${c.bold((m.provider + '/' + m.modelId).padEnd(36, ' '))} ${m.displayName.padEnd(32, ' ')} ${c.yellow(`[${m.contextWindow} · ${m.recommendedFor}]`)}`,
+        );
+      }
+      storage.close();
+      return;
     }
+
+    console.error(`Unknown models subcommand: ${arg1}`);
+    console.error('Usage: pocli models [list|agents|refresh|status|<agent> <model>]');
     storage.close();
-    return;
+    process.exit(1);
   }
 
   // OpenCode-style `pocli logs` command:
