@@ -5697,7 +5697,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text color="white">commands</Text>
           </Box>
           <Box flexDirection="row">
-            <Text color="gray">1.0.0</Text>
+            <Text color="gray">1.0.1</Text>
           </Box>
         </Box>
       </Box>
