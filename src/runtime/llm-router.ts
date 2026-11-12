@@ -523,7 +523,7 @@ export function buildDefaultFreeProviders(): ProviderConfig[] {
   if (geminiKey) {
     providers.push({
       id: 'gemini-free',
-      name: 'Google Gemini Free',
+      name: 'Google Antigravity Free',
       endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
       apiKey: geminiKey,
       defaultModel: 'gemini-2.0-flash',

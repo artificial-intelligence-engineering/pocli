@@ -4721,7 +4721,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       { id: 'openrouter', label: 'OPENROUTER', isConfigured: Boolean(AuthStorage.getApiKey('openrouter')) },
       { id: 'anthropic', label: 'ANTHROPIC', isConfigured: Boolean(AuthStorage.getApiKey('anthropic')) },
       { id: 'openai', label: 'OPENAI', isConfigured: Boolean(AuthStorage.getApiKey('openai')) },
-      { id: 'gemini', label: 'GEMINI', isConfigured: Boolean(AuthStorage.getApiKey('gemini')) },
+      { id: 'gemini', label: 'ANTIGRAVITY', isConfigured: Boolean(AuthStorage.getApiKey('gemini')) },
       { id: 'groq', label: 'GROQ', isConfigured: Boolean(AuthStorage.getApiKey('groq')) },
       { id: 'ollama', label: 'OLLAMA', isConfigured: true },
       { id: 'freellm', label: 'FREE/ZERO', isConfigured: true },
@@ -5242,9 +5242,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             marginBottom={1}
           >
             <Text bold color="green">
-              {language === 'es'
-                ? `Ingresar API Key para ${activeProv?.name ?? 'Proveedor'}:`
-                : `Enter API Key for ${activeProv?.name ?? 'Provider'}:`}
+              {activeProv?.id === 'gemini'
+                ? language === 'es'
+                  ? 'Ingresar API Key para Antigravity (aviso de costes extra, no incluido en suscripción mensual):'
+                  : 'Enter API key for Antigravity (extra costs alert, not included in Monthly subscription):'
+                : language === 'es'
+                  ? `Ingresar API Key para ${activeProv?.name ?? 'Proveedor'}:`
+                  : `Enter API Key for ${activeProv?.name ?? 'Provider'}:`}
             </Text>
             <Box flexDirection="row" marginTop={0}>
               <Text color="cyan">❯ </Text>

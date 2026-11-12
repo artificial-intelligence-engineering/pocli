@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { resolveDefaultWorkDir } from './i18n.js';
 
@@ -37,7 +36,7 @@ export const SUPPORTED_AUTH_PROVIDERS: ProviderAuthInfo[] = [
   },
   {
     id: 'gemini',
-    name: 'Google Gemini',
+    name: 'Google Antigravity',
     envVar: 'GEMINI_API_KEY',
     keyPrefix: 'AIzaSy',
     helpUrl: 'https://aistudio.google.com/app/apikey',
@@ -92,6 +91,13 @@ export class AuthStorage {
     if (lower === 'zen' || lower === 'opencode-zen' || lower === 'opencode_zen') {
       return 'opencode';
     }
+    if (
+      lower === 'antigravity' ||
+      lower === 'google-antigravity' ||
+      lower === 'google_antigravity'
+    ) {
+      return 'gemini';
+    }
     return lower;
   }
 
@@ -120,9 +126,14 @@ export class AuthStorage {
 
     // 2. Check auth.json file
     const fileData = this.readFile();
+    const rawVal = fileData[normalized];
+    const zenVal = normalized === 'opencode' ? fileData['zen'] : undefined;
     const fileVal =
-      fileData[normalized]?.trim() ||
-      (normalized === 'opencode' ? fileData['zen']?.trim() : undefined);
+      typeof rawVal === 'string' && rawVal.trim()
+        ? rawVal.trim()
+        : typeof zenVal === 'string' && zenVal.trim()
+          ? zenVal.trim()
+          : undefined;
     if (fileVal) return fileVal;
 
     return undefined;
@@ -143,9 +154,11 @@ export class AuthStorage {
     }
 
     const fileData = this.readFile();
+    const rawVal = fileData[normalized];
+    const zenVal = normalized === 'opencode' ? fileData['zen'] : undefined;
     if (
-      fileData[normalized]?.trim() ||
-      (normalized === 'opencode' && fileData['zen']?.trim())
+      (typeof rawVal === 'string' && rawVal.trim()) ||
+      (typeof zenVal === 'string' && zenVal.trim())
     ) {
       return 'file';
     }

@@ -154,7 +154,7 @@ function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
     {
       provider: 'gemini',
       vendor: 'GEMINI',
-      providerLabel: 'Google Gemini',
+      providerLabel: 'Google Antigravity',
       modelId: 'gemini-2.5-pro',
       displayName: 'Gemini 2.5 Pro',
       isFree: false,
@@ -165,7 +165,7 @@ function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
     {
       provider: 'freellm',
       vendor: 'GEMINI',
-      providerLabel: 'Google Gemini',
+      providerLabel: 'Google Antigravity',
       modelId: 'gemini-3.8-flash',
       displayName: 'Gemini 3.8 Flash',
       isFree: true,
@@ -176,7 +176,7 @@ function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
     {
       provider: 'freellm',
       vendor: 'GEMINI',
-      providerLabel: 'Google Gemini',
+      providerLabel: 'Google Antigravity',
       modelId: 'gemini-3.5-flash-lite',
       displayName: 'Gemini 3.5 Flash Lite',
       isFree: true,
@@ -187,7 +187,7 @@ function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
     {
       provider: 'freellm',
       vendor: 'GEMINI',
-      providerLabel: 'Google Gemini',
+      providerLabel: 'Google Antigravity',
       modelId: 'gemini-4-argon',
       displayName: 'Gemini 4 Argon',
       isFree: true,

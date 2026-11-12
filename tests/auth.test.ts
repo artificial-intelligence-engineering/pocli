@@ -105,5 +105,14 @@ describe('AuthStorage subsystem', () => {
     AuthStorage.removeApiKey('opencode-zen');
     expect(AuthStorage.getApiKey('opencode')).toBeUndefined();
   });
+
+  it('lists Google Antigravity and normalizes antigravity aliases', () => {
+    expect(AuthStorage.normalizeProviderId('antigravity')).toBe('gemini');
+    expect(AuthStorage.normalizeProviderId('google-antigravity')).toBe('gemini');
+
+    const providers = AuthStorage.listProviders();
+    const antigravity = providers.find((p) => p.id === 'gemini');
+    expect(antigravity?.name).toBe('Google Antigravity');
+  });
 });
 
