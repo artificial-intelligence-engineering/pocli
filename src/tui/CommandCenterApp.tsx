@@ -5244,8 +5244,8 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             <Text bold color="green">
               {activeProv?.id === 'gemini'
                 ? language === 'es'
-                  ? 'Ingresar API Key para Google Antigravity (Google AI Studio key):'
-                  : 'Enter API key for Google Antigravity (Google AI Studio key):'
+                  ? 'Ingresar API Key para Antigravity (aviso de costes extra, no incluido en suscripción mensual):'
+                  : 'Enter API key for Antigravity (extra costs alert, not included in Monthly subscription):'
                 : language === 'es'
                   ? `Ingresar API Key para ${activeProv?.name ?? 'Proveedor'}:`
                   : `Enter API Key for ${activeProv?.name ?? 'Provider'}:`}
