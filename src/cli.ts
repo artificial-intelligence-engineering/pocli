@@ -23,6 +23,10 @@ import {
 } from './runtime/llm-gateway.js';
 import { Logger } from './core/logger.js';
 import { AuthStorage } from './core/auth.js';
+import {
+  getModelsCatalogStatus,
+  refreshModelsCatalog,
+} from './core/models-refresh.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
 import { fileURLToPath } from 'node:url';
 import { c, formatLogLineForTerminal } from './core/colors.js';
@@ -160,11 +164,75 @@ async function main(): Promise<void> {
 
   // OpenCode-style `pocli models` command:
   //   - `pocli models` -> lists per-agent configured models + available models catalog
+  //   - `pocli models refresh [--force]` -> downloads latest models.json from GitHub
+  //   - `pocli models status` -> prints active catalog source & sync metadata
   //   - `pocli models <agent|all> <provider/model>` -> assigns model to agent in SQLite
   if (subcommand === 'models' || subcommand === 'model') {
     const project = storage.getActiveProject();
     const arg1 = args[1];
     const arg2 = args[2];
+    const arg1Lower = arg1?.toLowerCase();
+
+    if (arg1Lower === 'refresh' || arg1Lower === 'update') {
+      const force = args.includes('--force') || args.includes('-f');
+      console.log(`${c.cyan('↻')} Checking remote models catalog...`);
+      try {
+        const result = await refreshModelsCatalog({ force });
+        storage.syncModelsCatalogFromJson(result.localPath);
+        if (result.status === 'up_to_date') {
+          console.log(
+            `${c.green('✔')} Models catalog is already up to date (${result.total} models, sha256=${result.sha256.slice(0, 8)}).`,
+          );
+        } else {
+          console.log(
+            `${c.green('✔')} Models catalog updated (${result.total} models, sha256=${result.sha256.slice(0, 8)}).`,
+          );
+          console.log(
+            `  ${c.dim('Saved to:')} ${result.localPath}`,
+          );
+          if (result.diff.added.length > 0) {
+            console.log(
+              `  ${c.green(`+ Added (${result.diff.added.length}):`)} ${result.diff.added.map((m) => `${m.provider}/${m.modelId}`).join(', ')}`,
+            );
+          }
+          if (result.diff.updated.length > 0) {
+            console.log(
+              `  ${c.yellow(`~ Updated (${result.diff.updated.length}):`)} ${result.diff.updated.map((m) => `${m.provider}/${m.modelId}`).join(', ')}`,
+            );
+          }
+          if (result.diff.removed.length > 0) {
+            console.log(
+              `  ${c.red(`- Removed (${result.diff.removed.length}):`)} ${result.diff.removed.map((m) => `${m.provider}/${m.modelId}`).join(', ')}`,
+            );
+          }
+        }
+      } catch (err) {
+        console.error(
+          `${c.red('✖')} Failed to refresh models catalog: ${(err as Error).message}`,
+        );
+        storage.close();
+        process.exit(1);
+      }
+      storage.close();
+      return;
+    }
+
+    if (arg1Lower === 'status') {
+      const status = getModelsCatalogStatus();
+      console.log(`\n${c.cyanBold('=== Models Catalog Status ===')}`);
+      console.log(`  • Loaded models : ${c.bold(String(status.total))}`);
+      console.log(`  • Active source : ${c.cyan(status.sourcePath)}`);
+      console.log(`  • Local cache   : ${status.hasLocalCache ? c.green(status.localCachePath) : c.dim(`${status.localCachePath} (not refreshed yet)`)}`);
+      if (status.meta) {
+        console.log(`  • Remote URL    : ${c.dim(status.meta.sourceUrl)}`);
+        console.log(`  • Last updated  : ${status.meta.updatedAt}`);
+        console.log(`  • Last checked  : ${status.meta.checkedAt}`);
+        console.log(`  • SHA-256       : ${status.meta.sha256.slice(0, 12)}`);
+      }
+      storage.close();
+      return;
+    }
+
     if (arg1 && arg2) {
       if (!project) {
         console.error(

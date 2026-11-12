@@ -22,6 +22,7 @@ import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
 import { Logger } from '../core/logger.js';
 import { AuthStorage } from '../core/auth.js';
+import { refreshModelsCatalog } from '../core/models-refresh.js';
 import {
   AVAILABLE_MODELS_CATALOG,
   getModelVendorLabel,
@@ -1485,6 +1486,38 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         }
 
         const arg1Lower = arg1.toLowerCase();
+        if (arg1Lower === 'refresh' || arg1Lower === 'update') {
+          const force = arg2.toLowerCase() === '--force' || arg2.toLowerCase() === '-f';
+          setStatusBanner(
+            language === 'es'
+              ? '↻ Actualizando catálogo de modelos...'
+              : '↻ Refreshing models catalog...',
+          );
+          void refreshModelsCatalog({ force })
+            .then((res) => {
+              orchestrator.storage.syncModelsCatalogFromJson(res.localPath);
+              setRoleConfigVersion((v) => v + 1);
+              if (res.status === 'up_to_date') {
+                setStatusBanner(
+                  language === 'es'
+                    ? `✔ Catálogo de modelos al día (${res.total} modelos)`
+                    : `✔ Models catalog is up to date (${res.total} models)`,
+                );
+              } else {
+                setStatusBanner(
+                  language === 'es'
+                    ? `✔ Catálogo actualizado: ${res.total} modelos (+${res.diff.added.length}, ~${res.diff.updated.length}, -${res.diff.removed.length})`
+                    : `✔ Catalog updated: ${res.total} models (+${res.diff.added.length}, ~${res.diff.updated.length}, -${res.diff.removed.length})`,
+                );
+              }
+            })
+            .catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              setStatusBanner(`✖ ${msg}`);
+            });
+          return;
+        }
+
         // `/models <agent|all> <provider/model>`
         if (knownTargets.includes(arg1Lower) && arg2) {
           const resolved = resolveModelSpec(arg2);
@@ -2675,6 +2708,34 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (key.escape) {
         setIsModelsModalOpen(false);
         setModelsFilterQuery('');
+        return;
+      }
+
+      if (key.ctrl && input === 'r') {
+        setStatusBanner(
+          language === 'es'
+            ? '↻ Actualizando catálogo de modelos...'
+            : '↻ Refreshing models catalog...',
+        );
+        void refreshModelsCatalog()
+          .then((res) => {
+            orchestrator.storage.syncModelsCatalogFromJson(res.localPath);
+            setRoleConfigVersion((v) => v + 1);
+            setStatusBanner(
+              res.status === 'up_to_date'
+                ? language === 'es'
+                  ? `✔ Catálogo al día (${res.total} modelos)`
+                  : `✔ Catalog up to date (${res.total} models)`
+                : language === 'es'
+                  ? `✔ Catálogo actualizado (${res.total} modelos)`
+                  : `✔ Catalog updated (${res.total} models)`,
+            );
+          })
+          .catch((err: unknown) => {
+            setStatusBanner(
+              `✖ ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
         return;
       }
 

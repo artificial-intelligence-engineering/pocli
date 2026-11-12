@@ -504,8 +504,8 @@ export class PoCliDatabase {
   public syncModelsCatalogFromJson(customJsonPath?: string): StoredModelCatalogEntry[] {
     const candidates = [
       customJsonPath,
-      path.resolve(process.cwd(), 'data', 'models.json'),
       path.resolve(this.defaultWorkDir, 'models.json'),
+      path.resolve(process.cwd(), 'data', 'models.json'),
       path.resolve(__dirname, '..', '..', 'data', 'models.json'),
       path.resolve(__dirname, '..', 'data', 'models.json'),
     ].filter(Boolean) as string[];
