@@ -238,6 +238,15 @@ async function main(): Promise<void> {
     }
 
     if (arg1 && arg2) {
+      const targetRole = arg1.toLowerCase();
+      const allowedRoles = ['architect', 'developer', 'pm', 'qa', 'all'];
+      if (!allowedRoles.includes(targetRole)) {
+        console.error(
+          `${c.red('✖')} Invalid agent "${arg1}". Allowed agents: ${allowedRoles.join(', ')}.`,
+        );
+        storage.close();
+        process.exit(1);
+      }
       if (!project) {
         console.error(
           c.red('No active project found. Create a project first using "pocli" and "/project".'),
@@ -245,16 +254,17 @@ async function main(): Promise<void> {
         storage.close();
         process.exit(1);
       }
-      const resolved = resolveModelSpec(arg2);
+      const resolved = resolveModelSpec(arg2, { strict: true });
       if (!resolved) {
-        console.error(`Model "${arg2}" not found.`);
+        console.error(
+          `${c.red('✖')} Model "${arg2}" does not exist in the catalog. Run "pocli models list" to see valid models.`,
+        );
         storage.close();
         process.exit(1);
       }
-      const targetRole = arg1.toLowerCase();
       storage.assignModelToRole({
         projectId: project.id,
-        role: targetRole,
+        role: targetRole as 'pm' | 'architect' | 'developer' | 'qa' | 'all',
         provider: resolved.provider,
         modelId: resolved.modelId,
         temperature: resolved.defaultTemperature,

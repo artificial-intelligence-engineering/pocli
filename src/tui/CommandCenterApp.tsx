@@ -1520,7 +1520,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
         // `/models <agent|all> <provider/model>`
         if (knownTargets.includes(arg1Lower) && arg2) {
-          const resolved = resolveModelSpec(arg2);
+          const resolved = resolveModelSpec(arg2, { strict: true });
           if (!resolved) {
             setStatusBanner(t.modelsNotFoundMsg(arg2));
             return;
@@ -1537,7 +1537,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
 
         // `/models <provider/model>` -> assigns directly to the active agent
         const inlineSpec = parts.slice(1).join(' ').trim();
-        const resolved = resolveModelSpec(inlineSpec);
+        const resolved = resolveModelSpec(inlineSpec, { strict: true });
         if (resolved) {
           applyModelSelection(activeRole, resolved);
           return;

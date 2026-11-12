@@ -588,7 +588,10 @@ export function getModelVendorLabel(
  * Resolves a model catalog entry by `provider/modelId`, `modelId`, or partial query,
  * or parses a custom `provider/modelId` specification (e.g. `meta/llama-3.3-70b`).
  */
-export function resolveModelSpec(query: string): ModelCatalogEntry | null {
+export function resolveModelSpec(
+  query: string,
+  options?: { strict?: boolean },
+): ModelCatalogEntry | null {
   const trimmed = query.trim();
   if (!trimmed) return null;
   const lower = trimmed.toLowerCase();
@@ -607,17 +610,20 @@ export function resolveModelSpec(query: string): ModelCatalogEntry | null {
     const [rawProv, ...rest] = trimmed.split('/');
     const provLower = rawProv.toLowerCase();
     const customModelId = rest.join('/').trim();
+    const isLocalOllama = provLower === 'ollama' || provLower === 'meta';
     if (
       customModelId &&
-      (provLower === 'anthropic' ||
-        provLower === 'openai' ||
-        provLower === 'gemini' ||
-        provLower === 'ollama' ||
-        provLower === 'meta' ||
-        provLower === 'opencode' ||
-        provLower === 'openrouter' ||
-        provLower === 'groq' ||
-        provLower === 'deterministic')
+      (options?.strict
+        ? isLocalOllama
+        : provLower === 'anthropic' ||
+          provLower === 'openai' ||
+          provLower === 'gemini' ||
+          provLower === 'ollama' ||
+          provLower === 'meta' ||
+          provLower === 'opencode' ||
+          provLower === 'openrouter' ||
+          provLower === 'groq' ||
+          provLower === 'deterministic')
     ) {
       const provider: LlmProviderType =
         provLower === 'meta' ? 'ollama' : (provLower as LlmProviderType);
@@ -634,6 +640,10 @@ export function resolveModelSpec(query: string): ModelCatalogEntry | null {
         defaultTemperature: 0.2,
       };
     }
+  }
+
+  if (options?.strict) {
+    return null;
   }
 
   // 3. Substring match on modelId or displayName
