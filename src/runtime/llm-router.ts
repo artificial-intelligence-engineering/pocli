@@ -519,11 +519,13 @@ export function buildDefaultFreeProviders(): ProviderConfig[] {
     });
   }
 
-  const geminiKey = AuthStorage.getApiKey('gemini');
+  const geminiKey =
+    AuthStorage.getApiKey('gemini') ??
+    AuthStorage.getOAuthCredentials('gemini')?.accessToken;
   if (geminiKey) {
     providers.push({
       id: 'gemini-free',
-      name: 'Google Gemini Free',
+      name: 'Google Antigravity Free',
       endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
       apiKey: geminiKey,
       defaultModel: 'gemini-2.0-flash',

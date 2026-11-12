@@ -1,7 +1,10 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { resolveDefaultWorkDir } from './i18n.js';
+import {
+  refreshGoogleToken,
+  type GoogleOAuthClientConfig,
+} from './oidc.js';
 
 export interface ProviderAuthInfo {
   id: string;
@@ -9,6 +12,18 @@ export interface ProviderAuthInfo {
   envVar: string;
   keyPrefix?: string;
   helpUrl?: string;
+  supportsSso?: boolean;
+}
+
+export interface StoredOAuthCredentials {
+  clientId: string;
+  clientSecret?: string;
+  accessToken: string;
+  refreshToken?: string;
+  idToken?: string;
+  expiresAt: number;
+  email?: string;
+  scope?: string;
 }
 
 export interface ProviderAuthStatus {
@@ -16,8 +31,16 @@ export interface ProviderAuthStatus {
   name: string;
   envVar: string;
   status: 'CONFIGURED' | 'NOT_CONFIGURED';
-  source: 'env' | 'file' | 'none';
+  source: 'env' | 'file' | 'sso' | 'none';
   maskedKey?: string;
+  supportsSso?: boolean;
+  authMode?: 'api_key' | 'sso';
+  ssoEmail?: string;
+}
+
+export interface ResolvedProviderCredential {
+  mode: 'api_key' | 'sso';
+  token: string;
 }
 
 export const SUPPORTED_AUTH_PROVIDERS: ProviderAuthInfo[] = [
@@ -37,10 +60,11 @@ export const SUPPORTED_AUTH_PROVIDERS: ProviderAuthInfo[] = [
   },
   {
     id: 'gemini',
-    name: 'Google Gemini',
+    name: 'Google Antigravity',
     envVar: 'GEMINI_API_KEY',
     keyPrefix: 'AIzaSy',
     helpUrl: 'https://aistudio.google.com/app/apikey',
+    supportsSso: true,
   },
   {
     id: 'groq',
@@ -92,6 +116,13 @@ export class AuthStorage {
     if (lower === 'zen' || lower === 'opencode-zen' || lower === 'opencode_zen') {
       return 'opencode';
     }
+    if (
+      lower === 'antigravity' ||
+      lower === 'google-antigravity' ||
+      lower === 'google_antigravity'
+    ) {
+      return 'gemini';
+    }
     return lower;
   }
 
@@ -120,9 +151,14 @@ export class AuthStorage {
 
     // 2. Check auth.json file
     const fileData = this.readFile();
+    const rawVal = fileData[normalized];
+    const zenVal = normalized === 'opencode' ? fileData['zen'] : undefined;
     const fileVal =
-      fileData[normalized]?.trim() ||
-      (normalized === 'opencode' ? fileData['zen']?.trim() : undefined);
+      typeof rawVal === 'string' && rawVal.trim()
+        ? rawVal.trim()
+        : typeof zenVal === 'string' && zenVal.trim()
+          ? zenVal.trim()
+          : undefined;
     if (fileVal) return fileVal;
 
     return undefined;
@@ -143,9 +179,11 @@ export class AuthStorage {
     }
 
     const fileData = this.readFile();
+    const rawVal = fileData[normalized];
+    const zenVal = normalized === 'opencode' ? fileData['zen'] : undefined;
     if (
-      fileData[normalized]?.trim() ||
-      (normalized === 'opencode' && fileData['zen']?.trim())
+      (typeof rawVal === 'string' && rawVal.trim()) ||
+      (typeof zenVal === 'string' && zenVal.trim())
     ) {
       return 'file';
     }
@@ -163,6 +201,12 @@ export class AuthStorage {
 
     const fileData = this.readFile();
     fileData[normalized] = trimmed;
+    // Clear active SSO tokens for this provider so API key mode is unambiguous
+    const ssoMap = this.getRecordField(fileData, 'sso');
+    if (ssoMap && normalized in ssoMap) {
+      delete ssoMap[normalized];
+      fileData.sso = ssoMap;
+    }
     this.writeFile(fileData);
   }
 
@@ -178,11 +222,152 @@ export class AuthStorage {
       delete fileData['zen'];
       removed = true;
     }
+    const ssoMap = this.getRecordField(fileData, 'sso');
+    if (ssoMap && normalized in ssoMap) {
+      delete ssoMap[normalized];
+      fileData.sso = ssoMap;
+      removed = true;
+    }
     if (removed) {
       this.writeFile(fileData);
       return true;
     }
     return false;
+  }
+
+  public static getOAuthClientConfig(
+    providerId: string,
+  ): GoogleOAuthClientConfig | undefined {
+    const normalized = this.normalizeProviderId(providerId);
+    const fileData = this.readFile();
+    const clients = this.getRecordField(fileData, 'oauthClients');
+    const entry = clients?.[normalized];
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      const rec = entry as Record<string, unknown>;
+      if (typeof rec.clientId === 'string' && rec.clientId.trim()) {
+        return {
+          clientId: rec.clientId.trim(),
+          clientSecret:
+            typeof rec.clientSecret === 'string' && rec.clientSecret.trim()
+              ? rec.clientSecret.trim()
+              : undefined,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  public static setOAuthClientConfig(
+    providerId: string,
+    config: GoogleOAuthClientConfig,
+  ): void {
+    const normalized = this.normalizeProviderId(providerId);
+    const fileData = this.readFile();
+    const clients = this.getRecordField(fileData, 'oauthClients') ?? {};
+    clients[normalized] = {
+      clientId: config.clientId.trim(),
+      ...(config.clientSecret?.trim()
+        ? { clientSecret: config.clientSecret.trim() }
+        : {}),
+    };
+    fileData.oauthClients = clients;
+    this.writeFile(fileData);
+  }
+
+  public static getOAuthCredentials(
+    providerId: string,
+  ): StoredOAuthCredentials | undefined {
+    const normalized = this.normalizeProviderId(providerId);
+    const fileData = this.readFile();
+    const ssoMap = this.getRecordField(fileData, 'sso');
+    const entry = ssoMap?.[normalized];
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+      const rec = entry as Record<string, unknown>;
+      if (typeof rec.accessToken === 'string' && rec.accessToken.trim()) {
+        return {
+          clientId: typeof rec.clientId === 'string' ? rec.clientId : '',
+          clientSecret:
+            typeof rec.clientSecret === 'string' ? rec.clientSecret : undefined,
+          accessToken: rec.accessToken,
+          refreshToken:
+            typeof rec.refreshToken === 'string' ? rec.refreshToken : undefined,
+          idToken: typeof rec.idToken === 'string' ? rec.idToken : undefined,
+          expiresAt: typeof rec.expiresAt === 'number' ? rec.expiresAt : 0,
+          email: typeof rec.email === 'string' ? rec.email : undefined,
+          scope: typeof rec.scope === 'string' ? rec.scope : undefined,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  public static setOAuthCredentials(
+    providerId: string,
+    creds: StoredOAuthCredentials,
+  ): void {
+    const normalized = this.normalizeProviderId(providerId);
+    const fileData = this.readFile();
+    const ssoMap = this.getRecordField(fileData, 'sso') ?? {};
+    ssoMap[normalized] = creds;
+    fileData.sso = ssoMap;
+    // Keep client config saved for future re-logins
+    if (creds.clientId.trim()) {
+      const clients = this.getRecordField(fileData, 'oauthClients') ?? {};
+      clients[normalized] = {
+        clientId: creds.clientId.trim(),
+        ...(creds.clientSecret?.trim()
+          ? { clientSecret: creds.clientSecret.trim() }
+          : {}),
+      };
+      fileData.oauthClients = clients;
+    }
+    // Clear persisted file API key for this provider so SSO mode is active
+    if (normalized in fileData && typeof fileData[normalized] === 'string') {
+      delete fileData[normalized];
+    }
+    this.writeFile(fileData);
+  }
+
+  public static isConfigured(providerId: string): boolean {
+    if (this.getApiKey(providerId)) return true;
+    const sso = this.getOAuthCredentials(providerId);
+    return Boolean(sso?.accessToken || sso?.refreshToken);
+  }
+
+  public static async resolveProviderCredential(
+    providerId: string,
+  ): Promise<ResolvedProviderCredential | undefined> {
+    const apiKey = this.getApiKey(providerId);
+    if (apiKey) {
+      return { mode: 'api_key', token: apiKey };
+    }
+
+    const sso = this.getOAuthCredentials(providerId);
+    if (!sso) return undefined;
+
+    // Refresh if expired or expiring within 60 seconds
+    if (sso.expiresAt > 0 && Date.now() >= sso.expiresAt - 60_000) {
+      if (sso.refreshToken && sso.clientId) {
+        const refreshed = await refreshGoogleToken({
+          refreshToken: sso.refreshToken,
+          clientId: sso.clientId,
+          clientSecret: sso.clientSecret,
+        });
+        this.setOAuthCredentials(providerId, {
+          ...sso,
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken ?? sso.refreshToken,
+          idToken: refreshed.idToken ?? sso.idToken,
+          expiresAt: refreshed.expiresAt,
+          email: refreshed.email ?? sso.email,
+          scope: refreshed.scope ?? sso.scope,
+        });
+        return { mode: 'sso', token: refreshed.accessToken };
+      }
+      return undefined;
+    }
+
+    return { mode: 'sso', token: sso.accessToken };
   }
 
   public static maskApiKey(key: string): string {
@@ -205,14 +390,39 @@ export class AuthStorage {
   public static listProviders(): ProviderAuthStatus[] {
     return SUPPORTED_AUTH_PROVIDERS.map((prov) => {
       const key = this.getApiKey(prov.id);
-      const source = this.getApiKeySource(prov.id);
+      if (key) {
+        return {
+          id: prov.id,
+          name: prov.name,
+          envVar: prov.envVar,
+          status: 'CONFIGURED',
+          source: this.getApiKeySource(prov.id),
+          maskedKey: this.maskApiKey(key),
+          supportsSso: prov.supportsSso,
+          authMode: 'api_key',
+        };
+      }
+      const sso = this.getOAuthCredentials(prov.id);
+      if (sso?.accessToken) {
+        return {
+          id: prov.id,
+          name: prov.name,
+          envVar: prov.envVar,
+          status: 'CONFIGURED',
+          source: 'sso',
+          maskedKey: this.maskApiKey(sso.accessToken),
+          supportsSso: prov.supportsSso,
+          authMode: 'sso',
+          ssoEmail: sso.email,
+        };
+      }
       return {
         id: prov.id,
         name: prov.name,
         envVar: prov.envVar,
-        status: key ? 'CONFIGURED' : 'NOT_CONFIGURED',
-        source,
-        maskedKey: key ? this.maskApiKey(key) : undefined,
+        status: 'NOT_CONFIGURED',
+        source: 'none',
+        supportsSso: prov.supportsSso,
       };
     });
   }
@@ -239,7 +449,18 @@ export class AuthStorage {
     }
   }
 
-  private static readFile(): Record<string, string> {
+  private static getRecordField(
+    data: Record<string, unknown>,
+    key: string,
+  ): Record<string, unknown> | undefined {
+    const val = data[key];
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      return val as Record<string, unknown>;
+    }
+    return undefined;
+  }
+
+  private static readFile(): Record<string, unknown> {
     const filePath = this.getAuthFilePath();
     if (!fs.existsSync(filePath)) {
       return {};
@@ -248,7 +469,7 @@ export class AuthStorage {
       const raw = fs.readFileSync(filePath, 'utf8');
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, string>;
+        return parsed as Record<string, unknown>;
       }
     } catch {
       // Corrupt or empty file
@@ -256,7 +477,7 @@ export class AuthStorage {
     return {};
   }
 
-  private static writeFile(data: Record<string, string>): void {
+  private static writeFile(data: Record<string, unknown>): void {
     const filePath = this.getAuthFilePath();
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) {
