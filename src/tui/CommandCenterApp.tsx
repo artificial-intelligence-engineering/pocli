@@ -23,11 +23,6 @@ import { HarnessRegistry } from '../runtime/harnesses.js';
 import { Logger } from '../core/logger.js';
 import { AuthStorage } from '../core/auth.js';
 import {
-  openSystemBrowser,
-  startGoogleOidcLogin,
-  type OidcLoginSession,
-} from '../core/oidc.js';
-import {
   AVAILABLE_MODELS_CATALOG,
   getModelVendorLabel,
   ModelCatalogEntry,
@@ -499,16 +494,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [workersList, setWorkersList] = useState<WorkerStatusInfo[]>([]);
   const [isEditingAuthKey, setIsEditingAuthKey] = useState<boolean>(false);
   const [authKeyDraft, setAuthKeyDraft] = useState<string>('');
-  const [authSubMode, setAuthSubMode] = useState<
-    'none' | 'choose_method' | 'sso_form' | 'sso_waiting'
-  >('none');
-  const [authMethodIdx, setAuthMethodIdx] = useState<number>(0);
-  const [ssoFieldIdx, setSsoFieldIdx] = useState<number>(0);
-  const [ssoClientIdDraft, setSsoClientIdDraft] = useState<string>('');
-  const [ssoClientSecretDraft, setSsoClientSecretDraft] = useState<string>('');
-  const [ssoAuthUrl, setSsoAuthUrl] = useState<string>('');
-  const [ssoError, setSsoError] = useState<string>('');
-  const ssoSessionRef = useRef<OidcLoginSession | null>(null);
 
   // Prompt input, slash command menu & mouse scroll state
   const [inputValue, setInputValue] = useState<string>('');
@@ -1907,7 +1892,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         setHowtoScrollOffset((prev) => (isUp ? Math.max(0, prev - 2) : prev + 2));
         return;
       }
-      if (isAuthModalOpen && !isEditingAuthKey && authSubMode === 'none') {
+      if (isAuthModalOpen && !isEditingAuthKey) {
         const count = AuthStorage.listProviders().length;
         setSelectedAuthIdx((prev) =>
           isUp ? (prev > 0 ? prev - 1 : count - 1) : prev < count - 1 ? prev + 1 : 0,
@@ -2095,7 +2080,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       }
 
       // Interactive Help, Howto, DB, Auth, or Exit Confirm modal: click closes modal
-      if (isHelpOpen || isHowtoOpen || dbModalOutput.length > 0 || isExitConfirmOpen || (isAuthModalOpen && !isEditingAuthKey && authSubMode === 'none')) {
+      if (isHelpOpen || isHowtoOpen || dbModalOutput.length > 0 || isExitConfirmOpen || (isAuthModalOpen && !isEditingAuthKey)) {
         setIsHelpOpen(false);
         setIsHowtoOpen(false);
         setHowtoScrollOffset(0);
@@ -2825,167 +2810,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
 
-      if (authSubMode === 'sso_waiting') {
-        if (key.escape) {
-          ssoSessionRef.current?.cancel();
-          ssoSessionRef.current = null;
-          setAuthSubMode('none');
-          setSsoAuthUrl('');
-          setStatusBanner(
-            language === 'es'
-              ? 'ℹ Autenticación SSO cancelada'
-              : 'ℹ SSO authentication cancelled',
-          );
-          return;
-        }
-        if (input === 'o' && ssoAuthUrl) {
-          openSystemBrowser(ssoAuthUrl);
-          return;
-        }
-        return;
-      }
-
-      if (authSubMode === 'sso_form') {
-        const targetProv = providers[selectedAuthIdx];
-        if (key.escape) {
-          setAuthSubMode('choose_method');
-          setSsoError('');
-          return;
-        }
-        if (key.tab || key.upArrow || key.downArrow) {
-          setSsoFieldIdx((prev) => (prev === 0 ? 1 : 0));
-          return;
-        }
-        if (key.return) {
-          const clientId = ssoClientIdDraft.trim();
-          const clientSecret = ssoClientSecretDraft.trim() || undefined;
-          if (!clientId) {
-            setSsoError(
-              language === 'es'
-                ? 'Introduce el OAuth Client ID de Google'
-                : 'Enter the Google OAuth Client ID',
-            );
-            return;
-          }
-          if (targetProv) {
-            AuthStorage.setOAuthClientConfig(targetProv.id, {
-              clientId,
-              clientSecret,
-            });
-            setSsoError('');
-            setAuthSubMode('sso_waiting');
-            const session = startGoogleOidcLogin({
-              clientId,
-              clientSecret,
-              onAuthUrl: (url) => setSsoAuthUrl(url),
-            });
-            ssoSessionRef.current = session;
-            session.promise
-              .then((tokens) => {
-                ssoSessionRef.current = null;
-                AuthStorage.setOAuthCredentials(targetProv.id, {
-                  clientId,
-                  clientSecret,
-                  accessToken: tokens.accessToken,
-                  refreshToken: tokens.refreshToken,
-                  idToken: tokens.idToken,
-                  expiresAt: tokens.expiresAt,
-                  email: tokens.email,
-                  scope: tokens.scope,
-                });
-                setAuthSubMode('none');
-                setSsoAuthUrl('');
-                setStatusBanner(
-                  language === 'es'
-                    ? `✔ SSO autenticado para ${targetProv.name}${tokens.email ? ` (${tokens.email})` : ''}`
-                    : `✔ SSO authenticated for ${targetProv.name}${tokens.email ? ` (${tokens.email})` : ''}`,
-                );
-              })
-              .catch((err: unknown) => {
-                ssoSessionRef.current = null;
-                const msg = err instanceof Error ? err.message : String(err);
-                if (!msg.includes('cancelled')) {
-                  setSsoError(msg);
-                  setAuthSubMode('sso_form');
-                }
-              });
-          }
-          return;
-        }
-        if (key.backspace || key.delete) {
-          if (ssoFieldIdx === 0) {
-            setSsoClientIdDraft((prev) => prev.slice(0, -1));
-          } else {
-            setSsoClientSecretDraft((prev) => prev.slice(0, -1));
-          }
-          return;
-        }
-        if (input && !key.ctrl && !key.meta) {
-          if (ssoFieldIdx === 0) {
-            setSsoClientIdDraft((prev) => prev + input);
-          } else {
-            setSsoClientSecretDraft((prev) => prev + input);
-          }
-          return;
-        }
-        return;
-      }
-
-      if (authSubMode === 'choose_method') {
-        const targetProv = providers[selectedAuthIdx];
-        if (key.escape) {
-          setAuthSubMode('none');
-          return;
-        }
-        if (key.upArrow || key.downArrow || key.tab) {
-          setAuthMethodIdx((prev) => (prev === 0 ? 1 : 0));
-          return;
-        }
-        if (input === '1') {
-          setAuthMethodIdx(0);
-          if (targetProv) {
-            setAuthKeyDraft(AuthStorage.getApiKey(targetProv.id) || '');
-            setAuthSubMode('none');
-            setIsEditingAuthKey(true);
-          }
-          return;
-        }
-        if (input === '2') {
-          setAuthMethodIdx(1);
-          if (targetProv) {
-            const savedCfg = AuthStorage.getOAuthClientConfig(targetProv.id);
-            setSsoClientIdDraft(savedCfg?.clientId ?? '');
-            setSsoClientSecretDraft(savedCfg?.clientSecret ?? '');
-            setSsoFieldIdx(0);
-            setSsoError('');
-            setAuthSubMode('sso_form');
-          }
-          return;
-        }
-        if (key.return) {
-          if (targetProv) {
-            if (authMethodIdx === 0) {
-              setAuthKeyDraft(AuthStorage.getApiKey(targetProv.id) || '');
-              setAuthSubMode('none');
-              setIsEditingAuthKey(true);
-            } else {
-              const savedCfg = AuthStorage.getOAuthClientConfig(targetProv.id);
-              setSsoClientIdDraft(savedCfg?.clientId ?? '');
-              setSsoClientSecretDraft(savedCfg?.clientSecret ?? '');
-              setSsoFieldIdx(0);
-              setSsoError('');
-              setAuthSubMode('sso_form');
-            }
-          }
-          return;
-        }
-        return;
-      }
-
       if (key.escape || input === 'q') {
         setIsAuthModalOpen(false);
         setIsEditingAuthKey(false);
-        setAuthSubMode('none');
         setAuthKeyDraft('');
         return;
       }
@@ -3000,14 +2827,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       if (key.return || input === 'e') {
         const targetProv = providers[selectedAuthIdx];
         if (targetProv) {
-          if (targetProv.supportsSso) {
-            setAuthMethodIdx(targetProv.authMode === 'sso' ? 1 : 0);
-            setAuthSubMode('choose_method');
-          } else {
-            const currentKey = AuthStorage.getApiKey(targetProv.id);
-            setAuthKeyDraft(currentKey || '');
-            setIsEditingAuthKey(true);
-          }
+          const currentKey = AuthStorage.getApiKey(targetProv.id);
+          setAuthKeyDraft(currentKey || '');
+          setIsEditingAuthKey(true);
         }
         return;
       }
@@ -4899,7 +4721,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       { id: 'openrouter', label: 'OPENROUTER', isConfigured: Boolean(AuthStorage.getApiKey('openrouter')) },
       { id: 'anthropic', label: 'ANTHROPIC', isConfigured: Boolean(AuthStorage.getApiKey('anthropic')) },
       { id: 'openai', label: 'OPENAI', isConfigured: Boolean(AuthStorage.getApiKey('openai')) },
-      { id: 'gemini', label: 'ANTIGRAVITY', isConfigured: AuthStorage.isConfigured('gemini') },
+      { id: 'gemini', label: 'ANTIGRAVITY', isConfigured: Boolean(AuthStorage.getApiKey('gemini')) },
       { id: 'groq', label: 'GROQ', isConfigured: Boolean(AuthStorage.getApiKey('groq')) },
       { id: 'ollama', label: 'OLLAMA', isConfigured: true },
       { id: 'freellm', label: 'FREE/ZERO', isConfigured: true },
@@ -5085,7 +4907,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               const isKeyConfigured =
                 m.isFree ||
                 m.provider === 'deterministic' ||
-                AuthStorage.isConfigured(m.provider);
+                Boolean(AuthStorage.getApiKey(m.provider));
 
               const assignedRoles = (
                 ['pm', 'architect', 'developer', 'qa'] as const
@@ -5401,136 +5223,16 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 <Text dimColor wrap="truncate-end">
                   {p.source === 'env'
                     ? `(env: ${p.envVar})`
-                    : p.source === 'sso'
-                      ? `(SSO${p.ssoEmail ? `: ${p.ssoEmail}` : ''})`
-                      : p.source === 'file'
-                        ? '(auth.json)'
-                        : p.supportsSso
-                          ? '(API KEY / SSO)'
-                          : `(${p.envVar})`}
+                    : p.source === 'file'
+                      ? '(auth.json)'
+                      : `(${p.envVar})`}
                 </Text>
               </Box>
             );
           })}
         </Box>
 
-        {authSubMode === 'choose_method' ? (
-          <Box
-            flexDirection="column"
-            borderStyle="single"
-            borderColor="cyan"
-            paddingX={1}
-            paddingY={0}
-            marginBottom={1}
-          >
-            <Text bold color="cyan">
-              {language === 'es'
-                ? `Método de autenticación para ${activeProv?.name ?? 'Google Antigravity'}:`
-                : `Authentication method for ${activeProv?.name ?? 'Google Antigravity'}:`}
-            </Text>
-            <Text bold={authMethodIdx === 0} color={authMethodIdx === 0 ? 'green' : undefined}>
-              {authMethodIdx === 0 ? '❯ ' : '  '}
-              {language === 'es'
-                ? '1. API KEY (AIzaSy... guardada en auth.json)'
-                : '1. API KEY (AIzaSy... saved in auth.json)'}
-            </Text>
-            <Text bold={authMethodIdx === 1} color={authMethodIdx === 1 ? 'green' : undefined}>
-              {authMethodIdx === 1 ? '❯ ' : '  '}
-              {language === 'es'
-                ? '2. SSO (Google OpenID Connect — Abre navegador del sistema)'
-                : '2. SSO (Google OpenID Connect — Opens system browser)'}
-            </Text>
-            <Box marginTop={0}>
-              <Text dimColor>
-                {language === 'es'
-                  ? '↑/↓ o 1/2 para elegir · [Enter] continuar · [Esc] volver'
-                  : '↑/↓ or 1/2 to choose · [Enter] continue · [Esc] back'}
-              </Text>
-            </Box>
-          </Box>
-        ) : authSubMode === 'sso_form' ? (
-          <Box
-            flexDirection="column"
-            borderStyle="single"
-            borderColor="green"
-            paddingX={1}
-            paddingY={0}
-            marginBottom={1}
-          >
-            <Text bold color="green">
-              {language === 'es'
-                ? `Google OpenID Connect SSO (${activeProv?.name ?? 'Google Antigravity'})`
-                : `Google OpenID Connect SSO (${activeProv?.name ?? 'Google Antigravity'})`}
-            </Text>
-            <Box flexDirection="row">
-              <Text color={ssoFieldIdx === 0 ? 'cyan' : 'gray'} bold={ssoFieldIdx === 0}>
-                {ssoFieldIdx === 0 ? '❯ ' : '  '}Client ID:{' '}
-              </Text>
-              <Text bold>
-                {ssoClientIdDraft.length > 0 ? (
-                  ssoClientIdDraft
-                ) : (
-                  <Text dimColor>
-                    {language === 'es'
-                      ? '<pega tu xxxx.apps.googleusercontent.com>'
-                      : '<paste your xxxx.apps.googleusercontent.com>'}
-                  </Text>
-                )}
-              </Text>
-            </Box>
-            <Box flexDirection="row">
-              <Text color={ssoFieldIdx === 1 ? 'cyan' : 'gray'} bold={ssoFieldIdx === 1}>
-                {ssoFieldIdx === 1 ? '❯ ' : '  '}Client Secret (opcional):{' '}
-              </Text>
-              <Text bold>
-                {ssoClientSecretDraft.length > 0 ? (
-                  AuthStorage.maskApiKey(ssoClientSecretDraft)
-                ) : (
-                  <Text dimColor>
-                    {language === 'es' ? '<opcional>' : '<optional>'}
-                  </Text>
-                )}
-              </Text>
-            </Box>
-            {ssoError ? (
-              <Text color="red" wrap="truncate-end">
-                ✖ {ssoError}
-              </Text>
-            ) : null}
-            <Box marginTop={0}>
-              <Text dimColor>
-                {language === 'es'
-                  ? '[Tab/↑/↓] Cambiar campo · [Enter] Abrir navegador SSO · [Esc] Volver'
-                  : '[Tab/↑/↓] Switch field · [Enter] Launch SSO browser · [Esc] Back'}
-              </Text>
-            </Box>
-          </Box>
-        ) : authSubMode === 'sso_waiting' ? (
-          <Box
-            flexDirection="column"
-            borderStyle="single"
-            borderColor="yellow"
-            paddingX={1}
-            paddingY={0}
-            marginBottom={1}
-          >
-            <Text bold color="yellow">
-              {language === 'es'
-                ? '🌐 Esperando inicio de sesión OpenID Connect en el navegador del sistema...'
-                : '🌐 Waiting for OpenID Connect login in your system browser...'}
-            </Text>
-            {ssoAuthUrl ? (
-              <Text dimColor>
-                URL: {ssoAuthUrl}
-              </Text>
-            ) : null}
-            <Text dimColor>
-              {language === 'es'
-                ? 'Completa el login en Google y volverás automáticamente · [o] Reabrir navegador · [Esc] Cancelar'
-                : 'Complete the Google sign-in in your browser · [o] Reopen browser · [Esc] Cancel'}
-            </Text>
-          </Box>
-        ) : isEditingAuthKey ? (
+        {isEditingAuthKey ? (
           <Box
             flexDirection="column"
             borderStyle="single"
@@ -6880,7 +6582,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                         Model: <Text color="cyan">{workerModelDisplay}</Text>
                         {activeModelCfg.provider !== 'deterministic' &&
                           activeModelCfg.provider !== 'ollama' &&
-                          !AuthStorage.isConfigured(activeModelCfg.provider) && (
+                          !Boolean(AuthStorage.getApiKey(activeModelCfg.provider)) && (
                             <Text color="red" bold>
                               {' '}[{language === 'es' ? 'Falta API Key' : 'Missing API Key'}]
                             </Text>

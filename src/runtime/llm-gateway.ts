@@ -1003,15 +1003,15 @@ export class LlmGateway {
     }
 
     if (provider === 'gemini') {
-      const geminiCred = await AuthStorage.resolveProviderCredential('gemini');
-      if (!geminiCred) {
+      const geminiKey = AuthStorage.getApiKey('gemini');
+      if (!geminiKey) {
         if (allowTestFallback) {
           return this.runDeterministicSpecialist(input, onStreamToken);
         }
         throw new Error(I18N_DICTIONARY[lang].llmMissingApiKeyError('gemini'));
       }
       return this.callGemini(
-        geminiCred,
+        geminiKey,
         modelId,
         temperature,
         input,
@@ -1299,7 +1299,7 @@ export class LlmGateway {
   }
 
   private async callGemini(
-    auth: { mode: 'api_key' | 'sso'; token: string } | string,
+    apiKey: string,
     modelId: string,
     temperature: number,
     input: AgentTurnInput,
@@ -1309,22 +1309,10 @@ export class LlmGateway {
       .map((c) => `${NotebookRagEngine.formatCitationTag(c)}\n${c.snippet}`)
       .join('\n\n');
 
-    const cred =
-      typeof auth === 'string'
-        ? { mode: 'api_key' as const, token: auth }
-        : auth;
-    const baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent`;
-    const url =
-      cred.mode === 'api_key'
-        ? `${baseUrl}?key=${encodeURIComponent(cred.token)}`
-        : baseUrl;
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...(cred.mode === 'sso' ? { Authorization: `Bearer ${cred.token}` } : {}),
-    };
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
     const response = await fetch(url, {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         systemInstruction: {
           parts: [

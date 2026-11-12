@@ -519,9 +519,7 @@ export function buildDefaultFreeProviders(): ProviderConfig[] {
     });
   }
 
-  const geminiKey =
-    AuthStorage.getApiKey('gemini') ??
-    AuthStorage.getOAuthCredentials('gemini')?.accessToken;
+  const geminiKey = AuthStorage.getApiKey('gemini');
   if (geminiKey) {
     providers.push({
       id: 'gemini-free',

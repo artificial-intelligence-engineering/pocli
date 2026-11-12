@@ -23,7 +23,6 @@ import {
 } from './runtime/llm-gateway.js';
 import { Logger } from './core/logger.js';
 import { AuthStorage } from './core/auth.js';
-import { startGoogleOidcLogin } from './core/oidc.js';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
 import { fileURLToPath } from 'node:url';
 import { c, formatLogLineForTerminal } from './core/colors.js';
@@ -318,64 +317,6 @@ async function main(): Promise<void> {
       return;
     }
 
-    if (action === 'sso' || action === 'login') {
-      const provider = authArgs[1] && !authArgs[1].includes('.apps.googleusercontent.com')
-        ? authArgs[1]
-        : 'gemini';
-      const normalized = AuthStorage.normalizeProviderId(provider);
-      if (normalized !== 'gemini') {
-        console.error(`SSO is currently supported for 'gemini' (Google Antigravity).`);
-        storage.close();
-        process.exit(1);
-      }
-      const savedCfg = AuthStorage.getOAuthClientConfig(normalized);
-      const clientIdArg = authArgs[1]?.includes('.apps.googleusercontent.com')
-        ? authArgs[1]
-        : authArgs[2];
-      const clientSecretArg = authArgs[1]?.includes('.apps.googleusercontent.com')
-        ? authArgs[2]
-        : authArgs[3];
-      const clientId = (clientIdArg ?? savedCfg?.clientId ?? '').trim();
-      const clientSecret = (clientSecretArg ?? savedCfg?.clientSecret)?.trim() || undefined;
-      if (!clientId) {
-        console.error('Usage: pocli auth sso <google-oauth-client-id> [client-secret]');
-        console.error('Tip: Or configure it interactively inside the TUI using /auth.');
-        storage.close();
-        process.exit(1);
-      }
-      AuthStorage.setOAuthClientConfig(normalized, { clientId, clientSecret });
-      console.log(`${c.cyan('🌐')} Starting Google Antigravity OpenID Connect SSO...`);
-      try {
-        const session = startGoogleOidcLogin({
-          clientId,
-          clientSecret,
-          onAuthUrl: (url) => {
-            console.log(`${c.dim('Opening system browser:')} ${url}`);
-          },
-        });
-        const tokens = await session.promise;
-        AuthStorage.setOAuthCredentials(normalized, {
-          clientId,
-          clientSecret,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          idToken: tokens.idToken,
-          expiresAt: tokens.expiresAt,
-          email: tokens.email,
-          scope: tokens.scope,
-        });
-        console.log(
-          `${c.green('✔')} Google Antigravity SSO authenticated${tokens.email ? ` (${tokens.email})` : ''} and saved to ${AuthStorage.getAuthFilePath()} (mode 0600).`,
-        );
-      } catch (err) {
-        console.error(`Error during SSO authentication: ${(err as Error).message}`);
-        storage.close();
-        process.exit(1);
-      }
-      storage.close();
-      return;
-    }
-
     if (action === 'status' || action === 'list') {
       const providers = AuthStorage.listProviders();
       console.log(
@@ -385,12 +326,7 @@ async function main(): Promise<void> {
         const idCol = p.id.padEnd(12, ' ');
         const nameCol = p.name.padEnd(30, ' ');
         if (p.status === 'CONFIGURED') {
-          const sourceTag =
-            p.source === 'env'
-              ? `(env: ${p.envVar})`
-              : p.source === 'sso'
-                ? `(SSO${p.ssoEmail ? `: ${p.ssoEmail}` : ''})`
-                : `(file: ${AuthStorage.getAuthFilePath().replace(os.homedir(), '~')})`;
+          const sourceTag = p.source === 'env' ? `(env: ${p.envVar})` : `(file: ${AuthStorage.getAuthFilePath().replace(os.homedir(), '~')})`;
           console.log(`  • ${c.bold(idCol)} ${nameCol} ${c.greenBold('✔ [CONFIGURED]')}     ${c.cyan(p.maskedKey)} ${c.dim(sourceTag)}`);
         } else {
           console.log(`  • ${c.bold(idCol)} ${nameCol} ${c.gray('✖ [NOT CONFIGURED]')} ${c.dim(`(env: ${p.envVar})`)}`);
@@ -398,8 +334,7 @@ async function main(): Promise<void> {
       }
       console.log(`\n${c.bold('Commands:')}`);
       console.log(`  ${c.cyan('pocli auth set')} ${c.yellow('<provider> <key>')}    Save API key securely to disk`);
-      console.log(`  ${c.cyan('pocli auth sso')} ${c.yellow('<client-id> [sec]')}   Authenticate Google Antigravity via OIDC SSO`);
-      console.log(`  ${c.cyan('pocli auth remove')} ${c.yellow('<provider>')}       Remove persisted API key / SSO token`);
+      console.log(`  ${c.cyan('pocli auth remove')} ${c.yellow('<provider>')}       Remove persisted API key`);
       console.log(`  ${c.cyan('pocli auth path')}                    Print credentials file path`);
       storage.close();
       return;
