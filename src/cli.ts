@@ -54,9 +54,9 @@ function printCliHelp(): void {
       c.cyanBold(`Product Owner CLI (pocli v${getCliVersion()}) — Available commands:`),
       `  ${c.cyan('pocli')}                                ${c.dim('Launch fullscreen Ink Command Center TUI')}`,
       `  ${c.cyan('pocli report')} ${c.yellow('[project]')}              ${c.dim('Generate 100% HTML Project Status Report in deliveries/')}`,
-      `  ${c.cyan('pocli exec')} ${c.yellow('"<cmd-or-prompt>"')}        ${c.dim('Execute a slash command or agent prompt headlessly (--isolated, --role)')}`,
-      `  ${c.cyan('pocli e2e')} ${c.yellow('[--isolated]')}              ${c.dim('Run a full start-to-finish E2E lifecycle (ARQ -> DEV -> QA -> ARQ -> PO)')}`,
-      `  ${c.cyan('pocli tui-test')} ${c.yellow('[--isolated]')}         ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
+      `  ${c.cyan('pocli headless exec')} ${c.yellow('"<cmd>"')}        ${c.dim('Execute a slash command or agent prompt headlessly (--isolated, --role)')}`,
+      `  ${c.cyan('pocli headless e2e')} ${c.yellow('[--isolated]')}    ${c.dim('Run a full start-to-finish E2E lifecycle (ARQ -> DEV -> QA -> ARQ -> PO)')}`,
+      `  ${c.cyan('pocli headless tui-test')} ${c.yellow('[--isolated]')} ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
       `  ${c.cyan('pocli auth')} ${c.yellow('[status|set|remove|path]')} ${c.dim('Manage LLM provider API keys ($HOME/.pocli/auth.json)')}`,
       `  ${c.cyan('pocli models list')}                  ${c.dim('List all available LLM models in catalog')}`,
       `  ${c.cyan('pocli models agents')}                ${c.dim('List active project agents and their configured models')}`,
@@ -515,14 +515,28 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Headless CLI commands (`pocli exec`, `pocli run`, `pocli e2e`, `pocli tui-test`)
-  if (
-    subcommand === 'exec' ||
-    subcommand === 'run' ||
-    subcommand === 'e2e' ||
-    subcommand === 'tui-test'
-  ) {
-    const restArgs = args.slice(1);
+  // Headless CLI commands (`pocli headless exec`, `pocli headless e2e`, `pocli headless tui-test`)
+  if (subcommand === 'headless') {
+    const headlessAction = args[1]?.toLowerCase();
+    if (
+      headlessAction !== 'exec' &&
+      headlessAction !== 'run' &&
+      headlessAction !== 'e2e' &&
+      headlessAction !== 'tui-test'
+    ) {
+      console.error(
+        headlessAction
+          ? `Unknown headless subcommand: ${headlessAction}`
+          : 'Missing headless subcommand.',
+      );
+      console.error(
+        'Usage: pocli headless <exec "<cmd-or-prompt>" | e2e [--isolated] | tui-test [--isolated]>',
+      );
+      storage.close();
+      process.exit(1);
+    }
+
+    const restArgs = args.slice(2);
     let isIsolated = false;
     let projectName: string | undefined;
     let workspaceDir: string | undefined;
@@ -603,7 +617,7 @@ async function main(): Promise<void> {
     try {
       const runner = new HeadlessCliRunner(activeOrchestrator);
 
-      if (subcommand === 'e2e') {
+      if (headlessAction === 'e2e') {
         const res = await runner.runFullE2eLifecycle({
           projectName: projectName ?? 'HeadlessE2EApp',
           workspaceDir,
@@ -620,7 +634,7 @@ async function main(): Promise<void> {
         process.exit(res.ok ? 0 : 1);
       }
 
-      if (subcommand === 'tui-test') {
+      if (headlessAction === 'tui-test') {
         const pName = projectName ?? 'VirtualTuiDemo';
         const proj = runner.ensureProject({
           projectName: pName,
