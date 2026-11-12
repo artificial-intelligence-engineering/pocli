@@ -27,6 +27,12 @@ import {
   getModelsCatalogStatus,
   refreshModelsCatalog,
 } from './core/models-refresh.js';
+import {
+  resolveLifecyclePaths,
+  uninstallPocli,
+  updatePocli,
+} from './core/lifecycle.js';
+import readline from 'node:readline/promises';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
 import { fileURLToPath } from 'node:url';
 import { c, formatLogLineForTerminal } from './core/colors.js';
@@ -66,6 +72,8 @@ function printCliHelp(): void {
       `  ${c.cyan('pocli db path')}                      ${c.dim('Print the active SQLite database file path')}`,
       `  ${c.cyan('pocli db')} ${c.yellow('"<sql>"')} ${c.dim('[--format json]')}   ${c.dim('Execute a SQL query or dot-command (.tables, .stats)')}`,
       `  ${c.cyan('pocli logs')} ${c.yellow('[-n 50|path|clear]')}      ${c.dim('Inspect or clear runtime diagnostic logs ($HOME/.pocli/logs/)')}`,
+      `  ${c.cyan('pocli update')} ${c.yellow('[--force]')}             ${c.dim('Update pocli to the latest available release')}`,
+      `  ${c.cyan('pocli uninstall')} ${c.yellow('[--purge] [--yes]')}  ${c.dim('Remove pocli binary and app installation')}`,
       `  ${c.cyan('pocli --version | --help')}           ${c.dim('Show version or this help message')}`,
     ].join('\n'),
   );
@@ -437,6 +445,95 @@ async function main(): Promise<void> {
     console.error('Usage: pocli auth [status|set|remove|path]');
     storage.close();
     process.exit(1);
+  }
+
+  if (subcommand === 'update') {
+    const updateArgs = args.slice(1);
+    const force = updateArgs.includes('--force') || updateArgs.includes('-f');
+    let targetVersion: string | undefined;
+    for (let i = 0; i < updateArgs.length; i += 1) {
+      if (
+        (updateArgs[i] === '--version' || updateArgs[i] === '-v') &&
+        updateArgs[i + 1]
+      ) {
+        targetVersion = updateArgs[i + 1];
+      }
+    }
+    const currentVersion = getCliVersion();
+    console.log(
+      `${c.cyan('↻')} Checking for updates (current: v${currentVersion})...`,
+    );
+    storage.close();
+    try {
+      const res = await updatePocli({
+        currentVersion,
+        force,
+        targetVersion,
+      });
+      if (res.status === 'up_to_date') {
+        console.log(
+          `${c.green('✔')} pocli is already up to date (v${res.currentVersion}).`,
+        );
+      } else {
+        console.log(
+          `${c.green('✔')} Updated pocli from v${res.currentVersion} to ${res.tagName}.`,
+        );
+      }
+    } catch (err) {
+      console.error(
+        `${c.red('✖')} Update failed: ${(err as Error).message}`,
+      );
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (subcommand === 'uninstall') {
+    const uninstallArgs = args.slice(1);
+    const purgeData = uninstallArgs.includes('--purge');
+    const skipConfirm =
+      uninstallArgs.includes('--yes') || uninstallArgs.includes('-y');
+    const paths = resolveLifecyclePaths();
+
+    storage.close();
+
+    if (!skipConfirm && process.stdin.isTTY) {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      try {
+        const scope = purgeData
+          ? `${paths.binPath}, ${paths.appDir}, and ${paths.dataDir} (ALL data/keys/projects)`
+          : `${paths.binPath} and ${paths.appDir} (preserving ${paths.dataDir} data)`;
+        const answer = await rl.question(
+          `Remove ${scope}? [y/N] `,
+        );
+        if (!/^y(es)?$/i.test(answer.trim())) {
+          console.log(`${c.yellow('ℹ')} Uninstall cancelled.`);
+          return;
+        }
+      } finally {
+        rl.close();
+      }
+    }
+
+    const res = uninstallPocli({ purgeData, paths });
+    if (res.nothingToRemove) {
+      console.log(
+        `${c.yellow('ℹ')} No pocli installation found at ${paths.binPath} or ${paths.appDir}.`,
+      );
+      return;
+    }
+    for (const removed of res.removedPaths) {
+      console.log(`${c.green('✔')} Removed ${removed}`);
+    }
+    if (res.preservedDataDir) {
+      console.log(
+        `${c.dim('ℹ')} Preserved user data directory: ${res.preservedDataDir} (use --purge to remove everything)`,
+      );
+    }
+    return;
   }
 
   // Headless CLI commands (`pocli headless exec`, `pocli headless e2e`, `pocli headless tui-test`)
