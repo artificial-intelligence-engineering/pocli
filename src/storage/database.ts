@@ -2353,6 +2353,13 @@ export class PoCliDatabase {
     modelId: string;
     temperature?: number;
   }): RoleModelConfig[] {
+    const validRoles: readonly ActorRole[] = ['pm', 'architect', 'developer', 'qa'];
+    if (params.role !== 'all' && !validRoles.includes(params.role)) {
+      throw new Error(
+        `Invalid agent role "${String(params.role)}". Allowed roles: ${validRoles.join(', ')}, all.`,
+      );
+    }
+
     const targetRoles: ActorRole[] =
       params.role === 'all'
         ? ['pm', 'architect', 'developer', 'qa']
