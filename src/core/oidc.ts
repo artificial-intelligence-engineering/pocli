@@ -102,34 +102,59 @@ export function buildGoogleAuthUrl(params: {
   return url.toString();
 }
 
-export function openSystemBrowser(url: string): boolean {
+function spawnDetached(cmd: string, args: string[], onFail?: () => void): boolean {
   try {
-    if (process.platform === 'darwin') {
-      const child = spawn('open', [url], {
-        detached: true,
-        stdio: 'ignore',
-      });
-      child.unref();
-      return true;
-    }
-    if (process.platform === 'win32') {
-      const child = spawn('cmd', ['/c', 'start', '', url], {
-        detached: true,
-        stdio: 'ignore',
-        windowsVerbatimArguments: true,
-      });
-      child.unref();
-      return true;
-    }
-    const child = spawn('xdg-open', [url], {
+    const child = spawn(cmd, args, {
       detached: true,
       stdio: 'ignore',
+      env: process.env,
+      windowsVerbatimArguments: process.platform === 'win32',
     });
+    child.on('error', () => {
+      onFail?.();
+    });
+    if (onFail) {
+      child.on('exit', (code) => {
+        if (typeof code === 'number' && code !== 0) {
+          onFail();
+        }
+      });
+    }
     child.unref();
     return true;
   } catch {
+    onFail?.();
     return false;
   }
+}
+
+export function openSystemBrowser(url: string): boolean {
+  if (process.platform === 'darwin') {
+    return spawnDetached('open', [url]);
+  }
+  if (process.platform === 'win32') {
+    return spawnDetached('cmd', ['/c', 'start', '', url]);
+  }
+
+  // Linux / POSIX: try $BROWSER, then xdg-open, then gio open, then common browsers
+  const candidates: Array<[string, string[]]> = [];
+  if (process.env.BROWSER?.trim()) {
+    candidates.push([process.env.BROWSER.trim(), [url]]);
+  }
+  candidates.push(['xdg-open', [url]]);
+  candidates.push(['gio', ['open', url]]);
+  candidates.push(['google-chrome', [url]]);
+  candidates.push(['firefox', [url]]);
+
+  const tryNext = (idx: number): boolean => {
+    if (idx >= candidates.length) return false;
+    const [cmd, args] = candidates[idx];
+    return spawnDetached(cmd, args, () => {
+      tryNext(idx + 1);
+    });
+  };
+
+  return tryNext(0);
 }
 
 export async function exchangeCodeForTokens(params: {

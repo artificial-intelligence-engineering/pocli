@@ -22,7 +22,11 @@ import { PoCliOrchestrator } from '../runtime/orchestrator.js';
 import { HarnessRegistry } from '../runtime/harnesses.js';
 import { Logger } from '../core/logger.js';
 import { AuthStorage } from '../core/auth.js';
-import { startGoogleOidcLogin, type OidcLoginSession } from '../core/oidc.js';
+import {
+  openSystemBrowser,
+  startGoogleOidcLogin,
+  type OidcLoginSession,
+} from '../core/oidc.js';
 import {
   AVAILABLE_MODELS_CATALOG,
   getModelVendorLabel,
@@ -2832,6 +2836,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
               ? 'ℹ Autenticación SSO cancelada'
               : 'ℹ SSO authentication cancelled',
           );
+          return;
+        }
+        if (input === 'o' && ssoAuthUrl) {
+          openSystemBrowser(ssoAuthUrl);
+          return;
         }
         return;
       }
@@ -5511,14 +5520,14 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
                 : '🌐 Waiting for OpenID Connect login in your system browser...'}
             </Text>
             {ssoAuthUrl ? (
-              <Text dimColor wrap="truncate-end">
+              <Text dimColor>
                 URL: {ssoAuthUrl}
               </Text>
             ) : null}
             <Text dimColor>
               {language === 'es'
-                ? 'Completa el login en Google y volverás automáticamente. [Esc] para cancelar'
-                : 'Complete the Google sign-in in your browser. Press [Esc] to cancel'}
+                ? 'Completa el login en Google y volverás automáticamente · [o] Reabrir navegador · [Esc] Cancelar'
+                : 'Complete the Google sign-in in your browser · [o] Reopen browser · [Esc] Cancel'}
             </Text>
           </Box>
         ) : isEditingAuthKey ? (
