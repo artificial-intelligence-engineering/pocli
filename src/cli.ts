@@ -53,7 +53,6 @@ function printCliHelp(): void {
     [
       c.cyanBold(`Product Owner CLI (pocli v${getCliVersion()}) — Available commands:`),
       `  ${c.cyan('pocli')}                                ${c.dim('Launch fullscreen Ink Command Center TUI')}`,
-      `  ${c.cyan('pocli report')} ${c.yellow('[project]')}              ${c.dim('Generate 100% HTML Project Status Report in deliveries/')}`,
       `  ${c.cyan('pocli headless exec')} ${c.yellow('"<cmd>"')}        ${c.dim('Execute a slash command or agent prompt headlessly (--isolated, --role)')}`,
       `  ${c.cyan('pocli headless e2e')} ${c.yellow('[--isolated]')}    ${c.dim('Run a full start-to-finish E2E lifecycle (ARQ -> DEV -> QA -> ARQ -> PO)')}`,
       `  ${c.cyan('pocli headless tui-test')} ${c.yellow('[--isolated]')} ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
@@ -438,81 +437,6 @@ async function main(): Promise<void> {
     console.error('Usage: pocli auth [status|set|remove|path]');
     storage.close();
     process.exit(1);
-  }
-
-  // OpenCode-style `pocli report` command:
-  //   - `pocli report [project-name-or-id]` -> generates 100% HTML report in deliveries/
-  if (subcommand === 'report' || subcommand === 'informe') {
-    const reportArgs = args.slice(1);
-    let targetProjectIdentifier: string | undefined;
-    let customTitle: string | undefined;
-    let customFilename: string | undefined;
-
-    for (let i = 0; i < reportArgs.length; i++) {
-      const token = reportArgs[i];
-      if ((token === '--project' || token === '-p') && reportArgs[i + 1]) {
-        targetProjectIdentifier = reportArgs[++i];
-      } else if ((token === '--title' || token === '-t') && reportArgs[i + 1]) {
-        customTitle = reportArgs[++i];
-      } else if ((token === '--filename' || token === '-f') && reportArgs[i + 1]) {
-        customFilename = reportArgs[++i];
-      } else if (!token.startsWith('-') && !targetProjectIdentifier) {
-        targetProjectIdentifier = token;
-      }
-    }
-
-    let targetProject = targetProjectIdentifier
-      ? storage.getProject(targetProjectIdentifier) ||
-        storage.listProjects().find((p) => p.name.toLowerCase() === targetProjectIdentifier!.toLowerCase())
-      : storage.getActiveProject();
-
-    if (!targetProject) {
-      console.error(
-        c.red('No active project found. Specify a project using: pocli report <project-name-or-id>'),
-      );
-      storage.close();
-      process.exit(1);
-    }
-
-    try {
-      const rep = await orchestrator.generateProjectHtmlReport(targetProject.id, {
-        title: customTitle,
-        filename: customFilename,
-      });
-
-      console.log(`\n${c.cyanBold('=== PO CLI — Project Status Report (Project Manager Agent) ===')}`);
-      console.log(`  • ${c.bold('Project:')}      ${c.bold(targetProject.name)} (${targetProject.id})`);
-      console.log(`  • ${c.bold('Workspace:')}    ${targetProject.workspaceDir}`);
-      console.log(
-        `  • ${c.bold('Status:')}       ${
-          rep.isUnderConstruction
-            ? c.yellowBold('🚧 PROYECTO EN CONSTRUCCIÓN / EN PROGRESO')
-            : c.greenBold('✅ PROYECTO FINALIZADO / VERIFICADO Y ACEPTADO')
-        }`,
-      );
-      console.log(`  • ${c.bold('Fase:')}         ${rep.metrics.activePhaseLabel}`);
-      console.log(`  • ${c.bold('Artifact:')}     ${rep.artifact.code} (${rep.artifact.title})`);
-      console.log(
-        `  • ${c.bold('Metrics:')}      ${rep.metrics.totalMessages} mensajes, ${rep.metrics.totalArtifacts} artefactos, ${rep.metrics.allMarkdownFiles.length} ficheros markdown/gherkin`,
-      );
-      if (rep.metrics.qaVerdict) {
-        console.log(
-          `  • ${c.bold('QA Verdict:')}   ${
-            rep.metrics.qaVerdict === 'PASS'
-              ? c.greenBold('PASS')
-              : c.redBold(rep.metrics.qaVerdict)
-          } (${rep.metrics.qaMetrics?.passedCount ?? 0}/${rep.metrics.qaMetrics?.totalTests ?? 0} tests OK, Mutation: ${rep.metrics.qaMutationScore ?? 100}%)`,
-        );
-      }
-      console.log(`\n${c.green('✔')} ${c.bold('100% HTML Report Generated:')}`);
-      console.log(`  ${c.cyanBold(rep.reportPath)}`);
-    } catch (err) {
-      console.error(c.red(`Error generating report: ${(err as Error).message}`));
-      storage.close();
-      process.exit(1);
-    }
-    storage.close();
-    return;
   }
 
   // Headless CLI commands (`pocli headless exec`, `pocli headless e2e`, `pocli headless tui-test`)
