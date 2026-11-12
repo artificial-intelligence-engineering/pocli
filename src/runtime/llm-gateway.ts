@@ -9,7 +9,7 @@ import {
   WorkflowPhase,
 } from '../core/contracts.js';
 import { AuthStorage } from '../core/auth.js';
-import { I18N_DICTIONARY, SupportedLanguage } from '../core/i18n.js';
+import { I18N_DICTIONARY, resolveDefaultWorkDir, SupportedLanguage } from '../core/i18n.js';
 import { NotebookRagEngine } from './notebook-rag.js';
 import { buildDefaultFreeProviders, DEFAULT_FREE_PROVIDERS, LLMRouter } from './llm-router.js';
 import { buildRoleToolsInstruction } from './harnesses.js';
@@ -29,8 +29,28 @@ export interface ModelCatalogEntry {
   defaultTemperature: number;
 }
 
-function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
+export function getLocalModelsCatalogPath(): string {
+  return path.join(resolveDefaultWorkDir(), 'models.json');
+}
+
+export function getActiveModelsCatalogSource(): string {
   const candidates = [
+    getLocalModelsCatalogPath(),
+    path.resolve(process.cwd(), 'data', 'models.json'),
+    path.resolve(__dirname, '..', '..', 'data', 'models.json'),
+    path.resolve(__dirname, '..', 'data', 'models.json'),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+  return 'built-in';
+}
+
+export function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
+  const candidates = [
+    getLocalModelsCatalogPath(),
     path.resolve(process.cwd(), 'data', 'models.json'),
     path.resolve(__dirname, '..', '..', 'data', 'models.json'),
     path.resolve(__dirname, '..', 'data', 'models.json'),
@@ -526,6 +546,12 @@ function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
  * Grouped by vendor (Anthropic, OpenAI, Gemini, and Meta).
  */
 export const AVAILABLE_MODELS_CATALOG: ModelCatalogEntry[] = loadModelsCatalogFromJson();
+
+export function refreshModelsCatalogInMemory(): ModelCatalogEntry[] {
+  const reloaded = loadModelsCatalogFromJson();
+  AVAILABLE_MODELS_CATALOG.splice(0, AVAILABLE_MODELS_CATALOG.length, ...reloaded);
+  return AVAILABLE_MODELS_CATALOG;
+}
 
 /**
  * Resolves the canonical vendor company name (ANTHROPIC, OPENAI, GEMINI, META)
