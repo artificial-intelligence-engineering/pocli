@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
+import { Logger } from './logger.js';
 
 export const GOOGLE_OIDC_AUTH_ENDPOINT =
   'https://accounts.google.com/o/oauth2/v2/auth';
@@ -102,27 +103,65 @@ export function buildGoogleAuthUrl(params: {
   return url.toString();
 }
 
-function spawnDetached(cmd: string, args: string[], onFail?: () => void): boolean {
+function spawnDetached(
+  cmd: string,
+  args: string[],
+  captureStderr: boolean,
+  onFail?: () => void,
+): boolean {
   try {
+    Logger.info('OIDC', `Attempting to launch system browser with '${cmd}'`, {
+      cmd,
+      platform: process.platform,
+      display: process.env.DISPLAY ?? null,
+      waylandDisplay: process.env.WAYLAND_DISPLAY ?? null,
+      desktop: process.env.XDG_CURRENT_DESKTOP ?? null,
+    });
     const child = spawn(cmd, args, {
       detached: true,
-      stdio: 'ignore',
+      stdio: captureStderr ? ['ignore', 'ignore', 'pipe'] : 'ignore',
       env: process.env,
       windowsVerbatimArguments: process.platform === 'win32',
     });
-    child.on('error', () => {
-      onFail?.();
-    });
-    if (onFail) {
-      child.on('exit', (code) => {
-        if (typeof code === 'number' && code !== 0) {
-          onFail();
-        }
+    let stderrBuf = '';
+    if (captureStderr && child.stderr) {
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderrBuf += chunk.toString('utf8');
       });
     }
+    Logger.info('OIDC', `Spawned browser launcher '${cmd}'`, {
+      cmd,
+      pid: child.pid ?? null,
+    });
+    child.on('error', (err) => {
+      Logger.error('OIDC', `Browser launcher '${cmd}' spawn error`, {
+        cmd,
+        error: err.message,
+      });
+      onFail?.();
+    });
+    child.on('exit', (code, signal) => {
+      if (typeof code === 'number' && code === 0) {
+        Logger.info('OIDC', `Browser launcher '${cmd}' exited cleanly (code 0)`, {
+          cmd,
+        });
+      } else {
+        Logger.warn('OIDC', `Browser launcher '${cmd}' exited abnormally`, {
+          cmd,
+          code,
+          signal,
+          stderr: stderrBuf.trim() || undefined,
+        });
+        onFail?.();
+      }
+    });
     child.unref();
     return true;
-  } catch {
+  } catch (err) {
+    Logger.error('OIDC', `Exception spawning browser launcher '${cmd}'`, {
+      cmd,
+      error: err instanceof Error ? err.message : String(err),
+    });
     onFail?.();
     return false;
   }
@@ -130,26 +169,33 @@ function spawnDetached(cmd: string, args: string[], onFail?: () => void): boolea
 
 export function openSystemBrowser(url: string): boolean {
   if (process.platform === 'darwin') {
-    return spawnDetached('open', [url]);
+    return spawnDetached('open', [url], true);
   }
   if (process.platform === 'win32') {
-    return spawnDetached('cmd', ['/c', 'start', '', url]);
+    return spawnDetached('cmd', ['/c', 'start', '', url], false);
   }
 
   // Linux / POSIX: try $BROWSER, then xdg-open, then gio open, then common browsers
-  const candidates: Array<[string, string[]]> = [];
+  const candidates: Array<{ cmd: string; args: string[]; captureStderr: boolean }> = [];
   if (process.env.BROWSER?.trim()) {
-    candidates.push([process.env.BROWSER.trim(), [url]]);
+    candidates.push({
+      cmd: process.env.BROWSER.trim(),
+      args: [url],
+      captureStderr: false,
+    });
   }
-  candidates.push(['xdg-open', [url]]);
-  candidates.push(['gio', ['open', url]]);
-  candidates.push(['google-chrome', [url]]);
-  candidates.push(['firefox', [url]]);
+  candidates.push({ cmd: 'xdg-open', args: [url], captureStderr: true });
+  candidates.push({ cmd: 'gio', args: ['open', url], captureStderr: true });
+  candidates.push({ cmd: 'google-chrome', args: [url], captureStderr: false });
+  candidates.push({ cmd: 'firefox', args: [url], captureStderr: false });
 
   const tryNext = (idx: number): boolean => {
-    if (idx >= candidates.length) return false;
-    const [cmd, args] = candidates[idx];
-    return spawnDetached(cmd, args, () => {
+    if (idx >= candidates.length) {
+      Logger.error('OIDC', 'All system browser launchers failed');
+      return false;
+    }
+    const { cmd, args, captureStderr } = candidates[idx];
+    return spawnDetached(cmd, args, captureStderr, () => {
       tryNext(idx + 1);
     });
   };
@@ -439,6 +485,11 @@ export function startGoogleOidcLogin(options: {
         state,
         codeChallenge,
         scopes: options.scopes,
+      });
+
+      Logger.info('OIDC', 'Loopback OIDC server listening', {
+        redirectUri,
+        openBrowser: options.openBrowser !== false,
       });
 
       options.onAuthUrl?.(authUrl);
