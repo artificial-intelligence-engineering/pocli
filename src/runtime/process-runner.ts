@@ -109,13 +109,14 @@ export class LinuxAgentProcessRunner {
       const reqId = `turn_${Date.now()}`;
       let settled = false;
 
+      const timeoutMs = input.modelConfig.provider === 'local' ? 600_000 : 120_000;
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
           child.kill('SIGTERM');
           reject(new Error(`Agent worker process timed out for role ${input.role}`));
         }
-      }, 120000);
+      }, timeoutMs);
 
       rl.on('line', (line) => {
         const trimmed = line.trim();
