@@ -141,3 +141,93 @@ export function evaluateModelCompatibility(params: {
     reasons,
   };
 }
+
+export interface RecommendedModelCandidate {
+  repoId: string;
+  quant: string;
+  approxSizeBytes: number;
+  description: string;
+}
+
+export interface HardwareModelRecommendation extends RecommendedModelCandidate {
+  compatibility: CompatibilityReport;
+}
+
+const GIB = 1024 ** 3;
+
+const POPULAR_GGUF_CANDIDATES: RecommendedModelCandidate[] = [
+  {
+    repoId: 'unsloth/Qwen3.8-27B-GGUF',
+    quant: 'Q4_K_M',
+    approxSizeBytes: Math.round(16.5 * GIB),
+    description: 'Frontier 27B reasoning & coding',
+  },
+  {
+    repoId: 'unsloth/gemma-4-12b-it-GGUF',
+    quant: 'Q4_K_M',
+    approxSizeBytes: Math.round(7.4 * GIB),
+    description: 'Strong 12B general & instruction model',
+  },
+  {
+    repoId: 'Qwen/Qwen3-8B-GGUF',
+    quant: 'Q4_K_M',
+    approxSizeBytes: Math.round(5.0 * GIB),
+    description: 'Balanced 8B reasoning & tool use',
+  },
+  {
+    repoId: 'Qwen/Qwen2.5-Coder-7B-Instruct-GGUF',
+    quant: 'Q4_K_M',
+    approxSizeBytes: Math.round(4.7 * GIB),
+    description: 'Dedicated 7B coding specialist',
+  },
+  {
+    repoId: 'bartowski/Meta-Llama-3.1-8B-Instruct-GGUF',
+    quant: 'Q4_K_M',
+    approxSizeBytes: Math.round(4.9 * GIB),
+    description: 'Fast 8B general-purpose assistant',
+  },
+  {
+    repoId: 'unsloth/Qwen3.5-4B-GGUF',
+    quant: 'Q4_K_M',
+    approxSizeBytes: Math.round(2.7 * GIB),
+    description: 'Lightweight 4B fast CPU/laptop model',
+  },
+  {
+    repoId: 'Qwen/Qwen3-4B-GGUF',
+    quant: 'Q4_K_M',
+    approxSizeBytes: Math.round(2.5 * GIB),
+    description: 'Compact 4B general reasoning',
+  },
+  {
+    repoId: 'Qwen/Qwen2.5-Coder-3B-Instruct-GGUF',
+    quant: 'Q4_K_M',
+    approxSizeBytes: Math.round(2.1 * GIB),
+    description: 'Ultra-light 3B coding model',
+  },
+];
+
+/**
+ * Recommends up to `count` popular GGUF models that fit the detected hardware.
+ */
+export function recommendModelsForHardware(
+  hardware: HardwareProfile,
+  count = 5,
+): HardwareModelRecommendation[] {
+  const evaluated = POPULAR_GGUF_CANDIDATES.map((cand) => ({
+    ...cand,
+    compatibility: evaluateModelCompatibility({
+      sizeBytes: cand.approxSizeBytes,
+      hardware,
+      ctxSize: 4096,
+    }),
+  })).filter((item) => item.compatibility.compatible);
+
+  evaluated.sort((a, b) => {
+    if (a.compatibility.tier !== b.compatibility.tier) {
+      return a.compatibility.tier === 'optimal' ? -1 : 1;
+    }
+    return b.approxSizeBytes - a.approxSizeBytes;
+  });
+
+  return evaluated.slice(0, count);
+}

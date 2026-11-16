@@ -3,7 +3,10 @@ import { c } from '../core/colors.js';
 import { resolveDefaultWorkDir } from '../core/i18n.js';
 import { PoCliDatabase } from '../storage/database.js';
 import { getLlamaCppInstallDir } from './adapters/llamacpp.js';
-import { evaluateModelCompatibility } from './compatibility.js';
+import {
+  evaluateModelCompatibility,
+  recommendModelsForHardware,
+} from './compatibility.js';
 import { formatBytes } from './hardware.js';
 import { getHfModelInfo, searchHfGgufModels } from './hf-registry.js';
 import { LocalModelManager } from './local-manager.js';
@@ -64,7 +67,26 @@ export async function handleLocalCliCommand(args: string[]): Promise<number> {
           );
         }
       }
-      console.log(`  • Backend     : ${c.green(hw.recommendedBackend.toUpperCase())}\n`);
+      console.log(`  • Backend     : ${c.green(hw.recommendedBackend.toUpperCase())}`);
+      const recs = recommendModelsForHardware(hw, 5);
+      console.log(c.bold('\n=== Recommended GGUF Models for This Machine ==='));
+      if (recs.length === 0) {
+        console.log('  (no candidate models fit available memory)');
+      } else {
+        for (const rec of recs) {
+          const badge =
+            rec.compatibility.tier === 'optimal'
+              ? c.green('[optimal]')
+              : c.yellow('[tight]  ');
+          console.log(
+            `  • ${c.cyan(rec.repoId.padEnd(42))} ${rec.quant}  ~${formatBytes(rec.approxSizeBytes).padStart(7)}  ${badge}  ${c.dim(rec.description)}`,
+          );
+        }
+        console.log(
+          `\n  ${c.dim(`Tip: pocli local pull ${recs[0].repoId} --quant ${recs[0].quant}`)}`,
+        );
+      }
+      console.log('');
       return 0;
     }
 
