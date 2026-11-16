@@ -39,6 +39,7 @@ import {
   SupportedTheme,
 } from '../core/i18n.js';
 import { AuthorityGuard } from '../core/workflow.js';
+import { LocalModelRecord, LocalRuntimeRecord } from '../local/contracts.js';
 
 export interface StoredModelCatalogEntry {
   provider: LlmProviderType;
@@ -458,6 +459,34 @@ export class PoCliDatabase {
         agent_role UNINDEXED,
         key,
         value
+      );
+
+      CREATE TABLE IF NOT EXISTS local_models (
+        id TEXT PRIMARY KEY,
+        repo_id TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        local_path TEXT NOT NULL,
+        format TEXT NOT NULL,
+        architecture TEXT,
+        quantization TEXT,
+        size_bytes INTEGER NOT NULL,
+        sha256 TEXT,
+        context_length INTEGER,
+        block_count INTEGER,
+        embedding_length INTEGER,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS local_runtimes (
+        model_id TEXT PRIMARY KEY,
+        engine TEXT NOT NULL,
+        pid INTEGER NOT NULL,
+        port INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        gpu_layers INTEGER NOT NULL,
+        ctx_size INTEGER NOT NULL,
+        log_path TEXT NOT NULL,
+        started_at TEXT NOT NULL
       );
     `);
 
@@ -2806,6 +2835,149 @@ export class PoCliDatabase {
         createdAt: String(r.created_at),
       };
     });
+  }
+
+  // ==========================================================================
+  // LOCAL LLM MODELS & RUNTIMES (ISSUE #119)
+  // ==========================================================================
+
+  upsertLocalModel(model: LocalModelRecord): void {
+    this.db
+      .prepare(
+        `INSERT INTO local_models (
+          id, repo_id, file_name, local_path, format, architecture,
+          quantization, size_bytes, sha256, context_length, block_count,
+          embedding_length, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          repo_id = excluded.repo_id,
+          file_name = excluded.file_name,
+          local_path = excluded.local_path,
+          format = excluded.format,
+          architecture = excluded.architecture,
+          quantization = excluded.quantization,
+          size_bytes = excluded.size_bytes,
+          sha256 = excluded.sha256,
+          context_length = excluded.context_length,
+          block_count = excluded.block_count,
+          embedding_length = excluded.embedding_length`,
+      )
+      .run(
+        model.id,
+        model.repoId,
+        model.fileName,
+        model.localPath,
+        model.format,
+        model.architecture ?? null,
+        model.quantization ?? null,
+        model.sizeBytes,
+        model.sha256 ?? null,
+        model.contextLength ?? null,
+        model.blockCount ?? null,
+        model.embeddingLength ?? null,
+        model.createdAt,
+      );
+  }
+
+  getLocalModel(id: string): LocalModelRecord | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM local_models WHERE id = ?`)
+      .get(id) as Record<string, unknown> | undefined;
+    return row ? this.mapLocalModelRow(row) : undefined;
+  }
+
+  listLocalModels(): LocalModelRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM local_models ORDER BY created_at DESC`)
+      .all() as Record<string, unknown>[];
+    return rows.map((r) => this.mapLocalModelRow(r));
+  }
+
+  deleteLocalModel(id: string): boolean {
+    const res = this.db.prepare(`DELETE FROM local_models WHERE id = ?`).run(id);
+    return Number(res.changes ?? 0) > 0;
+  }
+
+  private mapLocalModelRow(row: Record<string, unknown>): LocalModelRecord {
+    return {
+      id: String(row.id),
+      repoId: String(row.repo_id),
+      fileName: String(row.file_name),
+      localPath: String(row.local_path),
+      format: String(row.format) as LocalModelRecord['format'],
+      architecture: row.architecture ? String(row.architecture) : undefined,
+      quantization: row.quantization ? String(row.quantization) : undefined,
+      sizeBytes: Number(row.size_bytes),
+      sha256: row.sha256 ? String(row.sha256) : undefined,
+      contextLength: row.context_length ? Number(row.context_length) : undefined,
+      blockCount: row.block_count ? Number(row.block_count) : undefined,
+      embeddingLength: row.embedding_length ? Number(row.embedding_length) : undefined,
+      createdAt: String(row.created_at),
+    };
+  }
+
+  upsertLocalRuntime(runtime: LocalRuntimeRecord): void {
+    this.db
+      .prepare(
+        `INSERT INTO local_runtimes (
+          model_id, engine, pid, port, status, gpu_layers, ctx_size, log_path, started_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(model_id) DO UPDATE SET
+          engine = excluded.engine,
+          pid = excluded.pid,
+          port = excluded.port,
+          status = excluded.status,
+          gpu_layers = excluded.gpu_layers,
+          ctx_size = excluded.ctx_size,
+          log_path = excluded.log_path,
+          started_at = excluded.started_at`,
+      )
+      .run(
+        runtime.modelId,
+        runtime.engine,
+        runtime.pid,
+        runtime.port,
+        runtime.status,
+        runtime.gpuLayers,
+        runtime.ctxSize,
+        runtime.logPath,
+        runtime.startedAt,
+      );
+  }
+
+  getLocalRuntime(modelId: string): LocalRuntimeRecord | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM local_runtimes WHERE model_id = ?`)
+      .get(modelId) as Record<string, unknown> | undefined;
+    return row ? this.mapLocalRuntimeRow(row) : undefined;
+  }
+
+  listLocalRuntimes(): LocalRuntimeRecord[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM local_runtimes ORDER BY started_at DESC`)
+      .all() as Record<string, unknown>[];
+    return rows.map((r) => this.mapLocalRuntimeRow(r));
+  }
+
+  deleteLocalRuntime(modelId: string): boolean {
+    const res = this.db
+      .prepare(`DELETE FROM local_runtimes WHERE model_id = ?`)
+      .run(modelId);
+    return Number(res.changes ?? 0) > 0;
+  }
+
+  private mapLocalRuntimeRow(row: Record<string, unknown>): LocalRuntimeRecord {
+    return {
+      modelId: String(row.model_id),
+      engine: String(row.engine) as LocalRuntimeRecord['engine'],
+      pid: Number(row.pid),
+      port: Number(row.port),
+      status: String(row.status) as LocalRuntimeRecord['status'],
+      gpuLayers: Number(row.gpu_layers),
+      ctxSize: Number(row.ctx_size),
+      logPath: String(row.log_path),
+      startedAt: String(row.started_at),
+    };
   }
 
   close(): void {
