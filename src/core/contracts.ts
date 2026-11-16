@@ -339,6 +339,7 @@ export const LlmProviderTypeSchema = z.enum([
   'anthropic',
   'gemini',
   'ollama',
+  'local',
   'opencode',
   'openrouter',
   'groq',

@@ -13,6 +13,8 @@ import { I18N_DICTIONARY, resolveDefaultWorkDir, SupportedLanguage } from '../co
 import { NotebookRagEngine } from './notebook-rag.js';
 import { buildDefaultFreeProviders, DEFAULT_FREE_PROVIDERS, LLMRouter } from './llm-router.js';
 import { buildRoleToolsInstruction } from './harnesses.js';
+import { LocalModelManager } from '../local/local-manager.js';
+import { PoCliDatabase } from '../storage/database.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -610,7 +612,8 @@ export function resolveModelSpec(
     const [rawProv, ...rest] = trimmed.split('/');
     const provLower = rawProv.toLowerCase();
     const customModelId = rest.join('/').trim();
-    const isLocalOllama = provLower === 'ollama' || provLower === 'meta';
+    const isLocalOllama =
+      provLower === 'ollama' || provLower === 'meta' || provLower === 'local';
     if (
       customModelId &&
       (options?.strict
@@ -619,6 +622,7 @@ export function resolveModelSpec(
           provLower === 'openai' ||
           provLower === 'gemini' ||
           provLower === 'ollama' ||
+          provLower === 'local' ||
           provLower === 'meta' ||
           provLower === 'opencode' ||
           provLower === 'openrouter' ||
@@ -634,7 +638,7 @@ export function resolveModelSpec(
         providerLabel: vendor,
         modelId: customModelId,
         displayName: customModelId,
-        isFree: provider === 'ollama',
+        isFree: provider === 'ollama' || provider === 'local',
         contextWindow: '128K',
         recommendedFor: 'Custom Model',
         defaultTemperature: 0.2,
@@ -993,6 +997,36 @@ export class LlmGateway {
         input,
         onStreamToken,
       );
+    }
+
+    if (provider === 'local') {
+      const db = new PoCliDatabase(
+        path.join(resolveDefaultWorkDir(), 'pocli.sqlite'),
+      );
+      try {
+        const manager = new LocalModelManager(db);
+        const rt = await manager.startModel(modelId);
+        return await this.callOpenAiCompatible(
+          `http://127.0.0.1:${rt.port}/v1/chat/completions`,
+          'local',
+          modelId,
+          temperature,
+          input,
+          onStreamToken,
+        );
+      } catch (localErr) {
+        if (allowTestFallback) {
+          return this.runDeterministicSpecialist(input, onStreamToken);
+        }
+        throw new Error(
+          I18N_DICTIONARY[lang].llmConnectionError(
+            'local',
+            (localErr as Error).message,
+          ),
+        );
+      } finally {
+        db.close();
+      }
     }
 
     if (provider === 'ollama') {

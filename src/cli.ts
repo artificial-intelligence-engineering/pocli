@@ -36,6 +36,7 @@ import readline from 'node:readline/promises';
 import { CommandCenterApp } from './tui/CommandCenterApp.js';
 import { fileURLToPath } from 'node:url';
 import { c, formatLogLineForTerminal } from './core/colors.js';
+import { handleLocalCliCommand } from './local/cli-handler.js';
 
 function getCliVersion(): string {
   try {
@@ -68,6 +69,7 @@ function printCliHelp(): void {
       `  ${c.cyan('pocli models')} ${c.yellow('<agent> <model>')}       ${c.dim('Assign an LLM model to a role (or all)')}`,
       `  ${c.cyan('pocli models refresh')} ${c.yellow('[--force]')}     ${c.dim('Download latest models.json catalog from GitHub')}`,
       `  ${c.cyan('pocli models status')}                ${c.dim('Show active models catalog source and sync metadata')}`,
+      `  ${c.cyan('pocli local')} ${c.yellow('<subcommand>')}           ${c.dim('Manage local GGUF models, hardware, and llama.cpp (--help)')}`,
       `  ${c.cyan('pocli db')}                           ${c.dim('Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)')}`,
       `  ${c.cyan('pocli db path')}                      ${c.dim('Print the active SQLite database file path')}`,
       `  ${c.cyan('pocli db')} ${c.yellow('"<sql>"')} ${c.dim('[--format json]')}   ${c.dim('Execute a SQL query or dot-command (.tables, .stats)')}`,
@@ -532,6 +534,15 @@ async function main(): Promise<void> {
       console.log(
         `${c.dim('ℹ')} Preserved user data directory: ${res.preservedDataDir} (use --purge to remove everything)`,
       );
+    }
+    return;
+  }
+
+  if (subcommand === 'local') {
+    storage.close();
+    const exitCode = await handleLocalCliCommand(args.slice(1));
+    if (exitCode !== 0) {
+      process.exit(exitCode);
     }
     return;
   }
