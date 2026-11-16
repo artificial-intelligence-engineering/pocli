@@ -340,4 +340,78 @@ describe('Local LLM Manager & llama.cpp Integration (Issue #119)', () => {
       storage.close();
     }
   }, 20000);
+
+  it('shows LOCAL tab in /models modal with installed local models or empty notice', async () => {
+    const dbPath = path.join(tmpDir, 'pocli-models-local.sqlite');
+    const storage = new PoCliDatabase(dbPath);
+    const orchestrator = new PoCliOrchestrator(storage);
+    const wsDir = path.join(tmpDir, 'ws-models-local');
+    fs.mkdirSync(wsDir, { recursive: true });
+    const proj = storage.createProject({
+      name: 'ModelsLocalProj',
+      workspaceDir: wsDir,
+      description: 'Test LOCAL tab in /models',
+    });
+
+    try {
+      const tabSteps = Array.from({ length: 7 }, () => ({
+        input: '\t',
+        waitMs: 60,
+      }));
+      // 1. Empty state: 7 Tabs from 'all' -> 'local'
+      const emptyRes = await runVirtualTuiSession({
+        orchestrator,
+        initialProject: proj,
+        steps: [{ input: '/models\r', waitMs: 250 }, ...tabSteps],
+      });
+      expect(emptyRes.ok).toBe(true);
+      expect(emptyRes.allTextCombined).toContain('LOCAL');
+      expect(emptyRes.allTextCombined).not.toContain('OLLAMA');
+      expect(emptyRes.allTextCombined).toContain('pocli local pull');
+    } finally {
+      storage.close();
+    }
+  }, 20000);
+
+  it('lists installed local models in /models LOCAL tab', async () => {
+    const dbPath = path.join(tmpDir, 'pocli-models-local-pop.sqlite');
+    const storage = new PoCliDatabase(dbPath);
+    const orchestrator = new PoCliOrchestrator(storage);
+    const wsDir = path.join(tmpDir, 'ws-models-local-pop');
+    fs.mkdirSync(wsDir, { recursive: true });
+    const proj = storage.createProject({
+      name: 'ModelsLocalPopProj',
+      workspaceDir: wsDir,
+      description: 'Test LOCAL tab populated in /models',
+    });
+
+    try {
+      storage.upsertLocalModel({
+        id: 'qwen3-8b-q4_k_m',
+        repoId: 'Qwen/Qwen3-8B-GGUF',
+        fileName: 'qwen3-8b-Q4_K_M.gguf',
+        localPath: path.join(tmpDir, 'qwen3-8b-Q4_K_M.gguf'),
+        format: 'gguf',
+        architecture: 'qwen3',
+        quantization: 'Q4_K_M',
+        sizeBytes: 4_900_000_000,
+        contextLength: 32768,
+        createdAt: new Date().toISOString(),
+      });
+
+      const tabSteps = Array.from({ length: 7 }, () => ({
+        input: '\t',
+        waitMs: 60,
+      }));
+      const populatedRes = await runVirtualTuiSession({
+        orchestrator,
+        initialProject: proj,
+        steps: [{ input: '/models\r', waitMs: 250 }, ...tabSteps],
+      });
+      expect(populatedRes.ok).toBe(true);
+      expect(populatedRes.allTextCombined).toContain('qwen3-8b-q4_k_m');
+    } finally {
+      storage.close();
+    }
+  }, 20000);
 });
