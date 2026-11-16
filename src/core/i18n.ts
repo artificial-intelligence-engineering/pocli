@@ -361,6 +361,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
           'OpenCode-style model picker to configure LLM model per agent (/models [agent] [provider/model])',
       },
       {
+        command: '/local',
+        description:
+          'Inspect local LLMs, hardware, llama.cpp engine, and running servers (/local [status|hardware|engine|list|ps|info <id>|help])',
+      },
+      {
         command: '/auth',
         description:
           'OpenCode & Pi-style modal to manage LLM provider API keys securely in ~/.pocli/auth.json',
@@ -628,6 +633,11 @@ export const I18N_DICTIONARY: Record<SupportedLanguage, UiTranslations> = {
         command: '/models',
         description:
           'Selector de modelos estilo OpenCode para configurar el LLM por agente (/models [agente] [proveedor/modelo])',
+      },
+      {
+        command: '/local',
+        description:
+          'Inspeccionar LLMs locales, hardware, motor llama.cpp y servidores activos (/local [status|hardware|engine|list|ps|info <id>|help])',
       },
       {
         command: '/auth',

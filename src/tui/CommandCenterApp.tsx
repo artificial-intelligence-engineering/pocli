@@ -23,6 +23,7 @@ import { HarnessRegistry } from '../runtime/harnesses.js';
 import { Logger } from '../core/logger.js';
 import { AuthStorage } from '../core/auth.js';
 import { refreshModelsCatalog } from '../core/models-refresh.js';
+import { buildLocalTuiReport } from '../local/tui-inspector.js';
 import {
   AVAILABLE_MODELS_CATALOG,
   getModelVendorLabel,
@@ -422,6 +423,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   const [howtoScrollOffset, setHowtoScrollOffset] = useState<number>(0);
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState<boolean>(false);
   const [dbModalOutput, setDbModalOutput] = useState<string>('');
+  const [localModalOutput, setLocalModalOutput] = useState<string>('');
 
   // Active project & repository / artifact / SQLite summary state
   const [project, setProject] = useState<Project | null>(initialProject ?? null);
@@ -792,6 +794,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     setModelsProviderTab('all');
     setModelsFilterQuery('');
     setDbModalOutput('');
+    setLocalModalOutput('');
     setIsWorkersModalOpen(false);
     setIsTreeExplorerOpen(false);
     setProjectToDelete(null);
@@ -1471,6 +1474,25 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         }
         return;
       }
+      if (cmdToken === '/local') {
+        const subArgs = parts.slice(1);
+        closeAllModals();
+        setStatusBanner(
+          language === 'es'
+            ? '↻ Inspeccionando sistema de LLMs locales...'
+            : '↻ Inspecting local LLM system...',
+        );
+        void buildLocalTuiReport(subArgs, orchestrator.storage)
+          .then((report) => {
+            setLocalModalOutput(report.detail);
+            setStatusBanner(report.banner);
+          })
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            setStatusBanner(`✖ ${msg}`);
+          });
+        return;
+      }
       if (cmdToken === '/models' || cmdToken === '/model') {
         const arg1 = parts[1]?.trim();
         const arg2 = parts.slice(2).join(' ').trim();
@@ -2112,12 +2134,13 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         return;
       }
 
-      // Interactive Help, Howto, DB, Auth, or Exit Confirm modal: click closes modal
-      if (isHelpOpen || isHowtoOpen || dbModalOutput.length > 0 || isExitConfirmOpen || (isAuthModalOpen && !isEditingAuthKey)) {
+      // Interactive Help, Howto, DB, Local, Auth, or Exit Confirm modal: click closes modal
+      if (isHelpOpen || isHowtoOpen || dbModalOutput.length > 0 || localModalOutput.length > 0 || isExitConfirmOpen || (isAuthModalOpen && !isEditingAuthKey)) {
         setIsHelpOpen(false);
         setIsHowtoOpen(false);
         setHowtoScrollOffset(0);
         setDbModalOutput('');
+        setLocalModalOutput('');
         setIsExitConfirmOpen(false);
         setIsAuthModalOpen(false);
         return;
@@ -2913,11 +2936,12 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       return;
     }
 
-    // 3. Handle interactive Help or DB modal when open
-    if (isHelpOpen || dbModalOutput.length > 0) {
+    // 3. Handle interactive Help, DB, or Local modal when open
+    if (isHelpOpen || dbModalOutput.length > 0 || localModalOutput.length > 0) {
       if (key.escape || key.return || input === 'q') {
         setIsHelpOpen(false);
         setDbModalOutput('');
+        setLocalModalOutput('');
         return;
       }
       return;
@@ -5044,6 +5068,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     isExitConfirmOpen ||
     isTreeExplorerOpen ||
     dbModalOutput.length > 0 ||
+    localModalOutput.length > 0 ||
     projectWizardStep !== 'CLOSED';
 
   const renderDbModal = () => (
@@ -5063,6 +5088,26 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         <Text dimColor>Press Esc, Enter, or q to close</Text>
       </Box>
       <Text>{dbModalOutput}</Text>
+    </Box>
+  );
+
+  const renderLocalModal = () => (
+    <Box
+      flexDirection="column"
+      width={Math.min(96, dimensions.columns - 6)}
+      borderStyle="double"
+      borderColor="cyan"
+      paddingX={2}
+      paddingY={1}
+      marginBottom={1}
+    >
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Text bold color="cyan">
+          🧠 Local LLM Inspector (/local · pocli local)
+        </Text>
+        <Text dimColor>Press Esc, Enter, or q to close</Text>
+      </Box>
+      <Text>{localModalOutput}</Text>
     </Box>
   );
 
@@ -5628,6 +5673,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isSystemModalOpen && renderSystemModal()}
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
+            {localModalOutput.length > 0 && renderLocalModal()}
             {isLogsModalOpen && renderLogsModal()}
             {isAuthModalOpen && renderAuthModal()}
             {isHelpOpen && renderHelpModal()}
@@ -5996,6 +6042,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             {isSystemModalOpen && renderSystemModal()}
             {isModelsModalOpen && renderModelsModal()}
             {dbModalOutput.length > 0 && renderDbModal()}
+            {localModalOutput.length > 0 && renderLocalModal()}
             {isLogsModalOpen && renderLogsModal()}
             {isAuthModalOpen && renderAuthModal()}
             {isHelpOpen && renderHelpModal()}
@@ -6261,6 +6308,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
           {isSystemModalOpen && renderSystemModal()}
           {isModelsModalOpen && renderModelsModal()}
           {dbModalOutput.length > 0 && renderDbModal()}
+            {localModalOutput.length > 0 && renderLocalModal()}
           {isLogsModalOpen && renderLogsModal()}
           {isAuthModalOpen && renderAuthModal()}
           {isHelpOpen && renderHelpModal()}
