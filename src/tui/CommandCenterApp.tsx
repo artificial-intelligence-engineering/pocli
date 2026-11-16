@@ -23,6 +23,7 @@ import { HarnessRegistry } from '../runtime/harnesses.js';
 import { Logger } from '../core/logger.js';
 import { AuthStorage } from '../core/auth.js';
 import { refreshModelsCatalog } from '../core/models-refresh.js';
+import { formatBytes } from '../local/hardware.js';
 import { buildLocalTuiReport } from '../local/tui-inspector.js';
 import {
   AVAILABLE_MODELS_CATALOG,
@@ -672,7 +673,9 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
     const restoreTerminal = () => {
       try {
         stdout.write = origWrite;
-        origWrite(`${DISABLE_MOUSE_TRACKING_SEQ}\x1b[?2026l`);
+        if (!stdout.writableEnded && !stdout.destroyed) {
+          origWrite(`${DISABLE_MOUSE_TRACKING_SEQ}\x1b[?2026l`);
+        }
       } catch {
         // Ignore write errors during process teardown
       }
@@ -887,10 +890,34 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
   };
 
   const filteredModels = useMemo(() => {
-    let list = AVAILABLE_MODELS_CATALOG;
-    if (modelsProviderTab !== 'all') {
-      list = list.filter((m) => m.provider === modelsProviderTab);
-    }
+    const installedLocalEntries: ModelCatalogEntry[] = orchestrator.storage
+      .listLocalModels()
+      .map((lm) => ({
+        provider: 'local',
+        vendor: (lm.architecture ?? 'GGUF').toUpperCase(),
+        providerLabel: 'Local (llama.cpp)',
+        modelId: lm.id,
+        displayName: lm.id,
+        isFree: true,
+        contextWindow: lm.contextLength
+          ? `${Math.max(1, Math.round(lm.contextLength / 1024))}K`
+          : 'GGUF',
+        recommendedFor: `${lm.quantization ?? 'GGUF'} · ${formatBytes(lm.sizeBytes)}`,
+        defaultTemperature: 0.2,
+      }));
+
+    let list: ModelCatalogEntry[] =
+      modelsProviderTab === 'local'
+        ? installedLocalEntries
+        : modelsProviderTab === 'all'
+          ? [
+              ...AVAILABLE_MODELS_CATALOG.filter((m) => m.provider !== 'ollama'),
+              ...installedLocalEntries,
+            ]
+          : AVAILABLE_MODELS_CATALOG.filter(
+              (m) => m.provider === modelsProviderTab,
+            );
+
     const q = modelsFilterQuery.trim().toLowerCase();
     if (!q) return list;
     return list.filter(
@@ -902,7 +929,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         m.recommendedFor.toLowerCase().includes(q) ||
         `${m.provider}/${m.modelId}`.toLowerCase().includes(q),
     );
-  }, [modelsProviderTab, modelsFilterQuery]);
+  }, [modelsProviderTab, modelsFilterQuery, isModelsModalOpen, roleConfigVersion]);
 
   const copyTextToClipboard = (text: string) => {
     if (!text) return;
@@ -2066,7 +2093,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             { id: 'openai', label: 'OPENAI' },
             { id: 'gemini', label: 'GEMINI' },
             { id: 'groq', label: 'GROQ' },
-            { id: 'ollama', label: 'OLLAMA' },
+            { id: 'local', label: 'LOCAL' },
             { id: 'freellm', label: 'FREE/ZERO' },
           ];
           const totalTabsWidth = providerTabs.reduce(
@@ -2770,7 +2797,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         'openai',
         'gemini',
         'groq',
-        'ollama',
+        'local',
         'freellm',
       ];
       if (key.tab) {
@@ -4808,7 +4835,7 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       { id: 'openai', label: 'OPENAI', isConfigured: Boolean(AuthStorage.getApiKey('openai')) },
       { id: 'gemini', label: 'ANTIGRAVITY', isConfigured: Boolean(AuthStorage.getApiKey('gemini')) },
       { id: 'groq', label: 'GROQ', isConfigured: Boolean(AuthStorage.getApiKey('groq')) },
-      { id: 'ollama', label: 'OLLAMA', isConfigured: true },
+      { id: 'local', label: 'LOCAL', isConfigured: true },
       { id: 'freellm', label: 'FREE/ZERO', isConfigured: true },
     ];
 
@@ -4983,7 +5010,11 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         <Box flexDirection="column" marginTop={1} height={windowSize}>
           {visibleModels.length === 0 ? (
             <Text dimColor wrap="truncate-end">
-              {t.noCommandMatches} "{modelsFilterQuery}"
+              {modelsProviderTab === 'local' && !modelsFilterQuery
+                ? language === 'es'
+                  ? 'No hay modelos locales instalados. Usa "pocli local search <modelo>" y "pocli local pull <repo>" en la terminal.'
+                  : 'No local models installed. Run "pocli local search <query>" and "pocli local pull <repo>" in CLI.'
+                : `${t.noCommandMatches} "${modelsFilterQuery}"`}
             </Text>
           ) : (
             visibleModels.map((m, localIdx) => {
