@@ -68,30 +68,42 @@ export function resolveLlamaCppAsset(
 
   if (platform === 'linux') {
     if (arch === 'x64') {
-      if (backend === 'vulkan') {
-        matchers.push((n) => /bin-ubuntu-vulkan-x64\.(tar\.gz|zip)$/i.test(n));
+      if (backend === 'cuda') {
+        matchers.push((n) => /^llama-.*-bin-ubuntu-cuda-.*-x64\.(tar\.gz|zip)$/i.test(n));
       }
-      matchers.push((n) => /bin-ubuntu-x64\.(tar\.gz|zip)$/i.test(n));
+      if (backend === 'rocm') {
+        matchers.push((n) => /^llama-.*-bin-ubuntu-rocm-.*-x64\.(tar\.gz|zip)$/i.test(n));
+      }
+      if (backend === 'vulkan') {
+        matchers.push((n) => /^llama-.*-bin-ubuntu-vulkan-x64\.(tar\.gz|zip)$/i.test(n));
+      }
+      matchers.push((n) => /^llama-.*-bin-ubuntu-x64\.(tar\.gz|zip)$/i.test(n));
     } else if (arch === 'arm64') {
-      matchers.push((n) => /bin-ubuntu-arm64\.(tar\.gz|zip)$/i.test(n));
+      if (backend === 'cuda') {
+        matchers.push((n) => /^llama-.*-bin-ubuntu-cuda-.*-arm64\.(tar\.gz|zip)$/i.test(n));
+      }
+      if (backend === 'vulkan') {
+        matchers.push((n) => /^llama-.*-bin-ubuntu-vulkan-arm64\.(tar\.gz|zip)$/i.test(n));
+      }
+      matchers.push((n) => /^llama-.*-bin-ubuntu-arm64\.(tar\.gz|zip)$/i.test(n));
     }
   } else if (platform === 'darwin') {
     if (arch === 'arm64') {
-      matchers.push((n) => /bin-macos-arm64\.(tar\.gz|zip)$/i.test(n));
+      matchers.push((n) => /^llama-.*-bin-macos-arm64\.(tar\.gz|zip)$/i.test(n));
     } else {
-      matchers.push((n) => /bin-macos-x64\.(tar\.gz|zip)$/i.test(n));
+      matchers.push((n) => /^llama-.*-bin-macos-x64\.(tar\.gz|zip)$/i.test(n));
     }
   } else if (platform === 'win32') {
     if (arch === 'x64') {
       if (backend === 'cuda') {
-        matchers.push((n) => /bin-win-cuda-.*-x64\.zip$/i.test(n));
+        matchers.push((n) => /^llama-.*-bin-win-cuda-.*-x64\.zip$/i.test(n));
       }
       if (backend === 'vulkan') {
-        matchers.push((n) => /bin-win-vulkan-x64\.zip$/i.test(n));
+        matchers.push((n) => /^llama-.*-bin-win-vulkan-x64\.zip$/i.test(n));
       }
-      matchers.push((n) => /bin-win-cpu-x64\.zip$/i.test(n));
+      matchers.push((n) => /^llama-.*-bin-win-cpu-x64\.zip$/i.test(n));
     } else if (arch === 'arm64') {
-      matchers.push((n) => /bin-win-cpu-arm64\.zip$/i.test(n));
+      matchers.push((n) => /^llama-.*-bin-win-cpu-arm64\.zip$/i.test(n));
     }
   }
 
@@ -182,7 +194,7 @@ export class LlamaCppAdapter implements InferenceEngineAdapter {
 
     const hardware = options?.hardware ?? (await detectHardwareProfile());
     const releaseRes = await fetch(
-      'https://api.github.com/repos/ggml-org/llama.cpp/releases/latest',
+      'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10',
       {
         headers: {
           'User-Agent': 'pocli-local-llm',
@@ -196,12 +208,22 @@ export class LlamaCppAdapter implements InferenceEngineAdapter {
       );
     }
 
-    const release = (await releaseRes.json()) as {
+    const releases = (await releaseRes.json()) as Array<{
       tag_name?: string;
       assets?: GithubReleaseAsset[];
-    };
-    const tag = release.tag_name ?? 'latest';
-    const asset = resolveLlamaCppAsset(release.assets ?? [], hardware);
+    }>;
+
+    let tag = 'latest';
+    let asset: GithubReleaseAsset | undefined;
+    for (const rel of releases) {
+      const candidate = resolveLlamaCppAsset(rel.assets ?? [], hardware);
+      if (candidate) {
+        tag = rel.tag_name ?? 'latest';
+        asset = candidate;
+        break;
+      }
+    }
+
     if (!asset) {
       throw new Error(
         `No prebuilt llama.cpp binary found for ${hardware.platform}/${hardware.arch} (${hardware.recommendedBackend}).`,
