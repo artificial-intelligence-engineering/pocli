@@ -19,7 +19,10 @@ import {
   resolveLlamaCppAsset,
 } from '../src/local/adapters/llamacpp.js';
 import { deriveLocalModelId } from '../src/local/local-manager.js';
+import { buildLocalTuiReport } from '../src/local/tui-inspector.js';
 import { resolveModelSpec } from '../src/runtime/llm-gateway.js';
+import { PoCliOrchestrator } from '../src/runtime/orchestrator.js';
+import { runVirtualTuiSession } from '../src/runtime/headless-runner.js';
 
 function buildSyntheticGgufBuffer(): Buffer {
   const parts: Buffer[] = [];
@@ -263,4 +266,78 @@ describe('Local LLM Manager & llama.cpp Integration (Issue #119)', () => {
     expect(spec?.provider).toBe('local');
     expect(spec?.modelId).toBe('qwen3-8b-q4_k_m');
   });
+
+  it('builds informative /local TUI inspection reports for status, hardware, engine, list, ps, info, and help', async () => {
+    const dbPath = path.join(tmpDir, 'pocli-tui.sqlite');
+    const db = new PoCliDatabase(dbPath);
+    try {
+      db.upsertLocalModel({
+        id: 'qwen3-8b-q4_k_m',
+        repoId: 'Qwen/Qwen3-8B-GGUF',
+        fileName: 'qwen3-8b-Q4_K_M.gguf',
+        localPath: path.join(tmpDir, 'qwen3-8b-Q4_K_M.gguf'),
+        format: 'gguf',
+        architecture: 'qwen3',
+        quantization: 'Q4_K_M',
+        sizeBytes: 4_900_000_000,
+        contextLength: 32768,
+        createdAt: new Date().toISOString(),
+      });
+
+      const statusRep = await buildLocalTuiReport(['status'], db);
+      expect(statusRep.detail).toContain('Local LLM System Status');
+      expect(statusRep.detail).toContain('1 installed');
+
+      const hwRep = await buildLocalTuiReport(['hardware'], db);
+      expect(hwRep.detail).toContain('Host Hardware Profile');
+
+      const engRep = await buildLocalTuiReport(['engine'], db);
+      expect(engRep.detail).toContain('Local Engine (llama.cpp)');
+
+      const listRep = await buildLocalTuiReport(['list'], db);
+      expect(listRep.detail).toContain('local/qwen3-8b-q4_k_m');
+
+      const psRep = await buildLocalTuiReport(['ps'], db);
+      expect(psRep.detail).toContain('Running Local Servers');
+
+      const infoRep = await buildLocalTuiReport(['info', 'qwen3-8b-q4_k_m'], db);
+      expect(infoRep.detail).toContain('Local Model: local/qwen3-8b-q4_k_m');
+      expect(infoRep.detail).toContain('Hardware Fit');
+
+      const helpRep = await buildLocalTuiReport(['help'], db);
+      expect(helpRep.detail).toContain('/local hardware');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('renders /local hardware and /local status inside the real Ink CommandCenterApp TUI', async () => {
+    const dbPath = path.join(tmpDir, 'pocli-virtual-tui.sqlite');
+    const storage = new PoCliDatabase(dbPath);
+    const orchestrator = new PoCliOrchestrator(storage);
+    const wsDir = path.join(tmpDir, 'ws-local-tui');
+    fs.mkdirSync(wsDir, { recursive: true });
+    const proj = storage.createProject({
+      name: 'LocalTuiProj',
+      workspaceDir: wsDir,
+      description: 'Test /local in TUI',
+    });
+
+    try {
+      const tuiRes = await runVirtualTuiSession({
+        orchestrator,
+        initialProject: proj,
+        steps: [
+          { input: '/local hardware\r', waitMs: 600 },
+          { input: '\r', waitMs: 200 },
+          { input: '/local status\r', waitMs: 600 },
+        ],
+      });
+      expect(tuiRes.ok).toBe(true);
+      expect(tuiRes.allTextCombined).toContain('Host Hardware Profile');
+      expect(tuiRes.allTextCombined).toContain('Local LLM System Status');
+    } finally {
+      storage.close();
+    }
+  }, 20000);
 });
