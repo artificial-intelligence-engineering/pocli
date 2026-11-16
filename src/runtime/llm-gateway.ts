@@ -955,6 +955,68 @@ export function extractToolCalls(rawText: string): {
 }
 
 /**
+ * Trims assembled context sections proportionally so local llama.cpp models with
+ * smaller context windows (8K-16K) do not fail with exceed_context_size_error.
+ */
+export function trimInputForLocalContext(
+  input: AgentTurnInput,
+  maxTotalChars: number,
+): AgentTurnInput {
+  const takeTail = (text: string, budget: number): string => {
+    if (text.length <= budget) return text;
+    if (budget <= 64) return text.slice(Math.max(0, text.length - budget));
+    return `...[trimmed for local context]...\n${text.slice(text.length - (budget - 36))}`;
+  };
+
+  const sysLen = input.systemPrompt.length + 600;
+  let remaining = Math.max(1200, maxTotalChars - sysLen);
+
+  // Reserve at least 55% of remaining budget for userPrompt (which holds recent turn + history)
+  const minUserBudget = Math.min(
+    input.userPrompt.length,
+    Math.max(800, Math.floor(remaining * 0.55)),
+  );
+  const sideBudget = Math.max(0, remaining - minUserBudget);
+
+  const artifactsBudget = Math.floor(sideBudget * 0.65);
+  const normativeArtifactsSummary = takeTail(
+    input.normativeArtifactsSummary,
+    artifactsBudget,
+  );
+  remaining = Math.max(minUserBudget, remaining - normativeArtifactsSummary.length);
+
+  const ragBudget = Math.max(0, remaining - minUserBudget);
+  let ragUsed = 0;
+  const ragCitations: RagCitation[] = [];
+  for (const cit of input.ragCitations) {
+    const cost = cit.snippet.length + 120;
+    if (ragUsed + cost <= ragBudget) {
+      ragCitations.push(cit);
+      ragUsed += cost;
+    } else if (ragBudget - ragUsed > 200) {
+      ragCitations.push({
+        ...cit,
+        snippet: `${cit.snippet.slice(0, ragBudget - ragUsed - 140)}...`,
+      });
+      ragUsed = ragBudget;
+      break;
+    } else {
+      break;
+    }
+  }
+
+  const userBudget = Math.max(800, remaining - ragUsed);
+  const userPrompt = takeTail(input.userPrompt, userBudget);
+
+  return {
+    ...input,
+    normativeArtifactsSummary,
+    ragCitations,
+    userPrompt,
+  };
+}
+
+/**
  * Multi-Model LLM Gateway.
  * Decouples workflow execution from specific LLM providers and allows different
  * models for Architect, Developer, QA, and custom specialists.
@@ -1006,14 +1068,43 @@ export class LlmGateway {
       try {
         const manager = new LocalModelManager(db);
         const rt = await manager.startModel(modelId);
-        return await this.callOpenAiCompatible(
-          `http://127.0.0.1:${rt.port}/v1/chat/completions`,
-          'local',
-          modelId,
-          temperature,
-          input,
-          onStreamToken,
+        const endpoint = `http://127.0.0.1:${rt.port}/v1/chat/completions`;
+        const maxPromptChars = Math.min(
+          12000,
+          Math.max(4000, (rt.ctxSize - 2048) * 3),
         );
+        const budgetedInput = trimInputForLocalContext(input, maxPromptChars);
+        try {
+          return await this.callOpenAiCompatible(
+            endpoint,
+            'local',
+            modelId,
+            temperature,
+            budgetedInput,
+            onStreamToken,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const match = msg.match(
+            /request \((\d+) tokens\) exceeds the available context size \((\d+) tokens\)/,
+          );
+          if (match) {
+            const actualTokens = Number(match[1]);
+            const nCtx = Number(match[2]);
+            const ratio = Math.max(0.15, (nCtx * 0.72) / actualTokens);
+            const tighterChars = Math.max(2500, Math.floor(maxPromptChars * ratio));
+            const tighterInput = trimInputForLocalContext(input, tighterChars);
+            return await this.callOpenAiCompatible(
+              endpoint,
+              'local',
+              modelId,
+              temperature,
+              tighterInput,
+              onStreamToken,
+            );
+          }
+          throw err;
+        }
       } catch (localErr) {
         if (allowTestFallback) {
           return this.runDeterministicSpecialist(input, onStreamToken);

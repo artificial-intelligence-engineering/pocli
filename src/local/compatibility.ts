@@ -45,9 +45,13 @@ export function evaluateModelCompatibility(params: {
   ctxSize?: number;
 }): CompatibilityReport {
   const { sizeBytes, gguf, hardware } = params;
+  const defaultCtx =
+    hardware.totalRamBytes >= 14 * 1024 ** 3 && sizeBytes <= 8.5 * 1024 ** 3
+      ? 16384
+      : 8192;
   const ctxSize = Math.min(
-    params.ctxSize ?? 8192,
-    gguf?.contextLength ?? params.ctxSize ?? 8192,
+    params.ctxSize ?? defaultCtx,
+    gguf?.contextLength ?? params.ctxSize ?? defaultCtx,
   );
 
   const weightsBytes = Math.max(0, sizeBytes);

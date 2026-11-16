@@ -198,11 +198,12 @@ class ManagedWorker {
     this.activeTurnReqId = reqId;
 
     return new Promise<WorkerExecutionResult>((resolve, reject) => {
+      const timeoutMs = input.modelConfig.provider === 'local' ? 600_000 : 120_000;
       const timer = setTimeout(() => {
         if (this.pendingTurn?.reqId === reqId) {
           this.pendingTurn = undefined;
           this.status = 'failed';
-          this.lastError = `Agent turn timed out after 120s for role ${this.role}`;
+          this.lastError = `Agent turn timed out after ${Math.round(timeoutMs / 1000)}s for role ${this.role}`;
           try {
             this.child.kill('SIGTERM');
           } catch {
@@ -210,7 +211,7 @@ class ManagedWorker {
           }
           reject(new Error(`Agent worker process timed out for role ${this.role}`));
         }
-      }, 120000);
+      }, timeoutMs);
 
       this.pendingTurn = {
         reqId,

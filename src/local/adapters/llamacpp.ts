@@ -319,9 +319,18 @@ export class LlamaCppAdapter implements InferenceEngineAdapter {
       String(ctxSize),
       '-ngl',
       String(gpuLayers),
+      '-ctk',
+      'q8_0',
+      '-ctv',
+      'q8_0',
     ];
-    if (config.threads) {
-      args.push('-t', String(config.threads));
+    const threads =
+      config.threads ??
+      (gpuLayers === 0 && os.cpus().length >= 4
+        ? Math.floor(os.cpus().length / 2)
+        : os.cpus().length);
+    if (threads > 0) {
+      args.push('-t', String(threads));
     }
 
     const child = spawn(bin, args, {

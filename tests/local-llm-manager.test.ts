@@ -23,7 +23,10 @@ import {
 } from '../src/local/adapters/llamacpp.js';
 import { deriveLocalModelId } from '../src/local/local-manager.js';
 import { buildLocalTuiReport } from '../src/local/tui-inspector.js';
-import { resolveModelSpec } from '../src/runtime/llm-gateway.js';
+import {
+  resolveModelSpec,
+  trimInputForLocalContext,
+} from '../src/runtime/llm-gateway.js';
 import { PoCliOrchestrator } from '../src/runtime/orchestrator.js';
 import { runVirtualTuiSession } from '../src/runtime/headless-runner.js';
 
@@ -421,4 +424,46 @@ describe('Local LLM Manager & llama.cpp Integration (Issue #119)', () => {
       storage.close();
     }
   }, 20000);
+
+  it('trims large project context safely under local llama.cpp n_ctx budget', () => {
+    const trimmed = trimInputForLocalContext(
+      {
+        projectId: 'proj-1',
+        projectName: 'PySqliteCrudApi',
+        phase: 'PHASE_2_ARCHITECTURE',
+        role: 'architect',
+        systemPrompt: 'You are an architect.',
+        normativeArtifactsSummary: 'A'.repeat(40000),
+        ragCitations: [
+          {
+            notebookId: 'nb1',
+            notebookName: 'Docs',
+            documentPath: 'doc.md',
+            section: 'Intro',
+            lineRange: 'L1-L20',
+            snippet: 'S'.repeat(10000),
+            score: 0.9,
+          },
+        ],
+        modelConfig: {
+          role: 'architect',
+          provider: 'local',
+          modelId: 'gemma-4-12b-it-q4_k_m',
+          temperature: 0.2,
+          executionModality: 'LOCAL_PROCESS',
+        },
+        userPrompt: `${'H'.repeat(80000)}\nhola`,
+      },
+      18000,
+    );
+
+    const totalLen =
+      trimmed.systemPrompt.length +
+      trimmed.userPrompt.length +
+      trimmed.normativeArtifactsSummary.length +
+      trimmed.ragCitations.reduce((s, c) => s + c.snippet.length, 0);
+
+    expect(totalLen).toBeLessThanOrEqual(18000);
+    expect(trimmed.userPrompt.endsWith('hola')).toBe(true);
+  });
 });
