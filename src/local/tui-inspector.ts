@@ -1,6 +1,9 @@
 import { PoCliDatabase } from '../storage/database.js';
 import { getLlamaCppInstallDir } from './adapters/llamacpp.js';
-import { evaluateModelCompatibility } from './compatibility.js';
+import {
+  evaluateModelCompatibility,
+  recommendModelsForHardware,
+} from './compatibility.js';
 import { formatBytes } from './hardware.js';
 import { LocalModelManager } from './local-manager.js';
 
@@ -52,6 +55,16 @@ export async function buildLocalTuiReport(
       }
     }
     lines.push(`  • Backend   : ${hw.recommendedBackend.toUpperCase()}`);
+    const recs = recommendModelsForHardware(hw, 5);
+    if (recs.length > 0) {
+      lines.push('');
+      lines.push('=== Recommended Models for This Machine ===');
+      for (const rec of recs) {
+        lines.push(
+          `  • ${rec.repoId} (${rec.quant}, ~${formatBytes(rec.approxSizeBytes)}, ${rec.compatibility.tier}) — ${rec.description}`,
+        );
+      }
+    }
     return {
       banner: `✔ Hardware: ${hw.cpuCores} cores, ${formatBytes(hw.totalRamBytes)} RAM, backend=${hw.recommendedBackend.toUpperCase()}`,
       detail: lines.join('\n'),

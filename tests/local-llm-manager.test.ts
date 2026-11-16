@@ -7,7 +7,10 @@ import {
   detectHardwareProfile,
   parseNvidiaSmiOutput,
 } from '../src/local/hardware.js';
-import { evaluateModelCompatibility } from '../src/local/compatibility.js';
+import {
+  evaluateModelCompatibility,
+  recommendModelsForHardware,
+} from '../src/local/compatibility.js';
 import {
   inferQuantizationFromFilename,
   inspectGgufFile,
@@ -171,6 +174,10 @@ describe('Local LLM Manager & llama.cpp Integration (Issue #119)', () => {
     });
     expect(tooBig.compatible).toBe(false);
     expect(tooBig.tier).toBe('incompatible');
+
+    const recs = recommendModelsForHardware(gpuHw, 5);
+    expect(recs).toHaveLength(5);
+    expect(recs.every((r) => r.compatibility.compatible)).toBe(true);
   });
 
   it('parses GGUF v3 binary header metadata and reads from disk', () => {
