@@ -23,7 +23,7 @@ export function printLocalHelp(): void {
       c.bold('pocli local — Local AI Model & llama.cpp Manager'),
       '',
       `  ${c.cyan('pocli local hardware')}                        ${c.dim('Inspect OS, CPU, RAM, GPU/VRAM, and acceleration backend')}`,
-      `  ${c.cyan('pocli local search <query> [--limit N]')}      ${c.dim('Search GGUF models on Hugging Face Hub')}`,
+      `  ${c.cyan('pocli local search [query] [--limit N]')}      ${c.dim('Search GGUF models on Hugging Face (top 20 if omitted)')}`,
       `  ${c.cyan('pocli local info <repo>')}                     ${c.dim('List GGUF files, sizes, and hardware fit for a repo')}`,
       `  ${c.cyan('pocli local pull <repo> [--quant Q4_K_M]')}    ${c.dim('Download GGUF model (resumable) and inspect metadata')}`,
       `  ${c.cyan('pocli local list')}                            ${c.dim('List locally installed GGUF models')}`,
@@ -69,14 +69,15 @@ export async function handleLocalCliCommand(args: string[]): Promise<number> {
     }
 
     if (action === 'search') {
-      const query = args[1];
-      if (!query) {
-        console.error('Usage: pocli local search <query> [--limit 10]');
-        return 1;
-      }
-      const limit = Number(getFlagValue(args, '--limit') ?? 10) || 10;
+      const rawQuery = args[1] && !args[1].startsWith('-') ? args[1] : '';
+      const query = rawQuery.toLowerCase() === 'all' ? '' : rawQuery;
+      const defaultLimit = query ? 10 : 20;
+      const limit = Number(getFlagValue(args, '--limit') ?? defaultLimit) || defaultLimit;
       const results = await searchHfGgufModels(query, limit);
-      console.log(c.bold(`\n=== Hugging Face GGUF Models matching "${query}" ===`));
+      const header = query
+        ? `\n=== Hugging Face GGUF Models matching "${query}" ===`
+        : `\n=== Top ${results.length} Most Popular GGUF Models on Hugging Face ===`;
+      console.log(c.bold(header));
       if (results.length === 0) {
         console.log('  (no results)');
         return 0;
