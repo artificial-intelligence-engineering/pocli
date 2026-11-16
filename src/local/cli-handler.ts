@@ -28,7 +28,7 @@ export function printLocalHelp(): void {
       `  ${c.cyan('pocli local hardware')}                        ${c.dim('Inspect OS, CPU, RAM, GPU/VRAM, and acceleration backend')}`,
       `  ${c.cyan('pocli local search [query] [--limit N]')}      ${c.dim('Search GGUF models on Hugging Face (top 20 if omitted)')}`,
       `  ${c.cyan('pocli local info <repo>')}                     ${c.dim('List GGUF files, sizes, and hardware fit for a repo')}`,
-      `  ${c.cyan('pocli local pull <repo> [--quant Q4_K_M]')}    ${c.dim('Download GGUF model (resumable) and inspect metadata')}`,
+      `  ${c.cyan('pocli local pull <repo> [quant]')}             ${c.dim('Download GGUF model (resumable) and inspect metadata')}`,
       `  ${c.cyan('pocli local list')}                            ${c.dim('List locally installed GGUF models')}`,
       `  ${c.cyan('pocli local remove <model-id>')}               ${c.dim('Stop if running and remove a local model')}`,
       `  ${c.cyan('pocli local engine [status|install]')}         ${c.dim('Check or install llama.cpp (llama-server) into ~/.pocli/app')}`,
@@ -83,7 +83,7 @@ export async function handleLocalCliCommand(args: string[]): Promise<number> {
           );
         }
         console.log(
-          `\n  ${c.dim(`Tip: pocli local pull ${recs[0].repoId} --quant ${recs[0].quant}`)}`,
+          `\n  ${c.dim(`Tip: pocli local pull ${recs[0].repoId} ${recs[0].quant}`)}`,
         );
       }
       console.log('');
@@ -154,7 +154,9 @@ export async function handleLocalCliCommand(args: string[]): Promise<number> {
         console.error('Usage: pocli local pull <owner/repo> [--quant Q4_K_M] [--file <name>]');
         return 1;
       }
-      const quant = getFlagValue(args, '--quant');
+      const quant =
+        getFlagValue(args, '--quant') ??
+        (args[2] && !args[2].startsWith('-') ? args[2] : undefined);
       const file = getFlagValue(args, '--file');
       let lastPct = -1;
       console.log(`Downloading GGUF model from ${c.cyan(repoId)}...`);
