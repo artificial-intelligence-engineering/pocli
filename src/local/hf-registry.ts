@@ -20,10 +20,13 @@ function hfHeaders(): Record<string, string> {
 }
 
 export async function searchHfGgufModels(
-  query: string,
-  limit = 12,
+  query = '',
+  limit = 20,
 ): Promise<HfModelSummary[]> {
-  const url = `${HF_API_BASE}/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=${Math.max(1, Math.min(50, limit))}`;
+  const trimmed = query.trim();
+  const clampedLimit = Math.max(1, Math.min(200, limit));
+  const searchParam = trimmed ? `search=${encodeURIComponent(trimmed)}&` : '';
+  const url = `${HF_API_BASE}/models?${searchParam}filter=gguf&sort=downloads&direction=-1&limit=${clampedLimit}`;
   const res = await fetch(url, { headers: hfHeaders() });
   if (!res.ok) {
     throw new Error(`Hugging Face search failed (${res.status} ${res.statusText})`);
