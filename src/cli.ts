@@ -59,21 +59,13 @@ function printCliHelp(): void {
   console.log(
     [
       c.cyanBold(`Product Owner CLI (pocli v${getCliVersion()}) — Available commands:`),
-      `  ${c.cyan('pocli')}                                ${c.dim('Launch fullscreen Ink Command Center TUI')}`,
-      `  ${c.cyan('pocli headless exec')} ${c.yellow('"<cmd>"')}        ${c.dim('Execute a slash command or agent prompt headlessly (--isolated, --role)')}`,
-      `  ${c.cyan('pocli headless e2e')} ${c.yellow('[--isolated]')}    ${c.dim('Run a full start-to-finish E2E lifecycle (ARQ -> DEV -> QA -> ARQ -> PO)')}`,
-      `  ${c.cyan('pocli headless tui-test')} ${c.yellow('[--isolated]')} ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
-      `  ${c.cyan('pocli auth')} ${c.yellow('[status|set|remove|path]')} ${c.dim('Manage LLM provider API keys ($HOME/.pocli/auth.json)')}`,
-      `  ${c.cyan('pocli models list')}                  ${c.dim('List all available LLM models in catalog')}`,
-      `  ${c.cyan('pocli models agents')}                ${c.dim('List active project agents and their configured models')}`,
-      `  ${c.cyan('pocli models')} ${c.yellow('<agent> <model>')}       ${c.dim('Assign an LLM model to a role (or all)')}`,
-      `  ${c.cyan('pocli models refresh')} ${c.yellow('[--force]')}     ${c.dim('Download latest models.json catalog from GitHub')}`,
-      `  ${c.cyan('pocli models status')}                ${c.dim('Show active models catalog source and sync metadata')}`,
-      `  ${c.cyan('pocli local')} ${c.yellow('<subcommand>')}           ${c.dim('Manage local GGUF models, hardware, and llama.cpp (--help)')}`,
-      `  ${c.cyan('pocli db')}                           ${c.dim('Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)')}`,
-      `  ${c.cyan('pocli db path')}                      ${c.dim('Print the active SQLite database file path')}`,
-      `  ${c.cyan('pocli db')} ${c.yellow('"<sql>"')} ${c.dim('[--format json]')}   ${c.dim('Execute a SQL query or dot-command (.tables, .stats)')}`,
-      `  ${c.cyan('pocli logs')} ${c.yellow('[-n 50|path|clear]')}      ${c.dim('Inspect or clear runtime diagnostic logs ($HOME/.pocli/logs/)')}`,
+      `  ${c.cyan('pocli')}                              ${c.dim('Launch fullscreen Ink Command Center TUI')}`,
+      `  ${c.cyan('pocli headless')} ${c.yellow('<subcommand>')}        ${c.dim('Run headless exec, E2E, or virtual-TTY tests (help)')}`,
+      `  ${c.cyan('pocli auth')} ${c.yellow('<subcommand>')}            ${c.dim('Manage LLM provider API keys ($HOME/.pocli/auth.json) (help)')}`,
+      `  ${c.cyan('pocli models')} ${c.yellow('<subcommand>')}          ${c.dim('Inspect, assign, or refresh LLM models (help)')}`,
+      `  ${c.cyan('pocli local')} ${c.yellow('<subcommand>')}           ${c.dim('Manage local GGUF models, hardware, and llama.cpp (help)')}`,
+      `  ${c.cyan('pocli db')} ${c.yellow('<subcommand>')}              ${c.dim('Inspect or query SQLite database ($HOME/.pocli/pocli.sqlite) (help)')}`,
+      `  ${c.cyan('pocli logs')} ${c.yellow('<subcommand>')}            ${c.dim('Inspect or clear runtime diagnostic logs ($HOME/.pocli/logs/) (help)')}`,
       `  ${c.cyan('pocli update')} ${c.yellow('[--force]')}             ${c.dim('Update pocli to the latest available release')}`,
       `  ${c.cyan('pocli uninstall')} ${c.yellow('[--purge] [--yes]')}  ${c.dim('Remove pocli binary and app installation')}`,
       `  ${c.cyan('pocli --version | --help')}           ${c.dim('Show version or this help message')}`,
@@ -127,6 +119,20 @@ async function main(): Promise<void> {
   //   - `pocli db "<sql-or-dot-cmd>" [--format table|json|tsv]` -> runs one-shot query
   if (subcommand === 'db') {
     const dbArgs = args.slice(1);
+    const dbFirst = dbArgs[0]?.toLowerCase();
+    if (dbFirst === 'help' || dbFirst === '--help' || dbFirst === '-h') {
+      console.log(
+        [
+          c.bold('pocli db — SQLite Database Inspector'),
+          '',
+          `  ${c.cyan('pocli db')}                         ${c.dim('Open interactive SQLite REPL ($HOME/.pocli/pocli.sqlite)')}`,
+          `  ${c.cyan('pocli db path')}                    ${c.dim('Print the active SQLite database file path')}`,
+          `  ${c.cyan('pocli db "<sql>" [--format json]')} ${c.dim('Execute a SQL query or dot-command (.tables, .stats)')}`,
+        ].join('\n'),
+      );
+      storage.close();
+      return;
+    }
     if (dbArgs[0] === 'path') {
       console.log(dbPath);
       storage.close();
@@ -185,6 +191,22 @@ async function main(): Promise<void> {
     const arg1 = args[1];
     const arg2 = args[2];
     const arg1Lower = arg1?.toLowerCase();
+
+    if (arg1Lower === 'help' || arg1Lower === '--help' || arg1Lower === '-h') {
+      console.log(
+        [
+          c.bold('pocli models — LLM Catalog & Agent Model Assignments'),
+          '',
+          `  ${c.cyan('pocli models list')}              ${c.dim('List all available LLM models in catalog')}`,
+          `  ${c.cyan('pocli models agents')}            ${c.dim('List active project agents and their configured models')}`,
+          `  ${c.cyan('pocli models <agent> <model>')}   ${c.dim('Assign an LLM model to a role (or all)')}`,
+          `  ${c.cyan('pocli models refresh [--force]')} ${c.dim('Download latest models.json catalog from GitHub')}`,
+          `  ${c.cyan('pocli models status')}            ${c.dim('Show active models catalog source and sync metadata')}`,
+        ].join('\n'),
+      );
+      storage.close();
+      return;
+    }
 
     if (arg1Lower === 'refresh' || arg1Lower === 'update') {
       const force = args.includes('--force') || args.includes('-f');
@@ -329,6 +351,20 @@ async function main(): Promise<void> {
   //   - `pocli logs clear` / `pocli logs -c` -> clears the log file
   if (subcommand === 'logs' || subcommand === 'log') {
     const logArgs = args.slice(1);
+    const logFirst = logArgs[0]?.toLowerCase();
+    if (logFirst === 'help' || logFirst === '--help' || logFirst === '-h') {
+      console.log(
+        [
+          c.bold('pocli logs — Runtime Diagnostic Logs'),
+          '',
+          `  ${c.cyan('pocli logs [-n 50]')}  ${c.dim('Print the last N lines of the runtime log')}`,
+          `  ${c.cyan('pocli logs path')}     ${c.dim('Print the active log file path')}`,
+          `  ${c.cyan('pocli logs clear')}    ${c.dim('Clear the runtime log file')}`,
+        ].join('\n'),
+      );
+      storage.close();
+      return;
+    }
     if (logArgs[0] === 'path') {
       console.log(Logger.getLogFilePath());
       storage.close();
@@ -375,6 +411,22 @@ async function main(): Promise<void> {
   if (subcommand === 'auth') {
     const authArgs = args.slice(1);
     const action = authArgs[0] ?? 'status';
+    const actionLower = action.toLowerCase();
+
+    if (actionLower === 'help' || actionLower === '--help' || actionLower === '-h') {
+      console.log(
+        [
+          c.bold('pocli auth — LLM Provider API Keys ($HOME/.pocli/auth.json)'),
+          '',
+          `  ${c.cyan('pocli auth status')}                  ${c.dim('Show configured providers')}`,
+          `  ${c.cyan('pocli auth set <provider> <key>')}    ${c.dim('Save API key for a provider')}`,
+          `  ${c.cyan('pocli auth remove <provider>')}       ${c.dim('Remove API key for a provider')}`,
+          `  ${c.cyan('pocli auth path')}                    ${c.dim('Print auth.json file path')}`,
+        ].join('\n'),
+      );
+      storage.close();
+      return;
+    }
 
     if (action === 'path') {
       console.log(AuthStorage.getAuthFilePath());
@@ -550,6 +602,24 @@ async function main(): Promise<void> {
   // Headless CLI commands (`pocli headless exec`, `pocli headless e2e`, `pocli headless tui-test`)
   if (subcommand === 'headless') {
     const headlessAction = args[1]?.toLowerCase();
+    if (
+      !headlessAction ||
+      headlessAction === 'help' ||
+      headlessAction === '--help' ||
+      headlessAction === '-h'
+    ) {
+      console.log(
+        [
+          c.bold('pocli headless — Non-Interactive & Automated Execution'),
+          '',
+          `  ${c.cyan('pocli headless exec "<cmd>"')}          ${c.dim('Execute a slash command or agent prompt (--isolated, --role)')}`,
+          `  ${c.cyan('pocli headless e2e [--isolated]')}      ${c.dim('Run a full start-to-finish E2E lifecycle (ARQ -> DEV -> QA -> ARQ -> PO)')}`,
+          `  ${c.cyan('pocli headless tui-test [--isolated]')} ${c.dim('Run a scripted virtual-TTY Ink TUI session without blocking stdin')}`,
+        ].join('\n'),
+      );
+      storage.close();
+      return;
+    }
     if (
       headlessAction !== 'exec' &&
       headlessAction !== 'run' &&
