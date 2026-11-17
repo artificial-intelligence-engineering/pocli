@@ -506,40 +506,6 @@ export function loadModelsCatalogFromJson(): ModelCatalogEntry[] {
       recommendedFor: 'Fast Code Generation via OpenRouter',
       defaultTemperature: 0.1,
     },
-    // Groq
-    {
-      provider: 'groq',
-      vendor: 'META',
-      providerLabel: 'Groq LPU',
-      modelId: 'llama-3.3-70b-versatile',
-      displayName: 'Llama 3.3 70B (Groq)',
-      isFree: false,
-      contextWindow: '128K',
-      recommendedFor: 'Ultra-Fast 300 tps Architecture',
-      defaultTemperature: 0.1,
-    },
-    {
-      provider: 'groq',
-      vendor: 'META',
-      providerLabel: 'Groq LPU',
-      modelId: 'llama-3.1-8b-instant',
-      displayName: 'Llama 3.1 8B Instant (Groq)',
-      isFree: false,
-      contextWindow: '128K',
-      recommendedFor: 'Instant Sub-Second Inquiries',
-      defaultTemperature: 0.2,
-    },
-    {
-      provider: 'groq',
-      vendor: 'MISTRAL',
-      providerLabel: 'Groq LPU',
-      modelId: 'mixtral-8x7b-32768',
-      displayName: 'Mixtral 8x7B (Groq)',
-      isFree: false,
-      contextWindow: '32K',
-      recommendedFor: 'MoE Fast Inference via Groq',
-      defaultTemperature: 0.2,
-    },
   ];
 }
 
@@ -626,7 +592,6 @@ export function resolveModelSpec(
           provLower === 'meta' ||
           provLower === 'opencode' ||
           provLower === 'openrouter' ||
-          provLower === 'groq' ||
           provLower === 'deterministic')
     ) {
       const provider: LlmProviderType =
@@ -1213,24 +1178,6 @@ export class LlmGateway {
       return this.callOpenAiCompatible(
         'https://openrouter.ai/api/v1/chat/completions',
         openrouterKey,
-        modelId,
-        temperature,
-        input,
-        onStreamToken,
-      );
-    }
-
-    if (provider === 'groq') {
-      const groqKey = AuthStorage.getApiKey('groq');
-      if (!groqKey) {
-        if (allowTestFallback) {
-          return this.runDeterministicSpecialist(input, onStreamToken);
-        }
-        throw new Error(I18N_DICTIONARY[lang].llmMissingApiKeyError('groq'));
-      }
-      return this.callOpenAiCompatible(
-        'https://api.groq.com/openai/v1/chat/completions',
-        groqKey,
         modelId,
         temperature,
         input,

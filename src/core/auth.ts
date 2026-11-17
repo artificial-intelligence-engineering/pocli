@@ -42,13 +42,6 @@ export const SUPPORTED_AUTH_PROVIDERS: ProviderAuthInfo[] = [
     helpUrl: 'https://aistudio.google.com/app/apikey',
   },
   {
-    id: 'groq',
-    name: 'Groq (Llama, Gemma)',
-    envVar: 'GROQ_API_KEY',
-    keyPrefix: 'gsk_',
-    helpUrl: 'https://console.groq.com/keys',
-  },
-  {
     id: 'openrouter',
     name: 'OpenRouter (Multi-model)',
     envVar: 'OPENROUTER_API_KEY',

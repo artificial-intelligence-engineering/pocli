@@ -2092,7 +2092,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
             { id: 'anthropic', label: 'ANTHROPIC' },
             { id: 'openai', label: 'OPENAI' },
             { id: 'gemini', label: 'GEMINI' },
-            { id: 'groq', label: 'GROQ' },
             { id: 'local', label: 'LOCAL' },
             { id: 'freellm', label: 'FREE/ZERO' },
           ];
@@ -2796,7 +2795,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
         'anthropic',
         'openai',
         'gemini',
-        'groq',
         'local',
         'freellm',
       ];
@@ -4834,7 +4832,6 @@ export const CommandCenterApp: React.FC<CommandCenterProps> = ({
       { id: 'anthropic', label: 'ANTHROPIC', isConfigured: Boolean(AuthStorage.getApiKey('anthropic')) },
       { id: 'openai', label: 'OPENAI', isConfigured: Boolean(AuthStorage.getApiKey('openai')) },
       { id: 'gemini', label: 'ANTIGRAVITY', isConfigured: Boolean(AuthStorage.getApiKey('gemini')) },
-      { id: 'groq', label: 'GROQ', isConfigured: Boolean(AuthStorage.getApiKey('groq')) },
       { id: 'local', label: 'LOCAL', isConfigured: true },
       { id: 'freellm', label: 'FREE/ZERO', isConfigured: true },
     ];
