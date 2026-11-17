@@ -401,7 +401,7 @@ export class LLMRouter {
           if (waitSec > 0 && waitSec <= 50) {
             if (onStreamChunk) {
               onStreamChunk(
-                `\n[PO CLI: Esperando ${waitSec}s para el siguiente turno gratuito... (Configura GROQ_API_KEY o GEMINI_API_KEY para respuestas inmediatas)]\n`,
+                `\n[PO CLI: Esperando ${waitSec}s para el siguiente turno gratuito... (Configura GEMINI_API_KEY para respuestas inmediatas)]\n`,
               );
             }
             await new Promise((resolve) => setTimeout(resolve, (waitSec + 1) * 1000));
@@ -498,26 +498,6 @@ export function buildDefaultFreeProviders(): ProviderConfig[] {
       speedScore: 0.85,
     },
   ];
-
-  const groqKey = AuthStorage.getApiKey('groq');
-  if (groqKey) {
-    providers.push({
-      id: 'groq-free',
-      name: 'Groq Free Tier',
-      endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-      apiKey: groqKey,
-      defaultModel: 'llama-3.3-70b-versatile',
-      supportedModels: [
-        'llama-3.3-70b-versatile',
-        'llama-3.1-8b-instant',
-        'gemma2-9b-it',
-        'mixtral-8x7b-32768',
-      ],
-      limits: { rpm: 30, rpd: 14400 },
-      intelligenceScore: 0.95,
-      speedScore: 0.99,
-    });
-  }
 
   const geminiKey = AuthStorage.getApiKey('gemini');
   if (geminiKey) {

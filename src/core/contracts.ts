@@ -342,7 +342,6 @@ export const LlmProviderTypeSchema = z.enum([
   'local',
   'opencode',
   'openrouter',
-  'groq',
   'freellm',
 ]);
 export type LlmProviderType = z.infer<typeof LlmProviderTypeSchema>;

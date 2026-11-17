@@ -17,7 +17,6 @@ describe('AuthStorage subsystem', () => {
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.GEMINI_API_KEY;
-    delete process.env.GROQ_API_KEY;
   });
 
   afterEach(() => {

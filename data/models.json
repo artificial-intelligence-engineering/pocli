@@ -74,7 +74,7 @@
     "isFree": false,
     "contextWindow": "200K",
     "recommendedFor": "Strict QA & Edge Cases",
-    "defaultTemperature": 0.0
+    "defaultTemperature": 0
   },
   {
     "provider": "freellm",
@@ -85,7 +85,7 @@
     "isFree": true,
     "contextWindow": "128K",
     "recommendedFor": "Strict QA & Fast Processing",
-    "defaultTemperature": 0.0
+    "defaultTemperature": 0
   },
   {
     "provider": "openai",
@@ -96,7 +96,7 @@
     "isFree": false,
     "contextWindow": "200K",
     "recommendedFor": "Formal Verification & ADRs",
-    "defaultTemperature": 0.0
+    "defaultTemperature": 0
   },
   {
     "provider": "gemini",
@@ -415,7 +415,7 @@
     "isFree": false,
     "contextWindow": "64K",
     "recommendedFor": "Deep Reasoning via OpenRouter",
-    "defaultTemperature": 0.0
+    "defaultTemperature": 0
   },
   {
     "provider": "openrouter",
@@ -427,39 +427,5 @@
     "contextWindow": "128K",
     "recommendedFor": "Fast Code Generation via OpenRouter",
     "defaultTemperature": 0.1
-  },
-  {
-    "provider": "groq",
-    "vendor": "META",
-    "providerLabel": "Groq LPU",
-    "modelId": "llama-3.3-70b-versatile",
-    "displayName": "Llama 3.3 70B (Groq)",
-    "isFree": false,
-    "contextWindow": "128K",
-    "recommendedFor": "Ultra-Fast 300 tps Architecture",
-    "defaultTemperature": 0.1
-  },
-  {
-    "provider": "groq",
-    "vendor": "META",
-    "providerLabel": "Groq LPU",
-    "modelId": "llama-3.1-8b-instant",
-    "displayName": "Llama 3.1 8B Instant (Groq)",
-    "isFree": false,
-    "contextWindow": "128K",
-    "recommendedFor": "Instant Sub-Second Inquiries",
-    "defaultTemperature": 0.2
-  },
-  {
-    "provider": "groq",
-    "vendor": "MISTRAL",
-    "providerLabel": "Groq LPU",
-    "modelId": "mixtral-8x7b-32768",
-    "displayName": "Mixtral 8x7B (Groq)",
-    "isFree": false,
-    "contextWindow": "32K",
-    "recommendedFor": "MoE Fast Inference via Groq",
-    "defaultTemperature": 0.2
   }
 ]
-

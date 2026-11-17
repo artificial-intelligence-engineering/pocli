@@ -364,11 +364,11 @@ describe('Local LLM Manager & llama.cpp Integration (Issue #119)', () => {
     });
 
     try {
-      const tabSteps = Array.from({ length: 7 }, () => ({
+      const tabSteps = Array.from({ length: 6 }, () => ({
         input: '\t',
         waitMs: 60,
       }));
-      // 1. Empty state: 7 Tabs from 'all' -> 'local'
+      // 1. Empty state: 6 Tabs from 'all' -> 'local'
       const emptyRes = await runVirtualTuiSession({
         orchestrator,
         initialProject: proj,
@@ -409,7 +409,7 @@ describe('Local LLM Manager & llama.cpp Integration (Issue #119)', () => {
         createdAt: new Date().toISOString(),
       });
 
-      const tabSteps = Array.from({ length: 7 }, () => ({
+      const tabSteps = Array.from({ length: 6 }, () => ({
         input: '\t',
         waitMs: 60,
       }));

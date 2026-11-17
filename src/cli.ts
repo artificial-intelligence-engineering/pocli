@@ -439,7 +439,7 @@ async function main(): Promise<void> {
       const key = authArgs[2];
       if (!provider || !key) {
         console.error('Usage: pocli auth set <provider> <api-key>');
-        console.error('Supported providers: anthropic, openai, gemini, groq, openrouter, cerebras, opencode (zen)');
+        console.error('Supported providers: anthropic, openai, gemini, openrouter, cerebras, opencode (zen)');
         storage.close();
         process.exit(1);
       }
