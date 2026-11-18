@@ -182,7 +182,7 @@ write_launcher() {
 if [ -x "$POCLI_RUNTIME_DIR/bin/node" ]; then
   exec "$POCLI_RUNTIME_DIR/bin/node" "$POCLI_INSTALL_DIR/dist/cli.js" "\$@"
 fi
-exec node "$POCLI_INSTALL_DIR/dist/cli.js" "\$@"
+exec node --no-warnings "$POCLI_INSTALL_DIR/dist/cli.js" "\$@"
 EOF
   chmod 0755 "$launcher_path"
 }

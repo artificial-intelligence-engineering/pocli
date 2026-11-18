@@ -29,7 +29,7 @@ export function resolveWorkerNodeArgs(): { executable: string; args: string[]; r
   if (fs.existsSync(jsWorker)) {
     return {
       executable: process.execPath,
-      args: [jsWorker],
+      args: ['--no-warnings', jsWorker],
       rootDir,
     };
   }
@@ -38,14 +38,14 @@ export function resolveWorkerNodeArgs(): { executable: string; args: string[]; r
   if (fs.existsSync(tsxCli)) {
     return {
       executable: process.execPath,
-      args: [tsxCli, tsWorker],
+      args: ['--no-warnings', tsxCli, tsWorker],
       rootDir,
     };
   }
 
   return {
     executable: process.execPath,
-    args: ['--experimental-strip-types', tsWorker],
+    args: ['--no-warnings', '--experimental-strip-types', tsWorker],
     rootDir,
   };
 }
