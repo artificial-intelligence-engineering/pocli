@@ -52,7 +52,7 @@ function getCliVersion(): string {
       }
     }
   } catch {}
-  return '1.0.1';
+  return '1.1.0';
 }
 
 function printCliHelp(): void {
